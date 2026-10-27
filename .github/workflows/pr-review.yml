@@ -844,7 +844,9 @@ jobs:
       # whatever would otherwise prompt. The JSON result is kept for the
       # checks below: a run whose result is an error (a rejected model, an
       # API refusal, the turn limit) fails here, and its message is printed
-      # so the log says why. GitHub masks secrets in step output.
+      # so the log says why. GitHub masks secrets in step output. A run
+      # without its provider's key fails before the CLI starts, naming the
+      # missing secret.
       #
       # With KIT_REVIEW_PROVIDER=opencode-go the same CLI talks to OpenCode
       # Go's Anthropic Messages endpoint, as OpenCode's Claude Code setup
@@ -886,6 +888,11 @@ jobs:
             export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
             export ENABLE_TOOL_SEARCH=false
             unset ANTHROPIC_API_KEY
+          elif [ -z "$ANTHROPIC_API_KEY" ]; then
+            hint=""
+            [ -z "$OPENCODE_API_KEY" ] || hint="; to run on OPENCODE_API_KEY instead, set KIT_REVIEW_PROVIDER to opencode-go"
+            echo "::error::KIT_REVIEW_PROVIDER is anthropic (the default) but the ANTHROPIC_API_KEY secret is not set$hint"
+            exit 1
           fi
           unset OPENCODE_API_KEY
           status=0

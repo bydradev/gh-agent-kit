@@ -204,5 +204,22 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total
       assert.match(r.stdout, new RegExp(`${job.provider} is opencode-go but the OPENCODE_API_KEY secret is not set`));
       assert.equal(r.env, null);
     });
+
+    // An unset secret reaches the step as an empty value; the Go key does
+    // not stand in for it, and the error points to it only when it is set.
+    test(`${job.file}, ${name}: the Anthropic provider without its key fails before the CLI starts`, (t) => {
+      const missing = `${job.provider} is anthropic \\(the default\\) but the ANTHROPIC_API_KEY secret is not set`;
+      const withGo = run(t, "anthropic", { ANTHROPIC_API_KEY: "", OPENCODE_API_KEY: "ok" });
+      assert.equal(withGo.status, 1);
+      assert.match(
+        withGo.stdout,
+        new RegExp(`${missing}; to run on OPENCODE_API_KEY instead, set ${job.provider} to opencode-go$`, "m"),
+      );
+      assert.equal(withGo.env, null);
+      const neither = run(t, "anthropic", {});
+      assert.equal(neither.status, 1);
+      assert.match(neither.stdout, new RegExp(`${missing}$`, "m"));
+      assert.equal(neither.env, null);
+    });
   }
 }
