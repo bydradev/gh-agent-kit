@@ -148,7 +148,7 @@ nothing in the issue can.
 
    Number the criteria in the issue's order and keep its words, adding the
    operator's answer to a criterion an answer settled ("per the answer of
-   <date>"). An issue without an *Acceptance criteria* field (the Bug form)
+   `<date>`"). An issue without an *Acceptance criteria* field (the Bug form)
    gets its *What should happen* as one criterion, plus one that the steps
    to reproduce, when given, no longer show the fault; one with neither
    field takes them from its text, and with none there step 3 sends it to
