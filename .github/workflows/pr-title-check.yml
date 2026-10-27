@@ -1,4 +1,4 @@
-# gh-repo-bootstrapper: template-owned; template=pr-title-check.yml; sha256=c0fca8a7b00b224f17a7f95bdd60661fa75b525b58c4b4f287e19165b99395c0
+# gh-repo-bootstrapper: template-owned; template=pr-title-check.yml; sha256=e7b7e8b450bb76b9f34b1bff8a858dc21d88d4cb2498a209b6b31c0c6c566b66
 name: pr-title-check
 
 on:
@@ -22,9 +22,12 @@ jobs:
     # titles and bodies, and rapid events trip cancel-in-progress into
     # spurious failures; only a bot's PR from this repository counts, so a
     # human branch named release-please--* is still checked), and Dependabot
-    # PRs (its grouped-update subject is capitalised, so the lowercase-subject
-    # rule is deliberately limited to human-authored titles, and its body has
-    # no User-visible line).
+    # PRs (its body has no User-visible line, and its subject can be
+    # capitalised: Dependabot copies the case of the last Dependabot commit on
+    # the default branch, and without one it guesses from recent commit
+    # messages, where a `: ` before a capital letter anywhere, a trailer's
+    # included, counts as capitalised. Squash-merge the first Dependabot PR
+    # with a lowercase subject and later ones follow it).
     if: >-
       github.event.pull_request.merged == false &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
