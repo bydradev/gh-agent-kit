@@ -598,14 +598,6 @@ clone's commit (a full clone, or that commit fetched); from a shallow clone,
 or with a ref that is not an ancestor, nothing is removed and the installer
 says so. The lock is rewritten only when the ref or the path list changes.
 
-Before the repository was renamed to gh-agent-kit (2026-10-22)
-the lock was `.github/agent-kit.lock` and the licence copy
-`.github/agent-kit/LICENSE`: an update reads the old lock, writes the new one,
-removes the old one and, when the old lock lists it, the old licence copy
-(from a shallow clone too, since the new lock no longer names that path, but
-then only while it still holds the licence text); a target with both locks
-is refused until one is removed.
-
 The installer refuses to write through a symlink anywhere on a managed path,
 and replaces a file by writing a new one and renaming it over the old, so a
 hard link to the old file elsewhere keeps its content.
@@ -641,7 +633,7 @@ Closing the issue by hand while the release is still ahead only lasts until
 the next run, which opens a new one; unset `KIT_UPDATE_CHECK` instead.
 Without a lock (the kit's own repository, for one) the run notes that there
 is nothing to check and stops, and a kit with no release tag ends the run
-with a warning and no issue. A lock from before the rename is read too.
+with a warning and no issue.
 
 The check fetches the kit anonymously, so the lock's source must be a
 public repository; one the job cannot read ends the run with a warning and

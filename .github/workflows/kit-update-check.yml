@@ -203,7 +203,6 @@ jobs:
         id: check
         run: |
           lock=target/.github/gh-agent-kit.lock
-          [ -f "$lock" ] || lock=target/.github/agent-kit.lock
           if [ -L "$lock" ] || [ ! -f "$lock" ]; then
             echo "::notice::no .github/gh-agent-kit.lock in this repository; nothing to check"
             exit 0
