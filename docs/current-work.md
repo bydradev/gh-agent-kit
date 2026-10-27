@@ -55,8 +55,8 @@ wins (`docs/setup.md`, *The settings file*). Each workflow gained a
 `settings` job ahead of its main job. On 2026-10-27 this repository's
 three settings moved from variables into the file with the same values
 (`KIT_REVIEW_MODE: push`, `KIT_SECURITY_SCAN: open`,
-`KIT_ISSUE_TRIAGE: on`); the operator deletes those variables once the
-file is on `main`. Two target repositories moved the same way on
+`KIT_ISSUE_TRIAGE: on`), and the operator deleted the variables the same
+day. Two target repositories moved the same way on
 2026-10-27, with their variables deleted; the others add the file by hand
 when the kit is installed there (`docs/setup.md`, *The settings file*).
 Still to do: confirm on a real run that a switched-off workflow's run no
