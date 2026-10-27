@@ -8,38 +8,40 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
-### Public release (2026-10-26)
+### Public release (2026-10-26, public since 2026-10-27)
 
 The operator chose to publish the kit as a new public repository named
-`gh-agent-kit`, made from one squashed commit of this repository's tree
-after its last release, with the original repository renamed and kept
-private. The pull request, issue and version numbers these docs cited were
-the original repository's, so they were reworded before the squash
-(2026-10-27).
+`gh-agent-kit`, made from one squashed commit of the original repository's
+tree after its last release, with the original renamed and kept private.
+The pull request, issue and version numbers these docs cited were the
+original repository's, so they were reworded before the squash. This
+repository went public on 2026-10-27.
 
-The new repository numbers its releases afresh from 0.1.0 (the operator's
-choice, 2026-10-27). Its root commit sets Release Please's
-`initial-version` to `0.1.0` and leaves `.release-please-manifest.json`
-empty: with no earlier release to bump from, Release Please proposes the
-`initial-version` as the first release (release-please v17.6.0, the
-version release-please-action v5.0.0 depends on, `src/strategies/base.ts`,
-read 2026-10-27).
+It numbers its releases afresh from 0.1.0 (the operator's choice,
+2026-10-27). The root commit set Release Please's `initial-version` to
+`0.1.0` and left `.release-please-manifest.json` empty, so with no earlier
+release to bump from Release Please proposed 0.1.0 as the first release
+(release-please v17.6.0, the version release-please-action v5.0.0 depends
+on, `src/strategies/base.ts`, read 2026-10-27). v0.1.0 was released on
+2026-10-27. Release Please ignores `initial-version` once a release exists,
+so the setting can stay.
 
-Right after the new repository is made public, in the same sitting, the
-operator:
+Set when it went public, on 2026-10-27:
 
-- enables private vulnerability reporting, which GitHub offers to owners
-  and administrators of public repositories
-  ([Configuring private vulnerability reporting for a repository](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/configuring-private-vulnerability-reporting-for-a-repository),
-  read 2026-10-26) and which `SECURITY.md` names as the only reporting
-  channel;
-- runs gh-repo-bootstrapper's `bootstrap.py --configure-only` for it,
-  which compares and applies the Actions policy, fork pull request
-  approval for all outside contributors, Dependabot alerts, secret
-  scanning, push protection and CodeQL default setup, asking before each
-  change;
-- turns on Dependabot malware alerts by hand;
-- records the date here.
+- branch protection on `main`: the `validate-title`, `tests` and
+  `public-content` checks, conversation resolution, and admins included;
+- private vulnerability reporting, which `SECURITY.md` names as the only
+  reporting channel;
+- gh-repo-bootstrapper's `bootstrap.py --configure-only`: the Actions
+  policy, with fork pull request approval for all outside contributors,
+  secret scanning, push protection and CodeQL default setup (Dependabot
+  alerts were already on);
+- by hand, Dependabot malware alerts on, and the auto-triage preset that
+  dismisses low-impact alerts for development-scoped dependencies off.
+
+Still to do: a target repository installed from the original repository
+has a lock whose ref is outside this repository's history, so the operator
+reinstalls the kit in each one from a release of this repository.
 
 ### Settings in a repository file (2026-10-26)
 
