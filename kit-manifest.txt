@@ -1,0 +1,18 @@
+# Files install.sh copies into a target repository, one path per line,
+# at the same path in both trees. Lines starting with # are ignored; a line
+# starting with "seed " names a file copied only when the target lacks it.
+.github/workflows/pr-review.yml
+.github/workflows/security-scan.yml
+.github/workflows/issue-triage.yml
+.github/workflows/kit-update-check.yml
+.github/scripts/mcp-server.mjs
+.github/scripts/sync-labels.sh
+seed .github/security-review-instructions.md
+.github/ISSUE_TEMPLATE/bug.yml
+.github/ISSUE_TEMPLATE/task.yml
+.github/ISSUE_TEMPLATE/config.yml
+.agents/skills/github-pr-review/SKILL.md
+.agents/skills/github-security-scan/SKILL.md
+.agents/skills/github-issue-triage/SKILL.md
+.agents/skills/github-issue-e2e/SKILL.md
+.github/gh-agent-kit/LICENSE

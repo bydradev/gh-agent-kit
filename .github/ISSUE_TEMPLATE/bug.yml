@@ -1,0 +1,40 @@
+name: Bug
+description: Something behaves wrongly.
+labels: ["needs-triage", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issue?** Don't file it here. See the repository's security policy, under its **Security** tab, for how to report it privately.
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happens
+      description: The wrong behaviour, with the exact input, page or command.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Files, logs, runs, releases or earlier issues.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity you expect
+      description: P0 to P3, as defined in the review-guidelines skill. The bot may disagree.
+      options:
+        - P0
+        - P1
+        - P2
+        - P3

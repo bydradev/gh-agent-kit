@@ -1,0 +1,101 @@
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Secrets and local environment
+*.pem
+.env*
+# The documented template is intentionally committed.
+!.env.example
+
+# Logs
+*.log*
+
+# Node.js and package managers
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js, build output, and generated type metadata
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+# Local caches from application-owned deployment tooling.
+.vercel/
+.wrangler/
+
+# Test output and caches
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+e2e/.cache/
+.lighthouseci/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+venv/
+
+# Xcode and Swift
+xcuserdata/
+DerivedData/
+.xcschemes/
+.swiftpm/
+.build/
+*.xcresult/
+*.xcworkspace/contents.xcworkspacedata
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/xcshareddata/xcschemes/*
+!*.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+*.p12
+*.provisionprofile
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.dmg
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Local tooling state
+.omc/*
+!.omc/skills/
+.agents/*
+!.agents/skills/
+.opencode/*
+!.opencode/agents/
+.serena/cache/
+.serena/project.local.yml
+.claude/settings.local.json
+.claude/worktrees/
+
+# Agent worktrees belong outside the checkout; ignore any created inside it.
+.worktrees/
+
+# >>> gh-repo-bootstrapper managed block
+# --adopt keeps the lines up to the end marker in step with the template;
+# put the repository's own rules outside this block.
+# Agent browser sessions from the Playwright CLI and MCP server.
+.playwright-cli/
+.playwright-mcp/
+# <<< gh-repo-bootstrapper managed block

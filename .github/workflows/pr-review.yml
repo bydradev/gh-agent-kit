@@ -1,0 +1,1144 @@
+name: pr-review
+
+# Claude reviews pull requests on the API key in ANTHROPIC_API_KEY, following
+# the github-pr-review skill; Claude Code runs directly (see "Install Claude
+# Code" below). KIT_REVIEW_PROVIDER=opencode-go runs the same CLI on an
+# OpenCode Go model instead, on the key in OPENCODE_API_KEY (see "Run the
+# review"). KIT_REVIEW_MODE, a repository variable or a line of
+# .github/gh-agent-kit.yml (the settings job below), sets when: "open"
+# reviews once when a PR opens or leaves draft (a later push is reviewed
+# only while no report exists yet), "push" also re-reviews every push,
+# anything else (or unset) turns it off.
+
+on:
+  pull_request:
+    # "edited" runs only when the body's closing references changed (a
+    # Closes link added or replaced changes the requested outcome); a step
+    # below compares them and skips the rest otherwise.
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review again (for "open" mode)
+        required: true
+
+# An explicit bash shell runs every step with pipefail (GitHub's workflow
+# syntax docs: an unspecified shell is bash -e, bash adds -o pipefail), so a
+# failed gh call at the head of a pipeline fails the step instead of
+# producing an empty, green result.
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write # file_issue opens backlog issues for out-of-scope findings
+  checks: write # the verdict check run
+  statuses: read
+  actions: read # the skip steps list this workflow's earlier runs
+
+jobs:
+  # The settings the review job runs with. Its if: and timeout-minutes can
+  # read only repository variables and earlier jobs' outputs (GitHub's
+  # context availability table, read 2026-10-26), and a setting may come
+  # from .github/gh-agent-kit.yml instead of a variable (the kit's setup
+  # guide, https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md),
+  # so this job reads both, checks each value and passes them on.
+  settings:
+    name: pr-review settings
+    # A group of its own, with the review job's cancel rule: a newer run
+    # cancels an older one still reading its settings, so the older one's
+    # review job never starts after the newer one's and cancels it.
+    concurrency:
+      group: pr-review-settings-${{ github.event.pull_request.number || github.event.inputs.pr }}
+      cancel-in-progress: ${{ github.event.action != 'edited' }}
+    # The review job's filters, so an event it skips costs no runner
+    # either. Same-repository heads only: GitHub withholds secrets from fork runs.
+    # A same-repository branch belongs to a collaborator with write access,
+    # who can already run any workflow with the repository's secrets on
+    # their branch; that write-access boundary is the trust boundary here,
+    # and the pull_request trigger (which runs the head's workflow file)
+    # does not widen it.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !(startsWith(github.head_ref, 'release-please--') &&
+          github.event.pull_request.user.type == 'Bot') &&
+        (github.event.action != 'edited' || github.event.changes.body != null || github.event.changes.base != null || github.event.changes.title != null))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SETTINGS: >-
+        KIT_REVIEW_MODE
+        KIT_REVIEW_PROVIDER
+        KIT_REVIEW_MODEL
+        KIT_REVIEW_EFFORT
+        KIT_REVIEW_MAX_TURNS
+        KIT_REVIEW_TIMEOUT_MINUTES
+        KIT_REVIEW_MAX_FILES
+        KIT_REVIEW_MAX_LINES
+    outputs:
+      KIT_REVIEW_MODE: ${{ steps.pass.outputs.KIT_REVIEW_MODE }}
+      KIT_REVIEW_PROVIDER: ${{ steps.pass.outputs.KIT_REVIEW_PROVIDER }}
+      KIT_REVIEW_MODEL: ${{ steps.pass.outputs.KIT_REVIEW_MODEL }}
+      KIT_REVIEW_EFFORT: ${{ steps.pass.outputs.KIT_REVIEW_EFFORT }}
+      KIT_REVIEW_MAX_TURNS: ${{ steps.pass.outputs.KIT_REVIEW_MAX_TURNS }}
+      KIT_REVIEW_TIMEOUT_MINUTES: ${{ steps.pass.outputs.KIT_REVIEW_TIMEOUT_MINUTES }}
+      KIT_REVIEW_MAX_FILES: ${{ steps.pass.outputs.KIT_REVIEW_MAX_FILES }}
+      KIT_REVIEW_MAX_LINES: ${{ steps.pass.outputs.KIT_REVIEW_MAX_LINES }}
+    steps:
+      # Setting by setting, a repository variable wins over the file, so a
+      # variable still changes a setting at once, without a pull request.
+      # The same script in each of the kit's workflows.
+      - name: Read the settings file and variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VARS: ${{ toJSON(vars) }}
+        run: |
+          # Every setting the kit reads, in any of its workflows; the file may
+          # set any of them, and a name outside this list fails the run.
+          # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
+          known=(
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_MODEL KIT_REVIEW_EFFORT
+            KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES KIT_REVIEW_MAX_FILES
+            KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_MODEL
+            KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
+            KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
+            KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
+            KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
+            KIT_UPDATE_CHECK
+          )
+          file=.github/gh-agent-kit.yml
+          # The file on the default branch (the contents API's default ref),
+          # never a pull request's head: a pull request cannot change its own
+          # review or scan, and a change to the file applies once merged, as a
+          # variable's does. No file is no setting; any other failure to read
+          # it fails the run rather than running with the defaults.
+          err=$(mktemp)
+          if content=$(gh api "repos/$REPO/contents/$file" \
+            --jq 'if .type != "file" then error("not a file") elif .size > 16384 then error("larger than 16 KiB") else .content end' 2> "$err"); then
+            content=$(printf '%s' "$content" | base64 -d)
+            echo "read $file from the default branch"
+          elif grep -q 'HTTP 404' "$err"; then
+            content=""
+            echo "no $file on the default branch"
+          else
+            echo "::error::could not read $file from the default branch: $(head -c 300 "$err")"
+            exit 1
+          fi
+          # One "NAME: value" line per setting, a value being a word or a
+          # number, quoted or not; comments and blank lines are skipped.
+          # Anything else fails the run naming the line, and a line is never
+          # printed: one that is not a setting could hold a secret.
+          declare -A value=() at=()
+          word='[A-Za-z0-9._-]'
+          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          n=0
+          while IFS= read -r l || [ -n "$l" ]; do
+            n=$((n + 1))
+            l=${l%$'\r'}
+            if [[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] || { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }; then
+              continue
+            fi
+            if ! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]; then
+              echo "::error::$file line $n is not a NAME: value line"
+              exit 1
+            fi
+            name=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]}
+            if [[ " ${known[*]} " != *" $name "* ]]; then
+              case "$name" in
+                *KEY* | *TOKEN* | *SECRET* | *PASSWORD*)
+                  echo "::error::$file line $n names a secret; secrets go in the repository's Actions secrets, never in a committed file" ;;
+                KIT_*)
+                  echo "::error::$file line $n: $name is not a setting the kit reads (the kit's setup guide lists them)" ;;
+                *)
+                  echo "::error::$file line $n is not a kit setting" ;;
+              esac
+              exit 1
+            fi
+            if [ -n "${at[$name]:-}" ]; then
+              echo "::error::$file sets $name twice, on lines ${at[$name]} and $n"
+              exit 1
+            fi
+            if ! [[ "$rest" =~ $pair ]]; then
+              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              exit 1
+            fi
+            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            at[$name]=$n
+          done <<< "$content"
+          # Each setting this workflow reads: the repository variable when
+          # set, else the file's value, else unset (the kit's default). Every
+          # legitimate value is a word or a number, so anything else fails
+          # here, before it reaches GITHUB_ENV, where a line break would set
+          # another variable.
+          for name in $SETTINGS; do
+            v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
+            if [ -n "$v" ]; then
+              from="the repository variable"
+            elif [ -n "${value[$name]:-}" ]; then
+              v=${value[$name]}
+              from="$file line ${at[$name]}"
+            else
+              from="unset"
+            fi
+            if ! [[ "$v" =~ ^$word*$ ]]; then
+              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            echo "$name=$v" >> "$GITHUB_ENV"
+            echo "FROM_$name=$from" >> "$GITHUB_ENV"
+            echo "$name=${v:-(unset)} ($from)"
+          done
+      # Each setting the step above read, checked here and passed on with
+      # the kit's default when unset, only while the review is on; a value
+      # out of range fails the run, naming where it came from, rather than
+      # running with something else. The diff limits can
+      # only be lowered: past GitHub's, a run would read the change in part.
+      - name: Read the review settings
+        if: env.KIT_REVIEW_MODE == 'push' || env.KIT_REVIEW_MODE == 'open'
+        env:
+          PROVIDER: ${{ env.KIT_REVIEW_PROVIDER }}
+          MODEL: ${{ env.KIT_REVIEW_MODEL }}
+          EFFORT: ${{ env.KIT_REVIEW_EFFORT }}
+          MAX_TURNS: ${{ env.KIT_REVIEW_MAX_TURNS }}
+          TIMEOUT: ${{ env.KIT_REVIEW_TIMEOUT_MINUTES }}
+          MAX_FILES: ${{ env.KIT_REVIEW_MAX_FILES }}
+          MAX_LINES: ${{ env.KIT_REVIEW_MAX_LINES }}
+        run: |
+          # Where a setting's value came from, for the errors below.
+          from() { local v="FROM_$1"; printf '%s' "${!v:-unset}"; }
+          # A whole number from 1 to the maximum, or the default when unset.
+          number() {
+            local name=$1 value=$2 default=$3 max=$4
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^[1-9][0-9]*$ ]] || [ "${#value}" -gt 6 ] || [ "$value" -gt "$max" ]; then
+              echo "::error::the setting $name must be a whole number from 1 to $max, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          # A Claude model name, or the default when unset.
+          model() {
+            local name=$1 value=$2 default=$3
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]; then
+              echo "::error::the setting $name must be a Claude model name such as $default, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          # An OpenCode Go model id, or the default when unset. Claude Code
+          # speaks only the Anthropic Messages API, so the id must be one Go
+          # serves on its anthropic/v1/messages endpoint; another fails at
+          # the model step. Go's endpoint table is not the whole list: the
+          # default answered there on 2026-10-25 though the table names only
+          # the OpenAI-style endpoint for it (the kit's setup guide,
+          # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go).
+          # Go's -contributor models train on prompts, so they are refused.
+          go_model() {
+            local name=$1 value=$2 default=$3
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then
+              echo "::error::the setting $name must be an OpenCode Go model id such as $default, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            if [[ "$value" == *-contributor ]]; then
+              echo "::error::the setting $name names a Go Contributor model, which trains on prompts (opencode.ai/docs/go); choose another, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          case "$PROVIDER" in
+            ''|anthropic)
+              echo "KIT_REVIEW_PROVIDER=anthropic" >> "$GITHUB_ENV"
+              echo "KIT_REVIEW_PROVIDER=anthropic"
+              model KIT_REVIEW_MODEL "$MODEL" claude-opus-5-5 ;;
+            opencode-go)
+              echo "KIT_REVIEW_PROVIDER=opencode-go" >> "$GITHUB_ENV"
+              echo "KIT_REVIEW_PROVIDER=opencode-go"
+              go_model KIT_REVIEW_MODEL "$MODEL" deepseek-v4.1-flash ;;
+            *)
+              echo "::error::the setting KIT_REVIEW_PROVIDER must be anthropic, opencode-go or unset, not '$PROVIDER' ($(from KIT_REVIEW_PROVIDER))"
+              exit 1 ;;
+          esac
+          # An effort level the CLI takes, or none when unset: the run then
+          # passes no --effort and the CLI's default for the model applies.
+          # The CLI ignores an unknown level with a warning, so it fails here.
+          effort() {
+            local name=$1 value=$2
+            if [ -n "$value" ] && ! [[ "$value" =~ ^(low|medium|high|xhigh|max)$ ]]; then
+              echo "::error::the setting $name must be low, medium, high, xhigh or max, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=${value:-(unset, so the CLI default)}"
+          }
+          effort KIT_REVIEW_EFFORT "$EFFORT"
+          number KIT_REVIEW_MAX_TURNS "$MAX_TURNS" 80 500
+          # The review job's timeout-minutes; a value outside 1 to 360
+          # (GitHub-hosted jobs stop at 6 hours) fails here, before it starts.
+          number KIT_REVIEW_TIMEOUT_MINUTES "$TIMEOUT" 30 360
+          number KIT_REVIEW_MAX_FILES "$MAX_FILES" 300 300
+          number KIT_REVIEW_MAX_LINES "$MAX_LINES" 20000 20000
+      # The checked values, or the ones read when the workflow is off.
+      - name: Pass the settings on
+        id: pass
+        run: |
+          for name in $SETTINGS; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"
+          done
+
+  review:
+    # The check name on the pull request. The skip steps below look up
+    # this workflow's own runs by file name, then this job in each by this
+    # name, so another workflow's job may share it, but not the settings
+    # job.
+    name: pr-review
+    # Concurrency sits on the job, not the workflow: a run whose job is
+    # skipped (a push in "open" mode) then never cancels a review in flight.
+    # A body edit never cancels a review in flight: whether its closing
+    # references changed is only known inside the job, and a no-op edit
+    # that cancelled a real review would then skip itself and end green. It
+    # waits its turn instead; a later push cancels both.
+    concurrency:
+      group: pr-review-${{ github.event.pull_request.number || github.event.inputs.pr }}
+      cancel-in-progress: ${{ github.event.action != 'edited' }}
+    needs: settings
+    # Also when the settings job failed: the first steps then fail this
+    # job (see "Fail when the settings job failed").
+    if: ${{ !cancelled() && (needs.settings.result == 'failure' || needs.settings.outputs.KIT_REVIEW_MODE == 'push' || needs.settings.outputs.KIT_REVIEW_MODE == 'open') }}
+    runs-on: ubuntu-latest
+    # Checked by the settings job, which fails on a value outside 1 to 360.
+    timeout-minutes: ${{ fromJSON(needs.settings.outputs.KIT_REVIEW_TIMEOUT_MINUTES || '30') }}
+    env:
+      PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
+      KIT_REVIEW_MODE: ${{ needs.settings.outputs.KIT_REVIEW_MODE }}
+      KIT_REVIEW_PROVIDER: ${{ needs.settings.outputs.KIT_REVIEW_PROVIDER }}
+      KIT_REVIEW_MODEL: ${{ needs.settings.outputs.KIT_REVIEW_MODEL }}
+      KIT_REVIEW_EFFORT: ${{ needs.settings.outputs.KIT_REVIEW_EFFORT }}
+      KIT_REVIEW_MAX_TURNS: ${{ needs.settings.outputs.KIT_REVIEW_MAX_TURNS }}
+      KIT_REVIEW_TIMEOUT_MINUTES: ${{ needs.settings.outputs.KIT_REVIEW_TIMEOUT_MINUTES }}
+      KIT_REVIEW_MAX_FILES: ${{ needs.settings.outputs.KIT_REVIEW_MAX_FILES }}
+      KIT_REVIEW_MAX_LINES: ${{ needs.settings.outputs.KIT_REVIEW_MAX_LINES }}
+    steps:
+      # anthropics/claude-code-action refused a pull request event whose
+      # actor lacked write access, and any bot actor (docs/security.md at
+      # v1.0.256); this step keeps that gate. The event's actor (who
+      # opened, pushed, edited or reopened) and the pull request's author
+      # both need write access before the model reads text they wrote on
+      # the API key: a read-access collaborator can open a pull request
+      # between existing branches and edit its title and body. The
+      # permission field reports the base role, maintain as write and
+      # triage as read (docs.github.com, "Get repository permissions for a
+      # user", read 2026-10-21); a bot login has none and fails the call.
+      # A dispatch is gated by GitHub itself: dispatching needs write access.
+      # First, so a refused event costs no checkout or setup.
+      - name: Refuse a pull request event from an author or actor without write access
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          for login in "$AUTHOR" "$ACTOR"; do
+            permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission)
+            case "$permission" in
+              admin|write) echo "$login: $permission" ;;
+              *) echo "::error::$login has '$permission' access to $REPO, not write; not reviewed"; exit 1 ;;
+            esac
+          done
+      # A failed settings job (a value out of range, or a settings file
+      # that could not be read or has a line the kit does not read) leaves
+      # this job's settings unknown. Failing here, rather than skipping the
+      # job, lets the last steps record that this run did not complete, as
+      # a bad setting did when this job read it, so an earlier verdict does
+      # not stand for this event and the pr-review check fails.
+      - name: Fail when the settings job failed
+        if: needs.settings.result == 'failure'
+        run: |
+          echo "::error::the settings job failed (its log names the setting and where it came from); not reviewed"
+          exit 1
+      # The model reads the checkout only (its reads outside it and in .git
+      # are denied below), but the job token is still never persisted by
+      # git (checkout v6+ would store it in a file under RUNNER_TEMP and
+      # reference it from .git/config). The two fetches below pass it
+      # through the environment of that one command. On a pull request
+      # event the head commit is checked out, not the default merge ref:
+      # the diff the reviewer reads and the commit its inline comments are
+      # posted against (HEAD_SHA, the head) are then the same, so a base
+      # that moved since the branch forked cannot shift the line numbers.
+      # A dispatch checks out the head itself below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the pull request head (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$PR" in
+            ''|*[!0-9]*) echo "::error::pr must be a pull request number, got '$PR'"; exit 1 ;;
+          esac
+          if [ "$(gh pr view "$PR" --json isCrossRepository --jq .isCrossRepository)" = "true" ]; then
+            echo "::error::PR $PR comes from a fork; not reviewed with secrets"
+            exit 1
+          fi
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            git fetch --no-tags --no-recurse-submodules origin "pull/$PR/head"
+          git checkout --detach FETCH_HEAD
+          echo "BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      # Hooks or MCP servers the head adds would run with the API key, so
+      # remove them for every event (Claude Code also runs below with
+      # --restricted and --strict-mcp-config, which ignore project settings
+      # and every MCP server but the configured one); the skill is read
+      # from .agents.
+      - name: Remove executable Claude configuration from the checkout
+        # The list anthropics/claude-code-action restores from the base on
+        # pull request events (v1.0.256).
+        run: rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gitmodules .ripgreprc .husky
+      # The reviewer's own rules and the MCP server that serves its reads
+      # and its writes (inline findings and the one report) come from the
+      # base branch, never from the change under review: a pull request
+      # cannot rewrite the instructions that review it or the code that
+      # posts the findings and the verdict. A file the base does
+      # not have (a first adoption) keeps the head copy, as review-guidelines
+      # says, but an AGENTS.md the base lacks is removed. The CLI runs with
+      # --restricted below, which loads no project memory (with the pinned
+      # 2.1.306, neither a CLAUDE.md nor an AGENTS.md and their @imports
+      # reached the model; tested 2026-10-23); the skill has the reviewer
+      # read the base's rules itself. As a second guard, every CLAUDE.md and
+      # CLAUDE.local.md is removed, since a CLAUDE.md would otherwise load
+      # every file it imports from the checkout, which is the head. Paths
+      # travel NUL-delimited, so git quotes none. The server then runs from
+      # a root-owned copy outside the checkout, so nothing in the checkout
+      # is executed; a server path the head made a symlink (a first
+      # adoption, which keeps the head's copy) is refused, so root never
+      # copies a file it points to.
+      - name: Use the base branch's reviewer rules
+        env:
+          BASE: ${{ env.BASE || github.event.pull_request.base.ref || 'main' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            git fetch --no-tags --no-recurse-submodules origin "$BASE"
+          find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print0 \
+            | xargs -0 -r rm -rf --
+          # Every AGENTS.md the base has, at any depth: the reviewer reads
+          # more-local rules too, so a head may not add or change one.
+          {
+            printf '%s\0' .agents/skills/review-guidelines/SKILL.md \
+              .agents/skills/github-pr-review/SKILL.md \
+              .github/scripts/mcp-server.mjs
+            git ls-tree -r -z --name-only "origin/$BASE" | grep -zE '(^|/)AGENTS\.md$' || true
+          } | while IFS= read -r -d '' f; do
+            if git cat-file -e "origin/$BASE:$f" 2>/dev/null; then
+              # A parent the head made a symlink would take the removal and
+              # the checkout elsewhere: unlink it first (it is head content).
+              rest=$f; dir=""
+              while [ "${rest#*/}" != "$rest" ]; do
+                dir="${dir:+$dir/}${rest%%/*}"; rest=${rest#*/}
+                [ -L "$dir" ] && rm -f -- "$dir"
+              done
+              rm -rf -- "$f"
+              git checkout "origin/$BASE" -- "$f"
+            fi
+          done
+          git ls-files -z -- 'AGENTS.md' '*/AGENTS.md' | while IFS= read -r -d '' f; do
+            git cat-file -e "origin/$BASE:$f" 2>/dev/null || rm -f -- "$f"
+          done
+          for p in .github .github/scripts .github/scripts/mcp-server.mjs; do
+            if [ -L "$p" ]; then
+              echo "::error::$p is a symlink; the review server is not installed through one"
+              exit 1
+            fi
+          done
+          sudo install -d -o root -g root -m 0755 /opt/agent-kit
+          sudo install -o root -g root -m 0755 .github/scripts/mcp-server.mjs /opt/agent-kit/mcp-server.mjs
+      # The reviewer's Read follows a symlink the head commits, to a runner
+      # file outside the checkout (the runner's credentials), whose text a
+      # finding would then carry into a comment. A link that resolves inside
+      # the checkout is no guard: a directory link a few levels up, followed
+      # by "..", leaves it on disk while the path still reads as inside. So
+      # every symlink is removed; the reviewer reads the change to a link
+      # itself through the diff tools, which read git, not the checkout.
+      - name: Remove the checkout's symlinks
+        run: |
+          find . -path ./.git -prune -o -type l -print0 | while IFS= read -r -d '' link; do
+            rm -f -- "$link"
+            echo "removed a symlink: ${link//[$'\r\n']/ }"
+          done
+      # A body edit is reviewed only when the issues the body closes, the
+      # base branch and its commit, the title or the head differ from what
+      # the last report reviewed against (its "Closes reviewed", "Base
+      # reviewed", "Title reviewed" and "Head reviewed" lines); then a
+      # report is required like any other run. In mode "open" a later head
+      # is not a reason to run, as for a push: the other three lines are
+      # compared and the successful run looked up is the reported head's. The base commit matters
+      # because a base push raises no pull request event and may change
+      # the diff (it does when the merge base with the head moves): this
+      # is the first run after it that can notice, and it runs on any tip
+      # move, which is deliberate, since the reviewer then decides from
+      # the diff whether an addendum or a full round is due. The comparison is against the last
+      # report, not the edit's own before and after: an edited run waits
+      # behind a review in flight, and a later edit replaces it in the
+      # queue, so only the surviving run's view of the pull request counts,
+      # and a displaced base change surfaces through the base line. A
+      # base-branch or title change in this event always runs. The skip
+      # also needs an earlier run of this workflow on the head that
+      # succeeded: a skipped job reports success, so skipping would
+      # otherwise replace a failed review of this head with a green check.
+      # The title and body are read from the event file, not passed through
+      # step env, which the runner prints in the job log: a public
+      # repository's log would keep the body as it was before a later edit.
+      - name: Skip a body edit that changed no closing reference
+        if: github.event.action == 'edited' && github.event.changes.base == null && github.event.changes.title == null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          # This workflow's file name, so the lookup cannot match a job of
+          # the same name in another workflow of the repository.
+          WORKFLOW_FILE: ${{ github.workflow_ref }}
+          MODE: ${{ env.KIT_REVIEW_MODE }}
+        run: |
+          TITLE=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
+          BODY=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
+          # The issue numbers a closing keyword references, in the forms
+          # GitHub links: keyword, optional colon, then "#n", "owner/repo#n"
+          # or the issue URL.
+          refs() {
+            printf '%s' "$1" \
+              | grep -oiE "\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[[:space:]]+(([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/)[0-9]+" \
+              | sed -E 's#.*https://github\.com/([^/]+/[^/]+)/issues/([0-9]+)$#\1\#\2#; s#.*[[:space:]]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\#[0-9]+)$#\1#; s#.*[[:space:]]\#([0-9]+)$#\#\1#' \
+              | sed -E "s#^$repo_re\##\##I" | sort -u || true
+          }
+          # The repository name as a regex literal (a dot would match any
+          # character).
+          repo_re=$(printf '%s' "$REPO" | sed 's/[][\\.^$*+?(){}|#]/\\&/g')
+          # --paginate runs the filter once per page, in order, so the last
+          # line is the latest report's.
+          WORKFLOW_FILE=${WORKFLOW_FILE##*/.github/workflows/}; WORKFLOW_FILE=${WORKFLOW_FILE%%@*}
+          # The conclusion of the review job in this workflow's latest
+          # completed run on a head, other than this run, or "none". A run
+          # whose review job was skipped (the review was off, or the
+          # settings job failed) counts as none, as a skipped run does: with
+          # the settings job ahead of it, such a run concludes "success" or
+          # "failure", not "skipped".
+          review_conclusion() {
+            local ids id conclusion
+            ids=$(gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs?head_sha=$1&per_page=100" \
+              --jq "[.workflow_runs[] | select(.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_ID)] | sort_by(.updated_at) | reverse | .[].id") || return 1
+            for id in $ids; do
+              conclusion=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+                --jq '[.jobs[] | select(.name == "pr-review")] | first | .conclusion // "skipped"') || return 1
+              if [ "$conclusion" != skipped ]; then
+                echo "$conclusion"
+                return 0
+              fi
+            done
+            echo none
+          }
+          # The newest report alone (one base64 line per report, so a
+          # multi-line body cannot mix with another's): a report that lacks
+          # one of the four lines failed its run and must not borrow the
+          # line from an earlier report.
+          last=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## Review R"))) | .body | @base64' \
+            | tail -n 1 | base64 -d 2>/dev/null | { grep -E '^(Closes|Base|Title|Head) reviewed:' || true; })
+          reviewed=$(printf '%s\n' "$last" | grep '^Closes reviewed:' || true)
+          base_reviewed=$(printf '%s\n' "$last" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//' || true)
+          title_reviewed=$(printf '%s\n' "$last" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//' || true)
+          head_reviewed=$(printf '%s\n' "$last" | grep '^Head reviewed:' | sed 's/^Head reviewed:[[:space:]]*//' || true)
+          if [ -z "$reviewed" ] || [ -z "$base_reviewed" ] || [ -z "$title_reviewed" ] || [ -z "$head_reviewed" ]; then
+            echo "no earlier report records what it reviewed against; reviewing"
+          elif [ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]; then
+            echo "the head is $HEAD but the last report reviewed $head_reviewed (that review may have failed); reviewing"
+          elif [ "$base_reviewed" != "$BASE at $(git rev-parse "origin/$BASE")" ]; then
+            echo "the base is $BASE at $(git rev-parse "origin/$BASE") but the last report reviewed against $base_reviewed; reviewing"
+          elif [ "$title_reviewed" != "$TITLE" ]; then
+            echo "the title differs from the one the last report reviewed; reviewing"
+          elif [ "$(printf '%s' "$reviewed" | sed 's/^Closes reviewed:[[:space:]]*//' | tr ',' '\n' | tr -d ' ' | grep -v '^none$' | sed -E "s#^$repo_re\##\##I" | sort -u)" != "$(refs "$BODY")" ]; then
+            echo "the closing references differ from the ones the last report reviewed; reviewing"
+          else
+            # The latest completed run of this workflow on the reviewed
+            # head, other than this one (a dispatched run has the dispatch
+            # ref as its head, so it counts as none). In mode "open" a later head is not
+            # reviewed on a push, so an edit must not review it either: the
+            # last report's head is the one whose run has to have succeeded.
+            lookup=$HEAD
+            if [ "$head_reviewed" != "$HEAD" ]; then
+              lookup=$head_reviewed
+              echo "mode open: the head is $HEAD, reviewed up to $head_reviewed; a push is not reviewed, so neither is an edit of it"
+            fi
+            earlier=$(review_conclusion "$lookup")
+            if [ "$earlier" = "success" ]; then
+              echo "RUN=false" >> "$GITHUB_ENV"
+              echo "closing references, base and title unchanged since the last report, which a successful run posted on $lookup; nothing to review"
+            else
+              echo "the last report matches, but the latest completed review of $lookup concluded '$earlier'; reviewing"
+            fi
+          fi
+      # In mode "open" a push is reviewed only while the pull request has no
+      # successful review: the opening review may have failed (a report
+      # that does not describe the pull request fails its run), or a push
+      # during it made the server refuse to post, and a skipped job would
+      # leave the pull request green with no review at all. The check is
+      # the last report's reviewed head and the conclusion of this
+      # workflow's latest completed run on it (a dispatched run's workflow
+      # run has the dispatch ref's commit as its head, so it counts as
+      # none and the push is reviewed). The push cancels a review in flight (job
+      # concurrency), so the new head's run takes over from it.
+      - name: Skip a push in mode "open" once a review succeeded
+        if: github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # This workflow's file name, so the lookup cannot match a job of
+          # the same name in another workflow of the repository.
+          WORKFLOW_FILE: ${{ github.workflow_ref }}
+        run: |
+          WORKFLOW_FILE=${WORKFLOW_FILE##*/.github/workflows/}; WORKFLOW_FILE=${WORKFLOW_FILE%%@*}
+          # The conclusion of the review job in this workflow's latest
+          # completed run on a head, other than this run, or "none". A run
+          # whose review job was skipped (the review was off, or the
+          # settings job failed) counts as none, as a skipped run does: with
+          # the settings job ahead of it, such a run concludes "success" or
+          # "failure", not "skipped".
+          review_conclusion() {
+            local ids id conclusion
+            ids=$(gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs?head_sha=$1&per_page=100" \
+              --jq "[.workflow_runs[] | select(.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_ID)] | sort_by(.updated_at) | reverse | .[].id") || return 1
+            for id in $ids; do
+              conclusion=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+                --jq '[.jobs[] | select(.name == "pr-review")] | first | .conclusion // "skipped"') || return 1
+              if [ "$conclusion" != skipped ]; then
+                echo "$conclusion"
+                return 0
+              fi
+            done
+            echo none
+          }
+          # The newest report's own head line (one base64 line per report).
+          last_head=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## Review R"))) | .body | @base64' \
+            | tail -n 1 | base64 -d 2>/dev/null | { grep -E '^Head reviewed: [0-9a-f]{40}$' || true; } | head -n 1 | sed 's/^Head reviewed: //')
+          if [ -z "$last_head" ]; then
+            echo "mode open: no report, or the newest one names no head (its run failed); reviewing this head"
+            exit 0
+          fi
+          earlier=$(review_conclusion "$last_head")
+          if [ "$earlier" = "success" ]; then
+            echo "RUN=false" >> "$GITHUB_ENV"
+            echo "mode open: the review of $last_head succeeded; a push is not reviewed"
+          else
+            echo "mode open: the latest completed review of $last_head concluded '$earlier'; reviewing this head"
+          fi
+      # A pending verdict on the reviewed head as soon as the skip steps
+      # have decided to review, so a review of a head that already has a
+      # verdict (after a title, base or closing-reference edit, or on a
+      # dispatch) holds a required check until this run's verdict replaces
+      # it. The last steps complete this check run: with the verdict, or
+      # with action_required when any later step fails or the run is
+      # cancelled first. A failure before this step records action_required
+      # on the head too (the last step).
+      - name: Mark the verdict pending
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          head="${EVENT_HEAD:-$HEAD_SHA}"
+          run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          id=$(jq -n --arg name "pr-review verdict" --arg head "$head" --arg details "$run_url" \
+            '{name: $name, head_sha: $head, status: "in_progress", details_url: $details, output: {title: "Review in progress", summary: "The reviewer is reviewing this head; its verdict replaces this check when the run ends."}}' \
+            | gh api -X POST "repos/$REPO/check-runs" --input - --jq .id)
+          echo "VERDICT_CHECK_ID=$id" >> "$GITHUB_ENV"
+          echo "pending verdict check $id on $head"
+      # GitHub's pull request diff stops at 300 files or 20,000 lines
+      # (docs.github.com, Repository limits, read 2026-10-21), so a larger
+      # change would be reviewed in part and reported as complete; the
+      # settings above can lower both limits. The
+      # local diff is read from the checkout; its file count must match
+      # the pull request's, or the reviewer is not seeing the whole change.
+      # After the skip steps: a head that mode "open" does not review is
+      # not refused for its size either.
+      - name: Refuse pull requests beyond GitHub's diff limits
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ env.BASE || github.event.pull_request.base.ref || 'main' }}
+        run: |
+          read -r changed added deleted < <(gh pr view "$PR" --json changedFiles,additions,deletions \
+            --jq '"\(.changedFiles) \(.additions) \(.deletions)"')
+          lines=$((added + deleted))
+          if [ "$changed" -gt "$KIT_REVIEW_MAX_FILES" ] || [ "$lines" -gt "$KIT_REVIEW_MAX_LINES" ]; then
+            echo "::error::$changed files and $lines changed lines exceed what this repository reviews ($KIT_REVIEW_MAX_FILES files, $KIT_REVIEW_MAX_LINES lines; GitHub's diff stops at 300 and 20,000); split the pull request"
+            exit 1
+          fi
+          local_count=$(git diff -M --name-only "origin/$BASE...HEAD" | wc -l)
+          if [ "$local_count" -lt "$changed" ]; then
+            echo "::error::the checkout shows $local_count changed files but the pull request reports $changed; the review would be incomplete"
+            exit 1
+          fi
+      # Nothing after this needs git credentials in the checkout: the base
+      # is fetched, gh carries its own token, and the server's one fetch (a
+      # base commit an earlier report recorded, for range_diff) passes the
+      # token through git's environment as the fetches above do. Fail if
+      # the checkout references any.
+      - name: Verify the checkout holds no credentials
+        run: |
+          if git config --local --list | grep -qiE 'extraheader|includeif'; then
+            echo "::error::.git/config references credentials"
+            exit 1
+          fi
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
+      # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
+      # This is the step anthropics/claude-code-action runs on its
+      # allowed_non_write_users path (v1.0.256), including its Ubuntu 24.04
+      # AppArmor relaxation.
+      - name: Install subprocess isolation dependencies
+        if: env.RUN != 'false'
+        run: |
+          # The image ships apt sources the kit does not use, and one failing
+          # (a 403 from packages.microsoft.com on 2026-10-22) fails the
+          # update while the Ubuntu archive's lists still refresh. Retry once,
+          # then go on: the install below still fails the step when bubblewrap
+          # or socat cannot be installed.
+          sudo apt-get update -qq || sudo apt-get update -qq ||
+            echo "::warning::apt-get update failed; installing from the package lists it fetched"
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Record when the review started
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          # The newest comment before the review, a boundary for the report
+          # check's fallback (comment ids rise; timestamps have seconds).
+          last=$(gh api --paginate "repos/$REPO/issues/$PR/comments" --jq '.[].id' | sort -n | tail -n 1)
+          echo "LAST_COMMENT_ID=${last:-0}" >> "$GITHUB_ENV"
+      # The model's GitHub reads and its writes (inline findings and the
+      # one report) go through the MCP server in
+      # .github/scripts/mcp-server.mjs (restored from the base branch and
+      # installed root-owned above), which Claude Code starts from the
+      # --mcp-config below. The token is not in that configuration (which
+      # is on Claude Code's command line) but in a file the runner user
+      # alone can read, outside the checkout, which the server reads at
+      # startup into its own environment. The model itself gets no Bash,
+      # no file-writing tool and no network tool; its file reads stay
+      # inside the checkout (blockReadsOutsideWorkingDirectories) and out
+      # of .git; and its own process and subprocesses see empty GH_TOKEN
+      # and GITHUB_TOKEN.
+      - name: Write the model's settings and the MCP server's configuration
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # The head and base this run reviews: the event's on pull request
+          # events, the fetched ones on a dispatch. The server diffs against
+          # this base for the whole run and refuses to post once the pull
+          # request's head or base differs, so a push during the run (which
+          # cancels nothing in mode "open") or a retarget (whose edited run
+          # waits behind this one) can never be reported as reviewed.
+          head="${EVENT_HEAD:-$HEAD_SHA}"
+          case "$head" in
+            *[!0-9a-f]*|'') echo "::error::no head sha for this run"; exit 1 ;;
+          esac
+          base="${EVENT_BASE:-$BASE}"
+          [ -n "$base" ] || { echo "::error::no base branch for this run"; exit 1; }
+          cat > "$RUNNER_TEMP/claude-settings.json" <<EOF
+          {
+            "permissions": {
+              "blockReadsOutsideWorkingDirectories": true,
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+            },
+            "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
+          }
+          EOF
+          cat "$RUNNER_TEMP/claude-settings.json"
+          (umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-token")
+          mcp=$(jq -cn --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg pr "$PR" --arg ws "$GITHUB_WORKSPACE" --arg head "$head" --arg base "$base" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", "review"], env: {GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, PR: $pr, GITHUB_WORKSPACE: $ws, HEAD_SHA: $head, BASE: $base, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt}}}}')
+          echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
+          echo "REVIEW_ALLOWED=Read,Grep,Glob,mcp__agent-kit__inline_comment,mcp__agent-kit__pr,mcp__agent-kit__conversation,mcp__agent-kit__inline,mcp__agent-kit__reviews,mcp__agent-kit__checks,mcp__agent-kit__issue,mcp__agent-kit__issue_comments,mcp__agent-kit__comment_body,mcp__agent-kit__files,mcp__agent-kit__diff,mcp__agent-kit__show,mcp__agent-kit__log,mcp__agent-kit__range_diff,mcp__agent-kit__file_issue,mcp__agent-kit__post_report" >> "$GITHUB_ENV"
+          echo "REVIEW_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+      # Claude Code runs directly, not through anthropics/claude-code-action,
+      # so this workflow pins the exact CLI release and sets every flag the
+      # run gets (--restricted, --strict-mcp-config and the tool lists
+      # above, at the "Run the review" step). The pinned release binary
+      # comes from Anthropic's release bucket, the one the official
+      # installer (claude.ai/install.sh) downloads from, and is checked
+      # against the checksum in that release's manifest, whose signature
+      # was verified with Anthropic's published key
+      # (downloads.claude.ai/keys/claude-code.asc, fingerprint
+      # 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE) when the pin was
+      # set. Installed root-owned outside the checkout, like the server.
+      # Dependabot does not move this pin (it moved the action's). To move
+      # it, fetch downloads.claude.ai/claude-code-releases/<version>/manifest.json
+      # and manifest.json.sig, verify the signature with that key, copy the
+      # linux-x64 checksum, and change VERSION and SHA256 here, in
+      # security-scan.yml and in issue-triage.yml together, in one pull
+      # request.
+      - name: Install Claude Code
+        if: env.RUN != 'false'
+        env:
+          VERSION: 2.1.306
+          SHA256: 520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe
+        # The bucket rate-limits (HTTP 429) when several runs download at
+        # once, and an HTTP/2 stream can drop mid-transfer (curl exit 92),
+        # which curl does not count as transient. So every failure is
+        # retried, with curl's doubling backoff (1 s, 2 s, ... 128 s) for
+        # up to about 5 minutes; a lasting failure, such as a 404 for a bad
+        # pin, fails the step only then. The checksum below still decides.
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 300 \
+            -o "$RUNNER_TEMP/claude" \
+            "https://downloads.claude.ai/claude-code-releases/$VERSION/linux-x64/claude"
+          echo "$SHA256  $RUNNER_TEMP/claude" | sha256sum -c -
+          sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /opt/agent-kit/claude
+          rm -f -- "$RUNNER_TEMP/claude"
+          DISABLE_AUTOUPDATER=1 /opt/agent-kit/claude --version
+      # The model runs no shell command and no gh command of its own:
+      # every read and every write are MCP tools of the server above.
+      # --restricted drops the code-running tools and ignores the user,
+      # project and local settings files (the one passed with --settings
+      # still applies), --strict-mcp-config ignores every MCP server but
+      # the one on the command line, and --permission-prompts none denies
+      # whatever would otherwise prompt. The JSON result is kept for the
+      # checks below: a run whose result is an error (a rejected model, an
+      # API refusal, the turn limit) fails here, and its message is printed
+      # so the log says why. GitHub masks secrets in step output.
+      #
+      # With KIT_REVIEW_PROVIDER=opencode-go the same CLI talks to OpenCode
+      # Go's Anthropic Messages endpoint, as OpenCode's Claude Code setup
+      # says (opencode.ai/v2/docs/console/harnesses/claude-code, read
+      # 2026-10-23): the Go base URL, the key as ANTHROPIC_AUTH_TOKEN (a
+      # bearer token, not ANTHROPIC_API_KEY), and every model alias mapped
+      # to the review model, so background requests stay on it too. Go
+      # answers a request without a session id with HTTP 400
+      # MissingSessionID (its Anthropic endpoint, tried 2026-10-23) and
+      # recognises Claude Code's own (opencode.ai/docs/go, Validated
+      # clients). Experimental betas
+      # and MCP tool search are off: the page's fix for non-Claude models
+      # rejecting Claude-only request fields, and tool search sends
+      # defer_loading fields those models do not take (code.claude.com
+      # docs, "Tool search through an LLM gateway"). The scrub below also
+      # removes ANTHROPIC_AUTH_TOKEN from the server's environment.
+      - name: Run the review
+        if: env.RUN != 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Keep the key out of the processes Claude Code starts.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          DISABLE_AUTOUPDATER: "1"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          PROMPT: "Read .agents/skills/github-pr-review/SKILL.md and follow it to review ${{ github.repository }} pull request ${{ github.event.pull_request.number || github.event.inputs.pr }}; this run was started by the ${{ (github.event.action == 'edited' && github.event.changes.base != null && 'edited-base') || (github.event.action == 'edited' && github.event.changes.title != null && github.event.changes.body == null && 'edited-title') || github.event.action || 'dispatch' }} event."
+          RESULT: ${{ runner.temp }}/claude-result.json
+        run: |
+          if [ "$KIT_REVIEW_PROVIDER" = opencode-go ]; then
+            if [ -z "$OPENCODE_API_KEY" ]; then
+              echo "::error::KIT_REVIEW_PROVIDER is opencode-go but the OPENCODE_API_KEY secret is not set"
+              exit 1
+            fi
+            export ANTHROPIC_BASE_URL=https://opencode.ai/inference/go/anthropic
+            export ANTHROPIC_AUTH_TOKEN="$OPENCODE_API_KEY"
+            export ANTHROPIC_DEFAULT_OPUS_MODEL="$KIT_REVIEW_MODEL"
+            export ANTHROPIC_DEFAULT_SONNET_MODEL="$KIT_REVIEW_MODEL"
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL="$KIT_REVIEW_MODEL"
+            export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+            export ENABLE_TOOL_SEARCH=false
+            unset ANTHROPIC_API_KEY
+          fi
+          unset OPENCODE_API_KEY
+          status=0
+          effort=()
+          [ -z "$KIT_REVIEW_EFFORT" ] || effort=(--effort "$KIT_REVIEW_EFFORT")
+          /opt/agent-kit/claude -p "$PROMPT" \
+            --output-format json \
+            --model "$KIT_REVIEW_MODEL" \
+            "${effort[@]}" \
+            --max-turns "$KIT_REVIEW_MAX_TURNS" \
+            --restricted \
+            --strict-mcp-config \
+            --permission-prompts none \
+            --no-session-persistence \
+            --settings "$RUNNER_TEMP/claude-settings.json" \
+            --mcp-config "$MCP_CONFIG" \
+            --disallowedTools "$REVIEW_DENIED" \
+            --allowedTools "$REVIEW_ALLOWED" \
+            > "$RESULT" || status=$?
+          if [ ! -s "$RESULT" ]; then
+            echo "::error::Claude Code exited with status $status and no result"
+            exit 1
+          fi
+          # The result object (a stream would be an array; keep the last result).
+          result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          # Claude Code prices every model as Claude, so on Go its cost
+          # figure is not what Go charges; the token counts are, at the
+          # model's prices on opencode.ai/docs/go.
+          cost=cost_usd
+          [ "$KIT_REVIEW_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
+          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
+          if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
+            echo "::error::Claude Code's run ended in error (exit status $status)"
+            exit 1
+          fi
+      - name: Remove the token file
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/gh-token"
+      # Claude Code succeeds when its turn ends, whether or not a report
+      # was posted; every run that reaches it owes a report or an
+      # addendum, both headed "## Review R" and posted by the Actions bot,
+      # and each carries one "Closes reviewed", "Base reviewed", "Title
+      # reviewed" and "Head reviewed" line, checked against the pull request,
+      # which the body-edit check above reads from the latest report.
+      - name: Fail when no review report was posted
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # --paginate runs the jq filter once per page, so count lines.
+          # This run's report carries the marker the server appends with
+          # this run's id and attempt (a re-run keeps the id): a timestamp
+          # would also match a report an older run of this pull request
+          # posted in the same second.
+          reports=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"<!-- pr-review run $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT -->\")) and (.body | contains(\"## Review R\"))) | .body")
+          # The server is restored from the base branch; one older than
+          # this workflow (a kit update under review in a target) writes
+          # no marker, so the report is then matched by the start time, as
+          # before the marker. Only then: with a server that does write it,
+          # a missing marker means this run posted nothing.
+          if [ -z "$reports" ] && ! grep -q 'GITHUB_RUN_ATTEMPT' /opt/agent-kit/mcp-server.mjs; then
+            # Only comments newer than the last one before the review (ids
+            # rise; a timestamp has seconds, which a run being cancelled can
+            # share), and, with a server that writes the id-only marker,
+            # only ones that carry this run's.
+            legacy=true
+            grep -q 'pr-review run' /opt/agent-kit/mcp-server.mjs && legacy="(.body | contains(\"<!-- pr-review run $GITHUB_RUN_ID -->\"))"
+            reports=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+              --jq ".[] | select(.id > $LAST_COMMENT_ID and .created_at >= \"$STARTED\" and .user.login == \"github-actions[bot]\" and (.body | contains(\"## Review R\")) and $legacy) | .body")
+            [ -z "$reports" ] || echo "::warning::the base branch's server predates the run marker; the report is matched by start time and comment id"
+          fi
+          if [ -z "$reports" ]; then
+            echo "::error::the reviewer posted no report on pull request $PR"
+            exit 1
+          fi
+          closes=$(printf '%s\n' "$reports" | grep -cE '^Closes reviewed: (none|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+)*)$' || true)
+          bases=$(printf '%s\n' "$reports" | grep -cE '^Base reviewed: [^[:space:]]+ at [0-9a-f]{40}$' || true)
+          titles=$(printf '%s\n' "$reports" | grep -cE '^Title reviewed: .+$' || true)
+          heads=$(printf '%s\n' "$reports" | grep -cE '^Head reviewed: [0-9a-f]{40}$' || true)
+          if [ "$closes" -ne 1 ] || [ "$bases" -ne 1 ] || [ "$titles" -ne 1 ] || [ "$heads" -ne 1 ]; then
+            echo "::error::the report must carry exactly one well-formed 'Closes reviewed:', 'Base reviewed:', 'Title reviewed:' and 'Head reviewed:' line (found $closes, $bases, $titles and $heads)"
+            exit 1
+          fi
+          # The lines must describe this pull request as it is now, not
+          # whatever the reviewer chose to write.
+          pr=$(gh api --method GET "repos/$REPO/pulls/$PR")
+          # The base commit is the one the server diffed against, which it
+          # compared with the pull request's base before posting: the same
+          # commit, or one whose merge base with the head is the same, so
+          # the reviewed diff is the pull request's diff (a base push raises
+          # no event, so this is where a review of a stale diff is caught).
+          want_base="$(jq -r .base.ref <<<"$pr") at $(jq -r .base.sha <<<"$pr")"
+          want_title=$(jq -r .title <<<"$pr"); want_head=$(jq -r .head.sha <<<"$pr")
+          base_now=$(jq -r .base.sha <<<"$pr")
+          got_base_sha=$(printf '%s\n' "$reports" | grep '^Base reviewed:' | sed -E 's/^Base reviewed: [^[:space:]]+ at //')
+          if [ "$got_base_sha" != "$base_now" ] && [ "$got_base_sha" != "" ]; then
+            mb_reviewed=$(gh api --method GET "repos/$REPO/compare/$got_base_sha...$want_head" --jq .merge_base_commit.sha 2>/dev/null || echo none)
+            mb_now=$(gh api --method GET "repos/$REPO/compare/$base_now...$want_head" --jq .merge_base_commit.sha 2>/dev/null || echo live)
+            if [ "$mb_reviewed" = "$mb_now" ]; then
+              want_base="$(jq -r .base.ref <<<"$pr") at $got_base_sha"
+            fi
+          fi
+          refs() {
+            printf '%s' "$1" \
+              | grep -oiE "\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[[:space:]]+(([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/)[0-9]+" \
+              | sed -E 's#.*https://github\.com/([^/]+/[^/]+)/issues/([0-9]+)$#\1\#\2#; s#.*[[:space:]]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\#[0-9]+)$#\1#; s#.*[[:space:]]\#([0-9]+)$#\#\1#' \
+              | sed -E "s#^$repo_re\##\##I" | sort -u || true
+          }
+          repo_re=$(printf '%s' "$REPO" | sed 's/[][\\.^$*+?(){}|#]/\\&/g')
+          want_closes=$(refs "$(jq -r '.body // ""' <<<"$pr")" | tr '\n' ' ')
+          got_closes=$(printf '%s\n' "$reports" | grep '^Closes reviewed:' | sed 's/^Closes reviewed:[[:space:]]*//' | tr ',' '\n' | tr -d ' ' | grep -v '^none$' | sed -E "s#^$repo_re\##\##I" | sort -u | tr '\n' ' ' || true)
+          got_base=$(printf '%s\n' "$reports" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//')
+          got_title=$(printf '%s\n' "$reports" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//')
+          got_head=$(printf '%s\n' "$reports" | grep '^Head reviewed:' | sed 's/^Head reviewed:[[:space:]]*//')
+          if [ "$got_closes" != "$want_closes" ] || [ "$got_base" != "$want_base" ] || [ "$got_title" != "$want_title" ] || [ "$got_head" != "$want_head" ]; then
+            echo "::error::the report's reviewed lines do not describe the pull request: closes [$got_closes] vs [$want_closes], base [$got_base] vs [$want_base], title [$got_title] vs [$want_title], head [$got_head] vs [$want_head]"
+            exit 1
+          fi
+      # The verdict, as a check run on the reviewed head, so branch
+      # protection can require it (a required check passes on success,
+      # neutral or skipped; docs.github.com, "About protected branches",
+      # read 2026-10-22). It runs only after the report check above passed,
+      # so the head it names is the pull request's head now. A round's
+      # heading names its verdict; an addendum's names the verdict that
+      # stands after it, or, from a base branch whose skill predates that,
+      # none, and the latest round's verdict stands. The job token can
+      # create check runs: it is the GitHub Actions app's installation token
+      # and checks: write allows it (docs.github.com, "GITHUB_TOKEN" and the
+      # workflow syntax's permissions table, read 2026-10-22).
+      - name: Record the verdict as a check run
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The head this run reviewed, as the MCP configuration step chose
+          # it: the report check above found the pull request still there.
+          head="${EVENT_HEAD:-$HEAD_SHA}"
+          verdicts='(Changes required|No blocking findings|Operator decision needed)'
+          bot_reports=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## Review R"))) | {id, html_url, body} | @base64')
+          # This run's report decides: a verdict in its heading stands; a
+          # bare "## Review R<n> addendum" heading (from a base branch whose
+          # skill predates verdicts in addenda) keeps the latest earlier
+          # verdict; any other heading states none, which is action_required,
+          # never an earlier round's verdict. A report's heading is its first
+          # line that starts "## Review R", so a verdict line quoted further
+          # down never counts. A server without the run marker leaves the
+          # latest report as this run's.
+          heading_of() { grep -m1 -E '^## Review R[0-9]+' <<<"$1" || true; }
+          stated() { grep -E "^## Review R[0-9]+( addendum)?: $verdicts\$" <<<"$1" || true; }
+          bare() { grep -qE '^## Review R[0-9]+ addendum$' <<<"$1"; }
+          url="" verdict="" round="" earlier="" earlier_round="" mine=""
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            c=$(printf '%s' "$line" | base64 -d)
+            body=$(jq -r .body <<<"$c" | tr -d '\r')
+            if grep -qF "<!-- pr-review run $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT -->" <<<"$body"; then
+              mine=$body
+              url=$(jq -r .html_url <<<"$c")
+              break
+            fi
+            # Comments come oldest first: the verdict the latest earlier
+            # report stated is the one a bare addendum keeps. A bare
+            # addendum passes it on; any other report without a verdict
+            # heading states none.
+            top=$(heading_of "$body")
+            if [ -n "$(stated "$top")" ]; then
+              earlier=$(sed -E "s/^## Review (R[0-9]+)( addendum)?: //" <<<"$top")
+              earlier_round=$(sed -E "s/^## Review (R[0-9]+).*/\1/" <<<"$top")
+            elif ! bare "$top"; then
+              earlier="" earlier_round=""
+            fi
+            mine=$body
+          done <<<"$bot_reports"
+          top=$(heading_of "$mine")
+          if [ -n "$(stated "$top")" ]; then
+            verdict=$(sed -E "s/^## Review (R[0-9]+)( addendum)?: //" <<<"$top")
+            round=$(sed -E "s/^## Review (R[0-9]+).*/\1/" <<<"$top")
+          elif bare "$top"; then
+            verdict=$earlier round=$earlier_round
+          fi
+          case "$verdict" in
+            "No blocking findings") conclusion=success ;;
+            "Changes required") conclusion=failure ;;
+            *) conclusion=action_required; verdict=${verdict:-Verdict not stated}; round=${round:-R?} ;;
+          esac
+          summary="The reviewer's verdict on \`$head\`: **$verdict** ($round). A verdict is not an approval; merging stays with the operator."
+          [ -z "$url" ] || summary="$summary See [the report]($url)."
+          jq -n --arg name "pr-review verdict" --arg conclusion "$conclusion" \
+            --arg details "${url:-$GITHUB_SERVER_URL/$REPO/pull/$PR}" --arg title "$round: $verdict" --arg summary "$summary" \
+            '{name: $name, status: "completed", conclusion: $conclusion, details_url: $details, output: {title: $title, summary: $summary}}' \
+            | gh api -X PATCH "repos/$REPO/check-runs/$VERDICT_CHECK_ID" --input - --jq '"recorded \(.name): \(.conclusion) on \(.head_sha)"'
+      # The pending verdict, completed when the run failed or was cancelled
+      # before the step above: no verdict, so a required check stays
+      # unsatisfied, with a link to the log.
+      - name: Close the pending verdict when the review did not finish
+        if: (failure() || cancelled()) && env.VERDICT_CHECK_ID != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          jq -n --arg details "$run_url" \
+            '{status: "completed", conclusion: "action_required", details_url: $details, output: {title: "No verdict: the review did not finish", summary: "The review run failed or was cancelled before it recorded a verdict; its log says why. Re-run it for a verdict on this head."}}' \
+            | gh api -X PATCH "repos/$REPO/check-runs/$VERDICT_CHECK_ID" --input - --jq '"recorded \(.name): \(.conclusion) on \(.head_sha)"'
+      # A run that failed before *Mark the verdict pending* (in the
+      # checkout, the base fetch or a skip step) would leave an earlier
+      # verdict on the head standing, though this run was to replace it:
+      # record the check without a verdict in its place. Not when the
+      # write-access check refused the event (no one allowed to ask for a
+      # review asked; checked again here, as a failed step does not say
+      # why it failed), not when a skip step had decided to review nothing,
+      # and not on a cancellation (a newer run of this pull request took
+      # over, or someone stopped this one).
+      - name: Record no verdict when the review failed before it was pending
+        if: failure() && env.VERDICT_CHECK_ID == '' && env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          head=$EVENT_HEAD
+          if [ -n "$head" ]; then
+            # The write-access check again: a refusal leaves the verdict, but
+            # a lookup that failed there (or fails here) does not. A bot
+            # login has no permission to look up, and was refused.
+            for login in "$AUTHOR" "$ACTOR"; do
+              case "$login" in
+                *'[bot]') echo "$login is a bot: the event was refused; the verdict stays as it was"; exit 0 ;;
+              esac
+              permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission 2>/dev/null) || continue
+              case "$permission" in
+                admin|write) ;;
+                *) echo "$login has '$permission' access, not write: the event was refused; the verdict stays as it was"; exit 0 ;;
+              esac
+            done
+          elif [ -n "${HEAD_SHA:-}" ]; then
+            # A dispatch that checked its head out: that head, even if a
+            # push has moved the pull request since.
+            head=$HEAD_SHA
+          else
+            # A dispatch that failed before: the head it was to check out,
+            # unless its pr input is malformed or names a fork's pull
+            # request (never reviewed).
+            case "$PR" in
+              ''|*[!0-9]*) echo "pr '$PR' is not a pull request number; nothing to record"; exit 0 ;;
+            esac
+            if ! pr=$(gh pr view "$PR" -R "$REPO" --json headRefOid,isCrossRepository); then
+              echo "::warning::pull request $PR could not be read; no verdict check recorded"
+              exit 0
+            fi
+            if [ "$(jq -r .isCrossRepository <<<"$pr")" != "false" ]; then
+              echo "pull request $PR comes from a fork; nothing to record"
+              exit 0
+            fi
+            head=$(jq -r .headRefOid <<<"$pr")
+          fi
+          run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          jq -n --arg name "pr-review verdict" --arg head "$head" --arg details "$run_url" \
+            '{name: $name, head_sha: $head, status: "completed", conclusion: "action_required", details_url: $details, output: {title: "No verdict: the review did not finish", summary: "The review run failed before it started reviewing this head; its log says why. Re-run it for a verdict on this head."}}' \
+            | gh api -X POST "repos/$REPO/check-runs" --input - --jq '"recorded \(.name): \(.conclusion) on \(.head_sha)"'

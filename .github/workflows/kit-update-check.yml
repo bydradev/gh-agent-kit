@@ -1,0 +1,315 @@
+name: kit-update-check
+
+# Weekly: is this repository's copy of gh-agent-kit behind the kit's latest
+# release? Reads .github/gh-agent-kit.lock, fetches the kit it names and
+# compares, file by file, the kit's files at the lock's ref with those at
+# the kit's latest release, its highest vX.Y.Z tag. Changes on the kit's
+# default branch that no release carries yet do not count, and a lock at or
+# past that release is current. No code from the kit runs here: the kit is
+# fetched as data (a bare clone, read with git), so this repository still
+# runs only what it has reviewed and committed. When the release has
+# changed a file this repository uses, added one, dropped one or moved one
+# between seed and managed, one issue labelled needs-operator says so
+# (opened once, then updated); when the copy is current again, that issue
+# is closed. Not needs-triage: triage skips issues a bot opened, so the
+# label would never clear. Updating stays a person's job: run install.sh
+# from a clone of the kit at that release and open a pull request. Local
+# edits to the kit's files are not this check's business; install.sh
+# --check shows them. It runs only when KIT_UPDATE_CHECK, a repository
+# variable or a line of .github/gh-agent-kit.yml (the settings job below),
+# is "on".
+#
+# The kit is fetched anonymously, as a public repository. A source the job
+# cannot read ends the run with a warning and no issue.
+
+on:
+  schedule:
+    - cron: "41 6 * * 1" # Monday 06:41 UTC
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: kit-update-check
+  cancel-in-progress: false
+
+jobs:
+  # The settings the check job runs with. Its if: and timeout-minutes can
+  # read only repository variables and earlier jobs' outputs (GitHub's
+  # context availability table, read 2026-10-26), and a setting may come
+  # from .github/gh-agent-kit.yml instead of a variable (the kit's setup
+  # guide, https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md),
+  # so this job reads both, checks each value and passes them on.
+  settings:
+    name: kit-update-check settings
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SETTINGS: >-
+        KIT_UPDATE_CHECK
+    outputs:
+      KIT_UPDATE_CHECK: ${{ steps.pass.outputs.KIT_UPDATE_CHECK }}
+    steps:
+      # Setting by setting, a repository variable wins over the file, so a
+      # variable still changes a setting at once, without a pull request.
+      # The same script in each of the kit's workflows.
+      - name: Read the settings file and variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VARS: ${{ toJSON(vars) }}
+        run: |
+          # Every setting the kit reads, in any of its workflows; the file may
+          # set any of them, and a name outside this list fails the run.
+          # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
+          known=(
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_MODEL KIT_REVIEW_EFFORT
+            KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES KIT_REVIEW_MAX_FILES
+            KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_MODEL
+            KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
+            KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
+            KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
+            KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
+            KIT_UPDATE_CHECK
+          )
+          file=.github/gh-agent-kit.yml
+          # The file on the default branch (the contents API's default ref),
+          # never a pull request's head: a pull request cannot change its own
+          # review or scan, and a change to the file applies once merged, as a
+          # variable's does. No file is no setting; any other failure to read
+          # it fails the run rather than running with the defaults.
+          err=$(mktemp)
+          if content=$(gh api "repos/$REPO/contents/$file" \
+            --jq 'if .type != "file" then error("not a file") elif .size > 16384 then error("larger than 16 KiB") else .content end' 2> "$err"); then
+            content=$(printf '%s' "$content" | base64 -d)
+            echo "read $file from the default branch"
+          elif grep -q 'HTTP 404' "$err"; then
+            content=""
+            echo "no $file on the default branch"
+          else
+            echo "::error::could not read $file from the default branch: $(head -c 300 "$err")"
+            exit 1
+          fi
+          # One "NAME: value" line per setting, a value being a word or a
+          # number, quoted or not; comments and blank lines are skipped.
+          # Anything else fails the run naming the line, and a line is never
+          # printed: one that is not a setting could hold a secret.
+          declare -A value=() at=()
+          word='[A-Za-z0-9._-]'
+          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          n=0
+          while IFS= read -r l || [ -n "$l" ]; do
+            n=$((n + 1))
+            l=${l%$'\r'}
+            if [[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] || { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }; then
+              continue
+            fi
+            if ! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]; then
+              echo "::error::$file line $n is not a NAME: value line"
+              exit 1
+            fi
+            name=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]}
+            if [[ " ${known[*]} " != *" $name "* ]]; then
+              case "$name" in
+                *KEY* | *TOKEN* | *SECRET* | *PASSWORD*)
+                  echo "::error::$file line $n names a secret; secrets go in the repository's Actions secrets, never in a committed file" ;;
+                KIT_*)
+                  echo "::error::$file line $n: $name is not a setting the kit reads (the kit's setup guide lists them)" ;;
+                *)
+                  echo "::error::$file line $n is not a kit setting" ;;
+              esac
+              exit 1
+            fi
+            if [ -n "${at[$name]:-}" ]; then
+              echo "::error::$file sets $name twice, on lines ${at[$name]} and $n"
+              exit 1
+            fi
+            if ! [[ "$rest" =~ $pair ]]; then
+              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              exit 1
+            fi
+            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            at[$name]=$n
+          done <<< "$content"
+          # Each setting this workflow reads: the repository variable when
+          # set, else the file's value, else unset (the kit's default). Every
+          # legitimate value is a word or a number, so anything else fails
+          # here, before it reaches GITHUB_ENV, where a line break would set
+          # another variable.
+          for name in $SETTINGS; do
+            v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
+            if [ -n "$v" ]; then
+              from="the repository variable"
+            elif [ -n "${value[$name]:-}" ]; then
+              v=${value[$name]}
+              from="$file line ${at[$name]}"
+            else
+              from="unset"
+            fi
+            if ! [[ "$v" =~ ^$word*$ ]]; then
+              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            echo "$name=$v" >> "$GITHUB_ENV"
+            echo "FROM_$name=$from" >> "$GITHUB_ENV"
+            echo "$name=${v:-(unset)} ($from)"
+          done
+      # The checked values, or the ones read when the workflow is off.
+      - name: Pass the settings on
+        id: pass
+        run: |
+          for name in $SETTINGS; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"
+          done
+
+  check:
+    needs: settings
+    if: needs.settings.outputs.KIT_UPDATE_CHECK == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The default branch, also when Run workflow starts from another
+      # branch: the notice speaks for the merged installation. github.ref
+      # is the fallback for a scheduled run, which always runs there.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch || github.ref }}
+          path: target
+          persist-credentials: false
+      # The kit as data: a bare clone has no working tree, runs no hooks
+      # and fetches no submodules, and the kit's files are read with git
+      # only.
+      - name: Compare the lock with the kit
+        id: check
+        run: |
+          lock=target/.github/gh-agent-kit.lock
+          [ -f "$lock" ] || lock=target/.github/agent-kit.lock
+          if [ -L "$lock" ] || [ ! -f "$lock" ]; then
+            echo "::notice::no .github/gh-agent-kit.lock in this repository; nothing to check"
+            exit 0
+          fi
+          source=$(jq -r '.source // ""' "$lock")
+          ref=$(jq -r '.ref // ""' "$lock")
+          if ! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::the lock's source '$source' is not github.com/<owner>/<repo>"
+            exit 1
+          fi
+          if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::the lock's ref '$ref' is not a full commit id"
+            exit 1
+          fi
+          if ! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2> clone-error; then
+            sed 's/^/  /' clone-error
+            echo "::warning::could not fetch https://$source; the update check reads only a public repository (https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#updates)"
+            exit 0
+          fi
+          kit() { git -C kit.git "$@"; }
+          # The latest release is the highest vX.Y.Z tag, the form Release
+          # Please gives the kit's releases; a pre-release (v1.2.0-rc.1) or
+          # any other tag is not one.
+          tag=$(kit for-each-ref --sort=-version:refname --format='%(refname:strip=2)' refs/tags/ \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          if [ -z "$tag" ]; then
+            echo "::warning::https://$source has no release (a vX.Y.Z tag) to compare with"
+            exit 0
+          fi
+          release=$(kit rev-parse "refs/tags/$tag^{commit}")
+          report="$RUNNER_TEMP/check.out"
+          : > "$report"
+          if [ "$ref" = "$release" ]; then
+            :
+          elif ! kit cat-file -e "$ref^{commit}" 2> /dev/null; then
+            echo "The lock's ref $ref is not in the kit's history, so the files cannot be compared; an install from the kit's latest release, $tag, replaces them all." >> "$report"
+          elif kit merge-base --is-ancestor "$release" "$ref"; then
+            # Installed from a commit at or past the latest release: going
+            # back to the release is not an update.
+            :
+          else
+            # The manifest at each commit, read as data; "seed" files are
+            # this repository's own once copied, so only a new one counts,
+            # and a dropped one stays (install.sh keeps it). A file that
+            # moved between seed and managed counts as updated: install.sh
+            # would now overwrite the repository's copy, or leave it alone.
+            manifest() { kit show "$1:kit-manifest.txt" 2> /dev/null | sed '/^#/d; /^$/d'; }
+            mapfile -t now < <(manifest "$release")
+            mapfile -t before < <(manifest "$ref")
+            mapfile -t was < <(jq -r '.paths[]?' "$lock")
+            mapfile -t seeds < <(jq -r '.seeds[]?' "$lock")
+            entry() { kit ls-tree "$1" -- "$2" | cut -f 1; }
+            has() { local x; for x in "${@:2}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+            for line in "${now[@]}"; do
+              p=${line#seed }
+              if ! has "$p" "${was[@]}"; then
+                echo "added      $p" >> "$report"
+              elif [ "$line" = "$p" ] && [ "$(entry "$ref" "$p")" != "$(entry "$release" "$p")" ]; then
+                echo "updated    $p" >> "$report"
+              else
+                was_seed=no now_seed=no
+                has "seed $p" "${before[@]}" && was_seed=yes
+                [ "$line" = "$p" ] || now_seed=yes
+                [ "$was_seed" = "$now_seed" ] || echo "updated    $p" >> "$report"
+              fi
+            done
+            for p in "${was[@]}"; do
+              if ! has "$p" "${now[@]#seed }" && ! has "$p" "${seeds[@]}"; then
+                echo "removed    $p" >> "$report"
+              fi
+            done
+          fi
+          cat "$report"
+          if [ -s "$report" ]; then state=behind; else state=current; fi
+          { echo "state=$state"; echo "ref=$release"; echo "tag=$tag"; echo "source=$source"; } >> "$GITHUB_OUTPUT"
+      # One open notice at a time, found by its marker among the job
+      # token's own issues (github-actions[bot]), so a look-alike opened by
+      # anyone else is never edited or closed. Issue events the job token
+      # causes start no workflow, so triage does not run on the notice.
+      - name: Open, update or close the notice
+        if: steps.check.outputs.state != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          STATE: ${{ steps.check.outputs.state }}
+          KIT_REF: ${{ steps.check.outputs.ref }}
+          KIT_TAG: ${{ steps.check.outputs.tag }}
+          KIT_SOURCE: ${{ steps.check.outputs.source }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- kit-update-check -->'
+          open=$(gh api --method GET "repos/$REPO/issues" -f state=open -f creator='github-actions[bot]' -f per_page=100 --paginate \
+            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\") | select(.body != null and (.body | startswith(\"$marker\"))) | .number")
+          open=${open%%$'\n'*}
+          if [ "$STATE" = current ]; then
+            if [ -n "$open" ]; then
+              gh api --method POST "repos/$REPO/issues/$open/comments" \
+                -f body="This repository's copy of the kit is current with $KIT_SOURCE $KIT_TAG (\`$KIT_REF\`) ([run]($RUN_URL)); closing." > /dev/null
+              gh api --method PATCH "repos/$REPO/issues/$open" -f state=closed -f state_reason=completed > /dev/null
+              echo "closed #$open"
+            fi
+            exit 0
+          fi
+          title="Update gh-agent-kit to $KIT_TAG"
+          what="Since the kit commit this repository's lock names, the kit's latest release, $KIT_TAG, has changed the files below."
+          out=$(head -n 200 "$RUNNER_TEMP/check.out" | sed 's/~~~/~ ~ ~/g')
+          body="$marker
+          $what Checked $(date -u +%Y-%m-%d) against $KIT_SOURCE $KIT_TAG (\`$KIT_REF\`) ([run]($RUN_URL)).
+
+          ~~~text
+          $out
+          ~~~
+
+          To update, from a clone of the kit with that release checked out (\`git checkout $KIT_TAG\`): \`./install.sh --check /path/to/this-repository\` shows what an install would do, including any local edits it would replace; \`./install.sh /path/to/this-repository\` does it. Commit the result on a branch and open a pull request. This issue is opened and updated by the \`kit-update-check\` workflow, and closed by it once the copy is current."
+          if [ -n "$open" ]; then
+            gh api --method PATCH "repos/$REPO/issues/$open" -f title="$title" -f body="$body" > /dev/null
+            echo "updated #$open"
+          else
+            gh api --method POST "repos/$REPO/issues" -f title="$title" -f body="$body" -f 'labels[]=needs-operator' --jq '"opened #\(.number)"'
+          fi

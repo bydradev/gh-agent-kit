@@ -1,0 +1,67 @@
+name: public-content
+
+# This repository is public: its pull requests' titles, bodies and commits,
+# every commit on main, and the lines they add to files must not carry the
+# private details AGENTS.md *Public repository content* rules out. The check runs after the text is on
+# GitHub, so it keeps a miss out of main rather than out of the pull request;
+# agents run the same script before they push or post. It is this
+# repository's own workflow: kit-manifest.txt does not list it or its script,
+# so no target gets them.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-content-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  public-content:
+    # Editing a merged pull request's body re-fires `edited`, but its squash
+    # commit is already on main, where the push run checked it.
+    if: github.event_name == 'push' || github.event.pull_request.merged == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The pull request's text is read from the event file, not passed
+      # through step env, which the runner prints in the job log; the
+      # script prints only where each finding is and its kind, never the
+      # text. PRIVATE_REPO_NAMES is empty for a fork's pull request, which
+      # GitHub does not give it; the script then says it skipped bare names.
+      - name: Check the pull request's title, body and commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
+          jq -j '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/body.md"
+          node .github/scripts/public-content.mjs \
+            --title="$title" --pr-body="$RUNNER_TEMP/body.md" --range="$BASE..$HEAD" --files="$BASE..$HEAD"
+      # A squash message is written at merge, after the pull request's last
+      # run, so each push to main is checked too. A finding here cannot be
+      # undone without rewriting history; it shows which merge to learn from.
+      - name: Check the pushed commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..$AFTER"
+          else
+            range="$AFTER^!"
+          fi
+          node .github/scripts/public-content.mjs --range="$range" --files="$range"

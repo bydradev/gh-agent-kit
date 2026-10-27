@@ -1,0 +1,43 @@
+name: Task
+description: "Work for an agent to pick up: a feature, chore or docs change."
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issue?** Don't file it here. See the repository's security policy, under its **Security** tab, for how to report it privately.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true when this is done, in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements. Each one is something a reviewer can verify.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Files, docs sections, PRs, issues or external sources the work starts from.
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this issue deliberately does not change.
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      options:
+        - S (one session)
+        - M (one PR, several sessions)
+        - L (needs a phased plan)

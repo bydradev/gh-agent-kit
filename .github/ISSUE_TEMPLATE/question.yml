@@ -1,0 +1,30 @@
+# This repository's own form, not part of the kit: kit-manifest.txt does not
+# list it, so install.sh never copies it into a target.
+name: Question
+description: Ask about using the kit when the README and docs/ don't answer it.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issue?** Don't file it here. See [SECURITY.md](https://github.com/bydradev/gh-agent-kit/blob/main/SECURITY.md).
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: checked
+    attributes:
+      label: What have you already checked?
+      description: The README, docs/setup.md, docs/labels.md, existing issues.
+    validations:
+      required: true
+  - type: textarea
+    id: stuck
+    attributes:
+      label: Where are you stuck?
+      description: What is unclear, or what happened that you did not expect. Leave out tokens, secrets and workflow logs that show them.
+    validations:
+      required: true

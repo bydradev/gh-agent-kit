@@ -1,0 +1,496 @@
+# gh-repo-bootstrapper: template-owned; template=pr-title-check.yml; sha256=c0fca8a7b00b224f17a7f95bdd60661fa75b525b58c4b4f287e19165b99395c0
+name: pr-title-check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: pr-title-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-title:
+    # Skip three classes of PR that cannot benefit from title or body
+    # validation: already-merged PRs (editing the body, e.g. ticking a
+    # task-list box, re-fires `edited`, but the squash subject is already in
+    # history and cannot change), Release Please PRs (machine-generated
+    # titles and bodies, and rapid events trip cancel-in-progress into
+    # spurious failures; only a bot's PR from this repository counts, so a
+    # human branch named release-please--* is still checked), and Dependabot
+    # PRs (its grouped-update subject is capitalised, so the lowercase-subject
+    # rule is deliberately limited to human-authored titles, and its body has
+    # no User-visible line).
+    if: >-
+      github.event.pull_request.merged == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !(startsWith(github.head_ref, 'release-please--') &&
+        github.event.pull_request.user.type == 'Bot' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            perf
+            test
+            build
+            ci
+            revert
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).*[^.\s]$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            didn't match the configured pattern. Please ensure that the subject
+            doesn't start with an uppercase character or end with a full stop or a space.
+
+      # Asking a yes/no question catches a mistyped title: the body says on
+      # a line of its own whether the change reaches users through a
+      # release, and the answer must agree with whether Release Please will
+      # release the squash commit. Body edits re-run this check. The script
+      # reads the pull request only from the event file, not from step env,
+      # which the runner prints in the job log, and prints none of its text
+      # but released types and the numbers of a Release-As version, so no
+      # line of it can act as a workflow command.
+      - name: Check the user-visible line
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          # Release Please releases when its changelog would have an entry:
+          # a commit whose type, in any case, is feat, feature, fix, perf or
+          # revert, a breaking change, or a Release-As footer. It reads the
+          # squash commit (the title, a blank line, the body) unless the body
+          # has a BEGIN_COMMIT_OVERRIDE block, which replaces it. Nested
+          # commit blocks, paragraphs that open with a lowercase standard
+          # type, and each trailing footer of a type, with its continuation
+          # lines, become commits of their own. A part with a line the parser
+          # throws on is dropped whole, and a Release-As version it cannot
+          # read stops it with an error. A <details> tag that the changelog
+          # keeps as HTML makes it throw when it reads back the release pull
+          # request.
+          # Mirrors release-please 17.6.0 (commit.js, base.js for the
+          # Release-As version, and changelog-notes/default.js and
+          # util/pull-request-body.js with node-html-parser 6.1.11, the
+          # version release-please-action v5.0.0 bundles, for the release pull
+          # request), its @conventional-commits/parser 0.4.1 and the
+          # conventionalcommits preset 6.1.0, checked 2026-10-19 (the
+          # node-html-parser version and its reading re-checked 2026-10-22).
+          RELEASED = {"feat", "feature", "fix", "perf", "revert"}
+          TYPES = "feat, fix, perf or revert"
+          SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")
+          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]+[)])?(!?)(?::| #)(.*)")
+          WORD = re.compile(r"\w*", re.ASCII)
+          # A footer is a token (a breaking-change marker, "!", or a type with
+          # an optional scope and "!"), then ":" or " #", then its value.
+          FOOTER = re.compile(r"(?:BREAKING[ -]CHANGE|!|(?!BREAKING[ -]CHANGE)([^()\s!:]+)(?:[(][^()]+[)])?(!?))(:| #)\s*(.*)")
+          MARKERS = ("BREAKING CHANGE", "BREAKING-CHANGE")
+          BREAKING = re.compile(r"BREAKING-CHANGE:\s*(.*)")
+          RELEASE_AS = re.compile(r"release-as:\s*\w*@?[0-9]+[.][0-9]+[.][0-9a-z]", re.IGNORECASE | re.ASCII)
+          VERSION = re.compile(r"[0-9]+[.][0-9]+[.][0-9]+")
+          ANSWER = re.compile(r"user-visible:\s*(.*?)\s*", re.IGNORECASE)
+          # The parser reads a line that starts with a word and "(" as a
+          # footer token with a scope, and throws when another parenthesis
+          # or the line's end comes before ")".
+          UNPARSABLE = re.compile(r"(?!BREAKING[ -]CHANGE)[^()\s!:]+[(][^()\n]*(?:[(]|$)")
+          # A header whose scope is empty or holds a parenthesis.
+          SCOPED = re.compile(r"([^()\s!:]+)[(].*[)](!?)(:| #)(.*)")
+          # The changelog keeps code spans in a subject, as its HTML escape
+          # skips them, and scopes and breaking-change notes as written.
+          SPAN = re.compile(r"``[^`].*[^`]``|`[^`]*`")
+          # A tag node-html-parser reads as an element when Release Please
+          # parses its release pull request's body.
+          DETAILS = re.compile(r"<details(?:[\s/>]|$)", re.IGNORECASE)
+          # A code fence's opening or closing line, at any indent, since a
+          # fence in a list item is indented as far as the item's text.
+          FENCE = re.compile(r" *(`{3,}|~{3,})(.*)")
+          # What GitHub's default squash commit can add after the body: a
+          # line of dashes, then the commits' Signed-off-by and
+          # Co-authored-by trailers (seen on most squashes with either on
+          # the bootstrapper's own main, 2026-10-21 to 2026-10-22, though
+          # not all). Release Please then reads the body's trailing
+          # footers as body text, so a release or a Release-As version
+          # that only one of them makes is lost, and a breaking-change
+          # token that gives no note as the body stands can give one.
+          CO_AUTHORS = "\n\n---------\n\nCo-authored-by: A <a@example.com>"
+
+
+          def squashed(body, fences):
+              # The body as the default squash commit holds it, and for each of
+              # its lines the body line it comes from, or that line's negative
+              # when GitHub rewrapped it. GitHub refills a body line
+              # longer than 72 characters into lines of at most 72: it splits
+              # the line at whitespace, drops its indent, and gives a word too
+              # long to fit a line of its own after the line so far, blank when
+              # nothing came before it. A long line in a code fence it leaves as
+              # written. Modelled on the squash commits of this repository's
+              # pull requests on 2026-10-22, which this reproduces whole. The
+              # one long fenced line there was also indented four spaces, so
+              # with fences false this reads the rule as one for indented lines.
+              # Trailing whitespace, which none of them had, adds no line.
+              lines, origin, fence = [], [], None
+              for number, line in enumerate(body.split("\n"), 1):
+                  mark = FENCE.match(line)
+                  if fences and fence:
+                      if mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+                          fence = None
+                  elif fences and mark:
+                      fence = mark[1]
+                  elif len(line) > 72 and (fences or not line.startswith("    ")):
+                      parts, kept = [], ""
+                      for word in re.split(r"\s+", line.rstrip()):
+                          if len(kept) + 1 + len(word) > 72:
+                              parts.append(kept)
+                              kept = word
+                          else:
+                              kept = f"{kept} {word}" if kept else word
+                      parts.append(kept)
+                      lines += [part.rstrip() for part in parts]
+                      origin += [-number] * len(parts)
+                      continue
+                  lines.append(line)
+                  origin.append(number)
+              return "\n".join(lines), origin
+
+
+          def messages(text):
+              # Each commit message, with its offset in the text, or -1 when
+              # a nested commit block splits it.
+              begin, end = "BEGIN_NESTED_COMMIT", "END_NESTED_COMMIT"
+              parts = text.split(begin)
+              first, pieces, nested, at = parts[0], [(0, 0)], [], len(parts[0]) + len(begin)
+              for part in parts[1:]:
+                  inner, *rest = part.split(end)
+                  nested.append((inner, at))
+                  pieces.append((len(first), at + len(inner) + len(end)))
+                  first += end.join(rest)
+                  at += len(part) + len(begin)
+              found, position = [], 0
+              for message in SPLIT.split(first):
+                  if message:
+                      start, offset = max(piece for piece in pieces if piece[0] <= position)
+                      stop = min((piece[0] for piece in pieces if piece[0] > position), default=len(first))
+                      found.append((message, offset + position - start if position + len(message) <= stop else -1))
+                  position += len(message) + 2
+              return found + nested
+
+
+          def parse(lines):
+              # The body and the trailing footers: the lines from the last
+              # that are all footers, their indented continuations, or blank,
+              # to the end; line 0 is the header. Each footer comes with the
+              # text Release Please keeps from it (its value, or the text of
+              # its last continuation line) and its continuation lines
+              # without their indent.
+              start = len(lines)
+              for index in range(len(lines) - 1, 0, -1):
+                  line = lines[index]
+                  if not line.strip() or line[0].isspace():
+                      continue
+                  if not FOOTER.fullmatch(line):
+                      break
+                  start = index
+              found = []
+              for line in lines[start:]:
+                  if line[:1].isspace():
+                      found[-1][1] = line.lstrip()
+                      found[-1][2].append(found[-1][1])
+                  elif footer := FOOTER.fullmatch(line):
+                      found.append([footer, footer[4], []])
+              body = lines[1:start]
+              while body and not body[0]:
+                  body.pop(0)
+              while body and not body[-1]:
+                  body.pop()
+              return body, found
+
+
+          def body_notes(body):
+              # A body line that opens with a breaking-change marker and a
+              # colon starts a note running to the body's end, and
+              # BREAKING-CHANGE: anywhere in the body's text adds one.
+              # Whether there is a note, the lines the changelog keeps of it
+              # (up to its first empty line), or None when the body has no
+              # marker, and the BREAKING-CHANGE: text.
+              text, note, start = [], False, None
+              for index, line in enumerate(body):
+                  if line.startswith(MARKERS):
+                      line = line[len(MARKERS[0]):]
+                      if line.startswith(":"):
+                          line = line[1:].lstrip()
+                          note = note or bool(line) or index < len(body) - 1
+                          start = index if start is None else start
+                  text.append(line)
+              kept = None
+              if start is not None:
+                  kept = text[start:]
+                  kept = kept[:kept.index("")] if "" in kept else kept
+              hyphen = BREAKING.search("\n".join(text))
+              return note, kept, hyphen[1] if hyphen else ""
+
+
+          def commit_releases(header, body, found, title, origin):
+              # "!" makes the subject a breaking-change note, and each footer
+              # marker's text replaces the note.
+              note, _, hyphen = body_notes(body)
+              note = note or bool(header[2] and header[3].strip())
+              for footer, text, _ in found:
+                  if footer[0].startswith(MARKERS):
+                      note = bool(text)
+              if title:
+                  if header[2]:
+                      return "the title marks a breaking change"
+                  if header[1].lower() in RELEASED:
+                      return f"the title type is {header[1].lower()}"
+              elif header[2] and (note or WORD.fullmatch(header[1])):
+                  # The preset adds a note for "!" when there is none, but
+                  # only for a type of word characters.
+                  return f"{origin} has a commit marked breaking"
+              elif header[1].lower() in RELEASED:
+                  return f"{origin} has a {header[1].lower()} entry"
+              if note or hyphen:
+                  return f"{origin} has a breaking-change note"
+              for footer, text, _ in found:
+                  if (footer[1] or "").lower() == "release-as" and RELEASE_AS.search(f"Release-As: {text}"):
+                      return f"{origin} has a Release-As footer"
+              return None
+
+
+          def details(header, body, found):
+              # Whether the text the changelog keeps as written (the scope,
+              # the subject's code spans and any breaking-change note) holds
+              # a <details> tag. Release Please then throws reading back the
+              # release pull request that lists the commit. The note is the
+              # subject for "!", replaced by the body's note and then by each
+              # footer marker's text, with the BREAKING-CHANGE: text added;
+              # with no note at all, the preset makes the subject one for
+              # "!".
+              note, kept, hyphen = body_notes(body)
+              subject = header[3] if header[2] else ""
+              if kept is None:
+                  note, kept = bool(subject.strip()), [subject]
+              for footer, value, _ in found:
+                  if footer[0].startswith(MARKERS):
+                      note, kept = bool(value), [value]
+              if not note and not hyphen and header[2] and WORD.fullmatch(header[1]):
+                  kept = [subject]
+              text = [header.string[header.end(1):header.start(2)], *kept, hyphen]
+              text += [span[0] for span in SPAN.finditer(header[3])]
+              return any(map(DETAILS.search, text))
+
+
+          def commits(header, lines, title, origin):
+              # The commits Release Please makes of a message, in its order:
+              # each trailing footer with a type is read again as a commit of
+              # its own, from the footer and its continuation lines, then the
+              # message itself. Each is why it releases, or None, the text of
+              # its first Release-As footer, or None, and whether its entry in
+              # the changelog holds a <details> tag.
+              body, found = parse(lines)
+              made = []
+              for footer, _, more in found:
+                  if footer[1]:
+                      again = [footer.string[:footer.start(3)] + (": " if footer[3] == ":" else "") + footer[4], *more]
+                      if (inner := HEADER.fullmatch(again[0])) and not any(map(UNPARSABLE.match, again[1:])):
+                          made += commits(inner, again, False, origin)
+              version = next((text for footer, text, _ in found if (footer[1] or "").lower() == "release-as"), None)
+              return made + [(commit_releases(header, body, found, title, origin), version, details(header, body, found))]
+
+
+          def line_of(source, place, text, offset, number):
+              # Which body line holds line `number` of a message, and that
+              # line's number, negative when GitHub rewrapped it, or 0.
+              if offset < 0:
+                  return "a line of the body", 0  # a nested commit block split this message
+              line = place(source.count("\n", 0, offset + len(text) - len(text.lstrip())) + number)
+              return f"line {abs(line)} of the body", line
+
+
+          def releases(title, body, fences, co_authors=False):
+              # Why Release Please releases the change, or None; the first
+              # problem that makes it drop a change or stop with an error;
+              # whether it cannot parse the title; and the Release-As version. It reads the override as the
+              # pull request body holds it, or else the squash commit, with
+              # GitHub's co-author block after the body when co_authors is set.
+              override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
+              override = override[0].split("END_COMMIT_OVERRIDE")[0].strip() if override else ""
+              origin = "the commit override" if override else "the body"
+              if override:
+                  shift = body[:body.find(override, body.find("BEGIN_COMMIT_OVERRIDE"))].count("\n")
+                  source, place = override, lambda line: line + shift + 1
+              else:
+                  squash, numbers = squashed(body, fences)
+                  if co_authors:
+                      squash += CO_AUTHORS
+                      numbers += [0] * CO_AUTHORS.count("\n")
+                  source, place = f"{title}\n\n{squash}", lambda line: numbers[line - 2]
+              found, problem, title_lost, version = None, None, False, None
+              for index, (text, offset) in enumerate(messages(source)):
+                  lines = text.strip().split("\n")
+                  header = HEADER.fullmatch(lines[0])
+                  if not header:
+                      title_lost = title_lost or (index == 0 and not override)
+                      # Release Please skips a message it cannot parse, so
+                      # an entry whose scope it rejects loses its change.
+                      scoped = SCOPED.fullmatch(lines[0])
+                      if scoped and (index or override) and problem is None:
+                          again = f"{scoped[1]}(scope){scoped[2]}{scoped[3]}{scoped[4]}"
+                          if any(why for why, _, _ in commits(HEADER.fullmatch(again), [again, *lines[1:]], False, origin)):
+                              problem = (
+                                  f"Release Please cannot parse {line_of(source, place, text, offset, 0)[0]}, so it "
+                                  "would drop a change from the changelog: an entry's scope needs text between "
+                                  "its parentheses and no other parenthesis inside them."
+                              )
+                      continue
+                  made = commits(header, lines, index == 0 and not override, origin)
+                  reason = next((why for why, _, _ in made if why), None)
+                  broken = next((number for number, line in enumerate(lines[1:], 1) if UNPARSABLE.match(line)), None)
+                  if broken is None:
+                      found = found or reason
+                      # Release Please reads the version in the first
+                      # Release-As footer before it writes the changelog, and
+                      # stops with an error when it cannot.
+                      if version is None:
+                          version = next((text for _, text, _ in made if text is not None), None)
+                          if version is not None and not VERSION.search(version) and problem is None:
+                              problem = (
+                                  "Release Please cannot read the version in the Release-As footer, so it would "
+                                  "stop with an error and open no release pull request. Write the version as "
+                                  "numbers on the footer's own line, such as Release-As: 1.2.0."
+                              )
+                      if any(why and html for why, _, html in made) and problem is None:
+                          problem = (
+                              "Release Please could not read back its release pull request once this change is "
+                              "in it, so it would stop with an error or misread the release: the changelog keeps "
+                              "a <details> tag as HTML in an entry's scope, in a code span of its subject, or in "
+                              "a breaking-change note, which is the subject itself when a ! marks the change and "
+                              "no note replaces it. Write the tag without its angle brackets."
+                          )
+                  elif reason and problem is None:
+                      where, line = line_of(source, place, text, offset, broken)
+                      # Blame the wrap only when the body line itself parses.
+                      wrapped = line < 0 and not UNPARSABLE.match(body.split("\n")[-line - 1])
+                      problem = (
+                          f"Release Please cannot parse {where}, so it would drop a change from the changelog: "
+                          "a line that starts with a word and an opening parenthesis, such as f(g(x)) or f(x, must "
+                          "close it before any other parenthesis. Indent that line or put a space before its first "
+                          "parenthesis."
+                      ) if not wrapped else (
+                          f"Release Please cannot parse {where} once GitHub wraps it at 72 characters for the "
+                          "squash commit, so it would drop a change from the changelog: the wrap starts a line "
+                          "with a word and an opening parenthesis, such as f(x, that the line does not close "
+                          "before it ends or opens another parenthesis. "
+                          "Break that line yourself into lines of at most 72 characters, which GitHub leaves as "
+                          "written, so that none starts that way."
+                      )
+              return found, problem, title_lost, version
+
+
+          def fail(message):
+              print(f"::error title=User-visible line::{message}")
+              sys.exit(1)
+
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event:
+              pull_request = json.load(event).get("pull_request") or {}
+          title = pull_request.get("title") or ""
+          body = (pull_request.get("body") or "").replace("\r\n", "\n").replace("\r", "\n")
+          answers = {m[1].lower() for m in map(ANSWER.fullmatch, body.split("\n")) if m}
+          how = (
+              "Add a line to the pull request body that reads exactly User-visible: yes when the "
+              f"change reaches users through a release ({TYPES}), or User-visible: no when it "
+              "does not (docs, chore, refactor, test, build or ci)."
+          )
+          # Whether GitHub leaves a long line alone for a code fence or for
+          # its indent, a release or a problem on either reading counts.
+          reason, problem, title_lost, version = releases(title.strip(), body, True)
+          other = releases(title.strip(), body, False)
+          reason, problem, version = reason or other[0], problem or other[1], version or other[3]
+          # The same readings after GitHub's default co-author block.
+          blocked = releases(title.strip(), body, True, True), releases(title.strip(), body, False, True)
+          kept = blocked[0][0] or blocked[1][0]
+          kept_version = blocked[0][3] or blocked[1][3]
+          if answers - {"yes", "no"}:
+              fail(f"A User-visible line must answer yes or no. {how}")
+          if answers == {"yes", "no"}:
+              fail("The body answers both User-visible: yes and User-visible: no. Keep one.")
+          if not answers:
+              fail(f"The body has no User-visible line. {how}")
+          if problem is not None:
+              fail(problem)
+          # The messages print only the version's numbers, none of the
+          # footer's other text.
+          shown = (VERSION.search(version) or [None])[0] if version is not None else None
+          moved = (VERSION.search(kept_version) or [None])[0] if kept_version is not None else None
+          block = (
+              "GitHub's default squash commit can add a line of dashes and the commits' "
+              "Signed-off-by and Co-authored-by trailers after the body, and Release Please then "
+              "reads the body's trailing footers as body text"
+          )
+          # A version only such a footer sets is lost or changed after the
+          # block; the override keeps it.
+          lost = version is not None and moved != shown
+          if reason and not kept:
+              fail(
+                  f"Release Please releases this change because {reason}, which it reads as a footer "
+                  f"only while it ends the squash commit. {block} and does not release the change. " + (
+                      "Put the whole commit message with its Release-As footer in a "
+                      "BEGIN_COMMIT_OVERRIDE block, which keeps its version."
+                  if lost else
+                      "Give the release to the title or to an extra entry that opens a paragraph, such "
+                      "as fix: subject, write a BREAKING CHANGE: note, or put the whole commit message "
+                      "with its footer in a BEGIN_COMMIT_OVERRIDE block."
+                  )
+              )
+          if reason and lost:
+              fail(
+                  f"Release Please releases this change as {shown or 'the Release-As version'} because "
+                  "of its Release-As footer, which it reads as a footer only while it ends the squash "
+                  f"commit. {block} and proposes another version. Put the whole commit message with "
+                  "its Release-As footer in a BEGIN_COMMIT_OVERRIDE block."
+              )
+          if kept and not reason:
+              fail(
+                  f"Release Please releases this change because {kept} only once GitHub's default "
+                  "squash commit adds a line of dashes and the commits' Signed-off-by and "
+                  "Co-authored-by trailers after the body, which changes how it reads the body's "
+                  "last lines. Reword or remove the text that makes the release, or put the whole "
+                  "commit message in a BEGIN_COMMIT_OVERRIDE block."
+              )
+          if answers == {"yes"} and not reason and title_lost:
+              fail(
+                  "The body says User-visible: yes, but Release Please cannot parse the title, so it "
+                  "will not release this change: a scope needs text between its parentheses and no "
+                  "other parenthesis inside them."
+              )
+          if answers == {"yes"} and not reason:
+              fail(
+                  "The body says User-visible: yes, but Release Please will not release this change: "
+                  f"neither the title nor the body has a {TYPES} type, a breaking change or a "
+                  "Release-As footer. If the change reaches users through a release, retitle it "
+                  f"{TYPES}; otherwise answer no."
+              )
+          if answers == {"no"} and reason:
+              fail(
+                  f"The body says User-visible: no, but Release Please will release this change "
+                  f"because {reason}. If the change does not reach users through a release, correct "
+                  "that; otherwise answer yes."
+              )
+          print(f"User-visible: {answers.pop()} agrees with the title and body.")
+          PY

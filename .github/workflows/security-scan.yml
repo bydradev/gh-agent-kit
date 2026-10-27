@@ -1,0 +1,1265 @@
+name: security-scan
+
+# Claude Code scans pull requests for security vulnerabilities on the API
+# key in ANTHROPIC_API_KEY (or, with KIT_SECURITY_PROVIDER=opencode-go, on an
+# OpenCode Go model and the key in OPENCODE_API_KEY, as pr-review.yml's
+# "Run the review" explains), following the github-security-scan skill: one
+# run of the pinned CLI (the review workflow's, see "Install Claude Code")
+# looks for vulnerabilities the change introduces, and a second run, in a
+# fresh session, checks each candidate against the code and keeps only the
+# ones it can trace. The model has no shell, no network and no GitHub
+# access; the workflow posts what it found. KIT_SECURITY_SCAN, a
+# repository variable or a line of .github/gh-agent-kit.yml (the settings
+# job below), sets when:
+# "open" scans once when a PR opens or leaves draft (a later push is scanned
+# only while no scan has completed, and an edit only when no scan was made
+# against the base branch's current commit), "push" scans every push,
+# anything else (or unset) turns it off. A completed scan leaves a record comment on the
+# pull request naming the head and the base commit it scanned and what it
+# found; a run that stops before a result says so in the same comment.
+
+on:
+  pull_request:
+    # "edited" rescans on a change of base branch (the diff changes without
+    # a new head); for any other edit the first step keeps a recorded scan
+    # in place (of this head in mode "push"; of any head against the base
+    # branch's current commit in mode "open") and rescans otherwise.
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+
+# An explicit bash shell runs every step with pipefail (GitHub's workflow
+# syntax docs: an unspecified shell is bash -e, bash adds -o pipefail), so a
+# failed gh call at the head of a pipeline fails the step instead of
+# producing an empty, green result.
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # The settings the security job runs with. Its if: and timeout-minutes can
+  # read only repository variables and earlier jobs' outputs (GitHub's
+  # context availability table, read 2026-10-26), and a setting may come
+  # from .github/gh-agent-kit.yml instead of a variable (the kit's setup
+  # guide, https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md),
+  # so this job reads both, checks each value and passes them on.
+  settings:
+    name: security-scan settings
+    # A group of its own, with the scan job's cancel rule: a newer run
+    # cancels an older one still reading its settings, so the older one's
+    # scan job never starts after the newer one's and cancels it.
+    concurrency:
+      group: security-scan-settings-${{ github.event.pull_request.number }}
+      cancel-in-progress: ${{ github.event.action != 'edited' }}
+    # The scan job's filters, so an event it skips costs no runner
+    # either. Same-repository heads only: GitHub withholds secrets from fork runs.
+    # A same-repository branch belongs to a collaborator with write access,
+    # who can already run any workflow with the repository's secrets on
+    # their branch, and the pull_request trigger (which runs the head's
+    # workflow file) does not widen that. Opening a pull request between
+    # existing branches, or editing one, needs only read access, so the
+    # author and the actor are checked by the first step below.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !(startsWith(github.head_ref, 'release-please--') &&
+        github.event.pull_request.user.type == 'Bot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SETTINGS: >-
+        KIT_SECURITY_SCAN
+        KIT_SECURITY_PROVIDER
+        KIT_SECURITY_MODEL
+        KIT_SECURITY_EFFORT
+        KIT_SECURITY_MAX_TURNS
+        KIT_SECURITY_TIMEOUT_MINUTES
+        KIT_SECURITY_MAX_FILES
+        KIT_SECURITY_MAX_LINES
+    outputs:
+      KIT_SECURITY_SCAN: ${{ steps.pass.outputs.KIT_SECURITY_SCAN }}
+      KIT_SECURITY_PROVIDER: ${{ steps.pass.outputs.KIT_SECURITY_PROVIDER }}
+      KIT_SECURITY_MODEL: ${{ steps.pass.outputs.KIT_SECURITY_MODEL }}
+      KIT_SECURITY_EFFORT: ${{ steps.pass.outputs.KIT_SECURITY_EFFORT }}
+      KIT_SECURITY_MAX_TURNS: ${{ steps.pass.outputs.KIT_SECURITY_MAX_TURNS }}
+      KIT_SECURITY_TIMEOUT_MINUTES: ${{ steps.pass.outputs.KIT_SECURITY_TIMEOUT_MINUTES }}
+      KIT_SECURITY_MAX_FILES: ${{ steps.pass.outputs.KIT_SECURITY_MAX_FILES }}
+      KIT_SECURITY_MAX_LINES: ${{ steps.pass.outputs.KIT_SECURITY_MAX_LINES }}
+    steps:
+      # Setting by setting, a repository variable wins over the file, so a
+      # variable still changes a setting at once, without a pull request.
+      # The same script in each of the kit's workflows.
+      - name: Read the settings file and variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VARS: ${{ toJSON(vars) }}
+        run: |
+          # Every setting the kit reads, in any of its workflows; the file may
+          # set any of them, and a name outside this list fails the run.
+          # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
+          known=(
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_MODEL KIT_REVIEW_EFFORT
+            KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES KIT_REVIEW_MAX_FILES
+            KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_MODEL
+            KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
+            KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
+            KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
+            KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
+            KIT_UPDATE_CHECK
+          )
+          file=.github/gh-agent-kit.yml
+          # The file on the default branch (the contents API's default ref),
+          # never a pull request's head: a pull request cannot change its own
+          # review or scan, and a change to the file applies once merged, as a
+          # variable's does. No file is no setting; any other failure to read
+          # it fails the run rather than running with the defaults.
+          err=$(mktemp)
+          if content=$(gh api "repos/$REPO/contents/$file" \
+            --jq 'if .type != "file" then error("not a file") elif .size > 16384 then error("larger than 16 KiB") else .content end' 2> "$err"); then
+            content=$(printf '%s' "$content" | base64 -d)
+            echo "read $file from the default branch"
+          elif grep -q 'HTTP 404' "$err"; then
+            content=""
+            echo "no $file on the default branch"
+          else
+            echo "::error::could not read $file from the default branch: $(head -c 300 "$err")"
+            exit 1
+          fi
+          # One "NAME: value" line per setting, a value being a word or a
+          # number, quoted or not; comments and blank lines are skipped.
+          # Anything else fails the run naming the line, and a line is never
+          # printed: one that is not a setting could hold a secret.
+          declare -A value=() at=()
+          word='[A-Za-z0-9._-]'
+          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          n=0
+          while IFS= read -r l || [ -n "$l" ]; do
+            n=$((n + 1))
+            l=${l%$'\r'}
+            if [[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] || { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }; then
+              continue
+            fi
+            if ! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]; then
+              echo "::error::$file line $n is not a NAME: value line"
+              exit 1
+            fi
+            name=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]}
+            if [[ " ${known[*]} " != *" $name "* ]]; then
+              case "$name" in
+                *KEY* | *TOKEN* | *SECRET* | *PASSWORD*)
+                  echo "::error::$file line $n names a secret; secrets go in the repository's Actions secrets, never in a committed file" ;;
+                KIT_*)
+                  echo "::error::$file line $n: $name is not a setting the kit reads (the kit's setup guide lists them)" ;;
+                *)
+                  echo "::error::$file line $n is not a kit setting" ;;
+              esac
+              exit 1
+            fi
+            if [ -n "${at[$name]:-}" ]; then
+              echo "::error::$file sets $name twice, on lines ${at[$name]} and $n"
+              exit 1
+            fi
+            if ! [[ "$rest" =~ $pair ]]; then
+              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              exit 1
+            fi
+            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            at[$name]=$n
+          done <<< "$content"
+          # Each setting this workflow reads: the repository variable when
+          # set, else the file's value, else unset (the kit's default). Every
+          # legitimate value is a word or a number, so anything else fails
+          # here, before it reaches GITHUB_ENV, where a line break would set
+          # another variable.
+          for name in $SETTINGS; do
+            v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
+            if [ -n "$v" ]; then
+              from="the repository variable"
+            elif [ -n "${value[$name]:-}" ]; then
+              v=${value[$name]}
+              from="$file line ${at[$name]}"
+            else
+              from="unset"
+            fi
+            if ! [[ "$v" =~ ^$word*$ ]]; then
+              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            echo "$name=$v" >> "$GITHUB_ENV"
+            echo "FROM_$name=$from" >> "$GITHUB_ENV"
+            echo "$name=${v:-(unset)} ($from)"
+          done
+      # Each setting the step above read, checked here and passed on with
+      # the kit's default when unset, only while the scan is on; a value
+      # out of range fails the run, naming where it came from, rather than
+      # running with something else. The diff limits can
+      # only be lowered: past GitHub's, the scan job's file count cannot be
+      # checked against the pull request's.
+      - name: Read the scan settings
+        if: env.KIT_SECURITY_SCAN == 'push' || env.KIT_SECURITY_SCAN == 'open'
+        env:
+          PROVIDER: ${{ env.KIT_SECURITY_PROVIDER }}
+          MODEL: ${{ env.KIT_SECURITY_MODEL }}
+          EFFORT: ${{ env.KIT_SECURITY_EFFORT }}
+          MAX_TURNS: ${{ env.KIT_SECURITY_MAX_TURNS }}
+          TIMEOUT: ${{ env.KIT_SECURITY_TIMEOUT_MINUTES }}
+          MAX_FILES: ${{ env.KIT_SECURITY_MAX_FILES }}
+          MAX_LINES: ${{ env.KIT_SECURITY_MAX_LINES }}
+        run: |
+          # Where a setting's value came from, for the errors below.
+          from() { local v="FROM_$1"; printf '%s' "${!v:-unset}"; }
+          # A whole number from 1 to the maximum, or the default when unset.
+          number() {
+            local name=$1 value=$2 default=$3 max=$4
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^[1-9][0-9]*$ ]] || [ "${#value}" -gt 6 ] || [ "$value" -gt "$max" ]; then
+              echo "::error::the setting $name must be a whole number from 1 to $max, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          # A Claude model name, or the default when unset.
+          model() {
+            local name=$1 value=$2 default=$3
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]; then
+              echo "::error::the setting $name must be a Claude model name such as $default, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          # An OpenCode Go model id, or the default when unset, as in
+          # pr-review.yml: one Go serves on its Anthropic Messages endpoint,
+          # and never a -contributor model, which trains on prompts.
+          go_model() {
+            local name=$1 value=$2 default=$3
+            [ -n "$value" ] || value=$default
+            if ! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then
+              echo "::error::the setting $name must be an OpenCode Go model id such as $default, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            if [[ "$value" == *-contributor ]]; then
+              echo "::error::the setting $name names a Go Contributor model, which trains on prompts (opencode.ai/docs/go); choose another, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=$value"
+          }
+          # An effort level the CLI takes, or the default when unset; an empty
+          # default passes no --effort, so the CLI's default for the model
+          # applies. The CLI ignores an unknown level with a warning, so it
+          # fails here.
+          effort() {
+            local name=$1 value=$2 default=$3
+            [ -n "$value" ] || value=$default
+            if [ -n "$value" ] && ! [[ "$value" =~ ^(low|medium|high|xhigh|max)$ ]]; then
+              echo "::error::the setting $name must be low, medium, high, xhigh or max, not '$value' ($(from "$name"))"
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+            echo "$name=${value:-(unset, so the CLI default)}"
+          }
+          # The scan defaults to xhigh on the Anthropic API (a Claude model
+          # without xhigh runs at its highest level below it). On OpenCode Go
+          # it passes none: effort there is untested.
+          case "$PROVIDER" in
+            ''|anthropic)
+              echo "KIT_SECURITY_PROVIDER=anthropic" >> "$GITHUB_ENV"
+              echo "KIT_SECURITY_PROVIDER=anthropic"
+              model KIT_SECURITY_MODEL "$MODEL" claude-opus-5-5
+              effort KIT_SECURITY_EFFORT "$EFFORT" xhigh ;;
+            opencode-go)
+              echo "KIT_SECURITY_PROVIDER=opencode-go" >> "$GITHUB_ENV"
+              echo "KIT_SECURITY_PROVIDER=opencode-go"
+              go_model KIT_SECURITY_MODEL "$MODEL" deepseek-v4.1-flash
+              effort KIT_SECURITY_EFFORT "$EFFORT" "" ;;
+            *)
+              echo "::error::the setting KIT_SECURITY_PROVIDER must be anthropic, opencode-go or unset, not '$PROVIDER' ($(from KIT_SECURITY_PROVIDER))"
+              exit 1 ;;
+          esac
+          number KIT_SECURITY_MAX_TURNS "$MAX_TURNS" 80 500
+          # The scan job's timeout-minutes; a value outside 1 to 360
+          # (GitHub-hosted jobs stop at 6 hours) fails here, before it starts.
+          number KIT_SECURITY_TIMEOUT_MINUTES "$TIMEOUT" 30 360
+          number KIT_SECURITY_MAX_FILES "$MAX_FILES" 300 300
+          number KIT_SECURITY_MAX_LINES "$MAX_LINES" 20000 20000
+      # The checked values, or the ones read when the workflow is off.
+      - name: Pass the settings on
+        id: pass
+        run: |
+          for name in $SETTINGS; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"
+          done
+
+  security:
+    # A check name unique in this repository.
+    name: security-scan
+    # Job-level concurrency: a skipped run never cancels a scan in flight,
+    # and an edit waits behind one (its first step reads that scan's
+    # record) instead of cancelling it; a push cancels it and, in mode
+    # "open" with no completed scan yet, takes over from it.
+    concurrency:
+      group: security-scan-${{ github.event.pull_request.number }}
+      cancel-in-progress: ${{ github.event.action != 'edited' }}
+    needs: settings
+    # Also when the settings job failed: the first step then fails this
+    # job (see "Fail when the settings job failed").
+    if: ${{ !cancelled() && (needs.settings.result == 'failure' || needs.settings.outputs.KIT_SECURITY_SCAN == 'push' || needs.settings.outputs.KIT_SECURITY_SCAN == 'open') }}
+    runs-on: ubuntu-latest
+    # Checked by the settings job, which fails on a value outside 1 to 360.
+    timeout-minutes: ${{ fromJSON(needs.settings.outputs.KIT_SECURITY_TIMEOUT_MINUTES || '30') }}
+    env:
+      KIT_SECURITY_SCAN: ${{ needs.settings.outputs.KIT_SECURITY_SCAN }}
+      KIT_SECURITY_PROVIDER: ${{ needs.settings.outputs.KIT_SECURITY_PROVIDER }}
+      KIT_SECURITY_MODEL: ${{ needs.settings.outputs.KIT_SECURITY_MODEL }}
+      KIT_SECURITY_EFFORT: ${{ needs.settings.outputs.KIT_SECURITY_EFFORT }}
+      KIT_SECURITY_MAX_TURNS: ${{ needs.settings.outputs.KIT_SECURITY_MAX_TURNS }}
+      KIT_SECURITY_TIMEOUT_MINUTES: ${{ needs.settings.outputs.KIT_SECURITY_TIMEOUT_MINUTES }}
+      KIT_SECURITY_MAX_FILES: ${{ needs.settings.outputs.KIT_SECURITY_MAX_FILES }}
+      KIT_SECURITY_MAX_LINES: ${{ needs.settings.outputs.KIT_SECURITY_MAX_LINES }}
+    steps:
+      # A failed settings job (a value out of range, or a settings file
+      # that could not be read or has a line the kit does not read) leaves
+      # this job's settings unknown. Failing here, rather than skipping the
+      # job, lets the last steps record that this run did not complete, as
+      # a bad setting did when this job read it, so an earlier scan record does
+      # not stand for this event and the security-scan check fails.
+      - name: Fail when the settings job failed
+        if: needs.settings.result == 'failure'
+        run: |
+          echo "::error::the settings job failed (its log names the setting and where it came from); not scanned"
+          exit 1
+      # A completed scan leaves a record comment naming the head and the
+      # base commit it scanned; a run that failed adds only a notice, no
+      # record line, and a skipped job would report success in its place. So an edit
+      # other than a base change is skipped only when the record names this
+      # head and the base branch's current commit (a base push raises no
+      # pull request event, and the record's commit, not a date, says
+      # whether it moved), and a push in mode "open" only when a scan has
+      # completed at all; in mode "open" an edit is skipped when a record
+      # exists against the base branch's current commit, whatever head it
+      # names, since a later head is not a reason to run in that mode but
+      # a moved base still is. Otherwise the job scans.
+      - name: Skip an edit or a push that a recorded scan already covers
+        if: (github.event.action == 'edited' && github.event.changes.base == null) || (github.event.action == 'synchronize' && env.KIT_SECURITY_SCAN == 'open')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          ACTION: ${{ github.event.action }}
+          MODE: ${{ env.KIT_SECURITY_SCAN }}
+        run: |
+          # A re-run of a run that failed (here, say, on a GitHub API error)
+          # and left a notice skips when the record covers the event; the
+          # notice, which names this run, then comes down, since no later
+          # scan would replace it.
+          clear_notice() {
+            id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .id' | tail -n 1)
+            [ -n "$id" ] || return 0
+            body=$(gh api "repos/$REPO/issues/comments/$id" --jq .body | tr -d '\r')
+            grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body" || return 0
+            body=$(sed '/^<!-- scan-not-completed -->$/,/^<!-- \/scan-not-completed -->$/d' <<<"$body")
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --jq .html_url
+            echo "removed this run's not-completed notice: the record covers this event"
+          }
+          # The latest record (--paginate runs the filter per page, in order).
+          # Only a line that starts with the record's own words counts: the
+          # comment also quotes the scanner's findings and file names, which
+          # a pull request can steer, on lines that start otherwise.
+          record=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .body' \
+            | sed -n 's/^Security scan record: \(scanned head [0-9a-f]\{40\} against [^ ]* at [0-9a-f]\{40\}\) .*/\1/p' | tail -n 1)
+          if [ "$ACTION" = "synchronize" ]; then
+            if [ -n "$record" ]; then
+              echo "RUN=false" >> "$GITHUB_ENV"
+              echo "mode open: a scan has completed ($record); a push is not scanned"
+              clear_notice
+            else
+              echo "mode open: no scan has completed; scanning this head"
+            fi
+            exit 0
+          fi
+          # The branch name is in the path: each segment URL-encoded, the
+          # slashes kept (a name may hold a character the URL would cut it at).
+          base_now=$(gh api --method GET "repos/$REPO/git/ref/heads/$(jq -rn --arg b "$BASE" '$b | split("/") | map(@uri) | join("/")')" --jq .object.sha)
+          # In mode "open" a later head is not scanned on a push, so an edit
+          # must not scan it either: the record only has to be against the
+          # base branch's current commit. In mode "push" it has to cover
+          # this head too.
+          # Compared as literal text (a branch name may hold regex characters).
+          rec_head=${record#scanned head }; rec_head=${rec_head%% *}
+          rec_base=${record#* against }
+          covered=0
+          if [ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]; then
+            if [ "$MODE" = "open" ] || [ "$rec_head" = "$HEAD" ]; then covered=1; fi
+          fi
+          if [ "$covered" -eq 1 ]; then
+            echo "RUN=false" >> "$GITHUB_ENV"
+            echo "the edit changed no base branch and the recorded scan [$record] covers it in mode $MODE; nothing to scan"
+            clear_notice
+          else
+            echo "the recorded scan [$record] does not cover $HEAD against $BASE at $base_now in mode $MODE; scanning"
+          fi
+      # The same gate as pr-review.yml: the pull request's author
+      # and the event's actor both need write access before a scan of their
+      # change spends the API key. The permission
+      # field reports the base role, maintain as write and triage as read
+      # (docs.github.com, "Get repository permissions for a user", read
+      # 2026-10-21); a bot login has none and fails the call.
+      - name: Refuse a pull request event from an author or actor without write access
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          for login in "$AUTHOR" "$ACTOR"; do
+            permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission)
+            case "$permission" in
+              admin|write) echo "$login: $permission" ;;
+              *) echo "::error::$login has '$permission' access to $REPO, not write; not scanned"; exit 1 ;;
+            esac
+          done
+      # The scanner reads this checkout, so the job token is never
+      # persisted; the base fetch below passes it through the environment
+      # of that one command.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN != 'false'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Full history: the scan diffs against the base.
+          fetch-depth: 0
+          persist-credentials: false
+      # Hooks or MCP servers the head adds would run with the API key, so
+      # remove them (Claude Code also runs below with --restricted and
+      # --strict-mcp-config, which ignore project settings and every MCP
+      # server); the skill is read from .agents.
+      - name: Remove executable Claude configuration from the checkout
+        if: env.RUN != 'false'
+        # The list anthropics/claude-code-action restores from the base on
+        # pull request events (v1.0.256).
+        run: rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gitmodules .ripgreprc .husky
+      # Claude Code loads CLAUDE.md as project memory, with every file it
+      # imports (@path, recursively) and a nested CLAUDE.md when it reads
+      # files there, so every CLAUDE.md and CLAUDE.local.md is removed and
+      # the scanner loads no project memory at all: the skill has it read
+      # the rules itself. Those rules (every AGENTS.md, the skill, the
+      # review-guidelines skill AGENTS.md points to, and the instructions
+      # file) are taken from the base branch, and an AGENTS.md or an
+      # instructions file the base lacks is removed: a pull request cannot
+      # supply what the scanner follows. A skill the base does not have (a
+      # first adoption) keeps the head copy, as the reviewer's does in
+      # pr-review.yml. Paths travel NUL-delimited, so git quotes none.
+      - name: Use the base branch's scan rules
+        if: env.RUN != 'false'
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            git fetch --no-tags --no-recurse-submodules origin "$BASE"
+          find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print0 \
+            | xargs -0 -r rm -rf --
+          # Every AGENTS.md the base has, at any depth: the root rules send
+          # the scanner to more-local ones, so a head may not add or change
+          # one.
+          {
+            printf '%s\0' .github/security-review-instructions.md \
+              .agents/skills/github-security-scan/SKILL.md \
+              .agents/skills/review-guidelines/SKILL.md
+            git ls-tree -r -z --name-only "origin/$BASE" | grep -zE '(^|/)AGENTS\.md$' || true
+          } | while IFS= read -r -d '' f; do
+            if git cat-file -e "origin/$BASE:$f" 2>/dev/null; then
+              # A parent the head made a symlink would take the removal and
+              # the checkout elsewhere: unlink it first (it is head content).
+              rest=$f; dir=""
+              while [ "${rest#*/}" != "$rest" ]; do
+                dir="${dir:+$dir/}${rest%%/*}"; rest=${rest#*/}
+                [ -L "$dir" ] && rm -f -- "$dir"
+              done
+              rm -rf -- "$f"
+              git checkout "origin/$BASE" -- "$f"
+            fi
+          done
+          git ls-files -z -- 'AGENTS.md' '*/AGENTS.md' | while IFS= read -r -d '' f; do
+            git cat-file -e "origin/$BASE:$f" 2>/dev/null || rm -f -- "$f"
+          done
+          # The skill tells the scanner to read the instructions file when it
+          # exists, so a head may not introduce one: without a base copy the
+          # scanner works from the skill and AGENTS.md alone.
+          if ! git cat-file -e "origin/$BASE:.github/security-review-instructions.md" 2>/dev/null; then
+            rm -f -- .github/security-review-instructions.md
+          fi
+      # A larger change would cost more than the repository allows, and past
+      # GitHub's limits (300 files or 20,000 lines in a pull request's diff;
+      # docs.github.com, Repository limits, read 2026-10-21) the pull
+      # request's own counts, which the file count below is checked
+      # against, stop being exact. The scanner reads the local diff, so a
+      # checkout that shows fewer changed files than the pull request
+      # reports would be scanned in part, and is refused.
+      - name: Refuse pull requests beyond the scan's limits
+        if: env.RUN != 'false'
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          CHANGED: ${{ github.event.pull_request.changed_files }}
+          ADDED: ${{ github.event.pull_request.additions }}
+          DELETED: ${{ github.event.pull_request.deletions }}
+        run: |
+          lines=$((ADDED + DELETED))
+          if [ "$CHANGED" -gt "$KIT_SECURITY_MAX_FILES" ] || [ "$lines" -gt "$KIT_SECURITY_MAX_LINES" ]; then
+            echo "::error::$CHANGED files and $lines changed lines exceed what this repository scans ($KIT_SECURITY_MAX_FILES files, $KIT_SECURITY_MAX_LINES lines; GitHub's diff stops at 300 and 20,000); split the pull request"
+            exit 1
+          fi
+          # The diff the scanner reads is the checkout's, against the base
+          # as fetched: a base that moved since the event can make it larger
+          # than the pull request's counts, so the limits apply to it too.
+          local_count=$(git diff -M -z --name-only "origin/$BASE...HEAD" | tr -cd '\0' | wc -c)
+          local_lines=$(git diff -M -z --numstat "origin/$BASE...HEAD" | tr '\0' '\n' \
+            | awk -F'\t' 'NF >= 2 && $1 ~ /^[0-9]+$/ { n += $1 + $2 } END { print n + 0 }')
+          if [ "$local_count" -gt "$KIT_SECURITY_MAX_FILES" ] || [ "$local_lines" -gt "$KIT_SECURITY_MAX_LINES" ]; then
+            echo "::error::the checkout's diff against $BASE has $local_count files and $local_lines changed lines, beyond what this repository scans ($KIT_SECURITY_MAX_FILES files, $KIT_SECURITY_MAX_LINES lines); split the pull request"
+            exit 1
+          fi
+          if [ "$local_count" -lt "$CHANGED" ]; then
+            echo "::error::the checkout shows $local_count changed files but the pull request reports $CHANGED; the scan would be incomplete"
+            exit 1
+          fi
+      # The scanner's Read follows a symlink in the checkout, and a head may
+      # commit one that leads to runner files (a process's environment, the
+      # runner's credentials), whose text a finding would then carry into a
+      # comment. A link that resolves inside the checkout is no guard: a
+      # directory link a few levels up, followed by "..", leaves it on disk
+      # while the path still reads as inside. So every symlink is removed;
+      # the scan's inputs are git's diff of the commits, so the change to a
+      # link itself is still scanned.
+      - name: Remove the checkout's symlinks
+        if: env.RUN != 'false'
+        run: |
+          find . -path ./.git -prune -o -type l -print0 | while IFS= read -r -d '' link; do
+            rm -f -- "$link"
+            echo "removed a symlink: ${link//[$'\r\n']/ }"
+          done
+      # Nothing after this needs git credentials in the checkout: the base
+      # is fetched and gh carries its own token. Fail if the checkout
+      # references any.
+      - name: Verify the checkout holds no credentials
+        if: env.RUN != 'false'
+        run: |
+          if git config --local --list | grep -qiE 'extraheader|includeif'; then
+            echo "::error::.git/config references credentials"
+            exit 1
+          fi
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
+      # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
+      # This is the step anthropics/claude-code-action runs on its
+      # allowed_non_write_users path (v1.0.256), including its Ubuntu 24.04
+      # AppArmor relaxation.
+      - name: Install subprocess isolation dependencies
+        if: env.RUN != 'false'
+        run: |
+          # The image ships apt sources the kit does not use, and one failing
+          # (a 403 from packages.microsoft.com on 2026-10-22) fails the
+          # update while the Ubuntu archive's lists still refresh. Retry once,
+          # then go on: the install below still fails the step when bubblewrap
+          # or socat cannot be installed.
+          sudo apt-get update -qq || sudo apt-get update -qq ||
+            echo "::warning::apt-get update failed; installing from the package lists it fetched"
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      # The scanner has no GitHub access and no shell: everything it reads
+      # is the checkout (the head, with the rules above from the base) and
+      # this input directory, which --add-dir opens to its file tools. The
+      # diff takes .gitattributes from the base (--attr-source): a head that
+      # marked its own files -diff or binary would otherwise hide their
+      # content from the scan as "Binary files differ". Its reads stay in
+      # those two places (blockReadsOutsideWorkingDirectories) and out of
+      # .git, and it gets no Bash, file-writing or network tool. Its answer
+      # is the structured output the schemas below describe, which the
+      # steps after each run check before anything is posted.
+      - name: Write the scan's inputs and the model's settings
+        if: env.RUN != 'false'
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          input="$RUNNER_TEMP/scan-input"
+          mkdir -p -- "$input"
+          # core.quotePath=false gives each path as it is, not octal-quoted,
+          # so the model can name a non-ASCII path as GitHub does.
+          git -c core.quotePath=false --attr-source="origin/$BASE" diff --no-ext-diff --no-textconv "origin/$BASE...HEAD" > "$input/diff.patch"
+          git -c core.quotePath=false --attr-source="origin/$BASE" diff --no-ext-diff --no-textconv --numstat --no-renames "origin/$BASE...HEAD" > "$input/files.txt"
+          echo "SCAN_INPUT=$input" >> "$GITHUB_ENV"
+          echo "$(wc -l < "$input/files.txt") changed files, $(wc -c < "$input/diff.patch") bytes of diff"
+          cat > "$RUNNER_TEMP/claude-settings.json" <<EOF
+          {
+            "permissions": {
+              "blockReadsOutsideWorkingDirectories": true,
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+            },
+            "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
+          }
+          EOF
+          cat "$RUNNER_TEMP/claude-settings.json"
+          echo "SCAN_ALLOWED=Read,Grep,Glob" >> "$GITHUB_ENV"
+          echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+          # The scan's answer: the candidate findings, in the fields the
+          # skill names (the record and the inline comments read them).
+          jq -cn '{
+            type: "object", additionalProperties: false, required: ["files_reviewed", "findings"],
+            properties: {
+              files_reviewed: {type: "integer", minimum: 0},
+              findings: {type: "array", maxItems: 50, items: {
+                type: "object", additionalProperties: false,
+                required: ["file", "line", "severity", "category", "description", "exploit_scenario", "recommendation", "confidence"],
+                properties: {
+                  file: {type: "string"}, line: {type: "integer", minimum: 1},
+                  severity: {type: "string", enum: ["HIGH", "MEDIUM", "LOW"]},
+                  category: {type: "string"}, description: {type: "string"},
+                  exploit_scenario: {type: "string"}, recommendation: {type: "string"},
+                  confidence: {type: "number", minimum: 0, maximum: 1}}}}}}' > "$RUNNER_TEMP/scan-schema.json"
+          # The verification's answer: one verdict per candidate, by id.
+          jq -cn '{
+            type: "object", additionalProperties: false, required: ["verdicts"],
+            properties: {verdicts: {type: "array", items: {
+              type: "object", additionalProperties: false, required: ["id", "keep", "confidence", "reason"],
+              properties: {
+                id: {type: "string"}, keep: {type: "boolean"},
+                confidence: {type: "integer", minimum: 1, maximum: 10}, reason: {type: "string"}}}}}}' > "$RUNNER_TEMP/verify-schema.json"
+      # The CLI the review and triage workflows pin, run directly as
+      # pr-review.yml's "Install Claude Code" step says. Same pinned
+      # release, checked against the same signed manifest's checksum;
+      # installed root-owned outside the checkout. Move the pin as that
+      # step says, in the three workflows together.
+      - name: Install Claude Code
+        if: env.RUN != 'false'
+        env:
+          VERSION: 2.1.306
+          SHA256: 520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe
+        # The bucket rate-limits (HTTP 429) when several runs download at
+        # once, and an HTTP/2 stream can drop mid-transfer (curl exit 92),
+        # which curl does not count as transient. So every failure is
+        # retried, with curl's doubling backoff (1 s, 2 s, ... 128 s) for
+        # up to about 5 minutes; a lasting failure, such as a 404 for a bad
+        # pin, fails the step only then. The checksum below still decides.
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 300 \
+            -o "$RUNNER_TEMP/claude" \
+            "https://downloads.claude.ai/claude-code-releases/$VERSION/linux-x64/claude"
+          echo "$SHA256  $RUNNER_TEMP/claude" | sha256sum -c -
+          sudo install -d -o root -g root -m 0755 /opt/agent-kit
+          sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /opt/agent-kit/claude
+          rm -f -- "$RUNNER_TEMP/claude"
+          DISABLE_AUTOUPDATER=1 /opt/agent-kit/claude --version
+      # The scan: the model reads the change and answers with its candidate
+      # findings. --restricted drops the code-running tools and ignores the
+      # user, project and local settings files (the one passed with
+      # --settings still applies), --strict-mcp-config with no --mcp-config
+      # starts no MCP server, and --permission-prompts none denies whatever
+      # would otherwise prompt. A run whose result is an error (a rejected
+      # model, an API refusal, the turn limit) fails here, and its message is
+      # printed so the log says why. GitHub masks secrets in step output.
+      # On KIT_SECURITY_PROVIDER=opencode-go both runs point the CLI at Go
+      # the way pr-review.yml's "Run the review" does. The CLI returns
+      # --json-schema output through a StructuredOutput tool it adds to the
+      # session (code.claude.com/docs/en/agent-sdk/structured-outputs, read
+      # 2026-10-23), so a Go model needs tool use. With experimental betas
+      # off the CLI also stops sending the API's schema constraint
+      # (output_config.format, the strict tool field: code.claude.com
+      # docs/en/llm-gateway-protocol, "Disable pre-release capabilities"),
+      # so only the CLI's check-and-retry holds a Go model to the schema. A
+      # model that never gets it right ends the run in error here
+      # (error_max_structured_output_retries), and one that answers without
+      # it leaves no structured_output for the collect step, which fails.
+      - id: scan
+        name: Run the scan
+        if: env.RUN != 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Keep the key out of the processes Claude Code starts.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          DISABLE_AUTOUPDATER: "1"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RESULT: ${{ runner.temp }}/scan-result.json
+        run: |
+          prompt="Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the scan of $REPO pull request $PR. The input directory is $SCAN_INPUT: files.txt lists the changed files and diff.patch is the diff."
+          if [ "$KIT_SECURITY_PROVIDER" = opencode-go ]; then
+            if [ -z "$OPENCODE_API_KEY" ]; then
+              echo "::error::KIT_SECURITY_PROVIDER is opencode-go but the OPENCODE_API_KEY secret is not set"
+              exit 1
+            fi
+            export ANTHROPIC_BASE_URL=https://opencode.ai/inference/go/anthropic
+            export ANTHROPIC_AUTH_TOKEN="$OPENCODE_API_KEY"
+            export ANTHROPIC_DEFAULT_OPUS_MODEL="$KIT_SECURITY_MODEL"
+            export ANTHROPIC_DEFAULT_SONNET_MODEL="$KIT_SECURITY_MODEL"
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL="$KIT_SECURITY_MODEL"
+            export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+            export ENABLE_TOOL_SEARCH=false
+            unset ANTHROPIC_API_KEY
+          fi
+          unset OPENCODE_API_KEY
+          status=0
+          effort=()
+          [ -z "$KIT_SECURITY_EFFORT" ] || effort=(--effort "$KIT_SECURITY_EFFORT")
+          /opt/agent-kit/claude -p "$prompt" \
+            --output-format json \
+            --json-schema "$(cat "$RUNNER_TEMP/scan-schema.json")" \
+            --model "$KIT_SECURITY_MODEL" \
+            "${effort[@]}" \
+            --max-turns "$KIT_SECURITY_MAX_TURNS" \
+            --restricted \
+            --strict-mcp-config \
+            --permission-prompts none \
+            --no-session-persistence \
+            --settings "$RUNNER_TEMP/claude-settings.json" \
+            --add-dir "$SCAN_INPUT" \
+            --disallowedTools "$SCAN_DENIED" \
+            --allowedTools "$SCAN_ALLOWED" \
+            > "$RESULT" || status=$?
+          if [ ! -s "$RESULT" ]; then
+            echo "::error::Claude Code exited with status $status and no result"
+            exit 1
+          fi
+          # The result object (a stream would be an array; keep the last result).
+          result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          # The model's last message, with workflow commands stopped: text the
+          # pull request steered could otherwise annotate or mask the log.
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
+          cost=cost_usd
+          [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
+          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
+          echo "::$stop::"
+          if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
+            echo "::error::Claude Code's run ended in error (exit status $status)"
+            exit 1
+          fi
+      # The scan's structured output, checked field by field (the CLI
+      # validates it against the schema; this does not rely on that), with
+      # an id for each candidate (F1, F2, ...), written where the
+      # verification run reads it. A run with no structured output (the
+      # model declined, or its answer did not fit the schema) did not
+      # complete a scan.
+      - name: Collect the scan's candidate findings
+        if: env.RUN != 'false'
+        env:
+          RESULT: ${{ runner.temp }}/scan-result.json
+        run: |
+          result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          if ! jq -e '
+            .structured_output
+            | type == "object"
+              and (.files_reviewed | type == "number" and . >= 0 and floor == .)
+              and (.findings | type == "array" and length <= 50)
+              and all(.findings[];
+                type == "object"
+                and (.file | type == "string" and length > 0)
+                and (.line | type == "number" and . >= 1 and floor == .)
+                and (.severity | IN("HIGH", "MEDIUM", "LOW"))
+                and ([.category, .description, .exploit_scenario, .recommendation] | all(type == "string"))
+                and (.confidence | type == "number" and . >= 0 and . <= 1))' <<<"$result" >/dev/null; then
+            echo "::error::the scan's answer is not the structured output the schema asks for, so no scan completed: $(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)"
+            exit 1
+          fi
+          jq '.structured_output
+            | {findings: [.findings | to_entries[] | .value + {id: "F\(.key + 1)"}],
+               analysis_summary: {files_reviewed, review_completed: true}}' <<<"$result" > "$SCAN_INPUT/candidates.json"
+          count=$(jq '.findings | length' "$SCAN_INPUT/candidates.json")
+          echo "CANDIDATES=$count" >> "$GITHUB_ENV"
+          echo "the scan found $count candidate findings"
+      # The verification: a fresh session judges each candidate against the
+      # code and keeps only the ones it can trace (the skill's
+      # "verification"), in place of the false-positive filter the
+      # claude-code-security-review action ran. Only when the scan found
+      # something.
+      - id: verify
+        name: Verify the candidate findings
+        if: env.RUN != 'false' && env.CANDIDATES != '' && env.CANDIDATES != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          DISABLE_AUTOUPDATER: "1"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RESULT: ${{ runner.temp }}/verify-result.json
+        run: |
+          prompt="Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the verification of the scan of $REPO pull request $PR. The input directory is $SCAN_INPUT: candidates.json holds the $CANDIDATES candidate findings, files.txt lists the changed files and diff.patch is the diff."
+          if [ "$KIT_SECURITY_PROVIDER" = opencode-go ]; then
+            if [ -z "$OPENCODE_API_KEY" ]; then
+              echo "::error::KIT_SECURITY_PROVIDER is opencode-go but the OPENCODE_API_KEY secret is not set"
+              exit 1
+            fi
+            export ANTHROPIC_BASE_URL=https://opencode.ai/inference/go/anthropic
+            export ANTHROPIC_AUTH_TOKEN="$OPENCODE_API_KEY"
+            export ANTHROPIC_DEFAULT_OPUS_MODEL="$KIT_SECURITY_MODEL"
+            export ANTHROPIC_DEFAULT_SONNET_MODEL="$KIT_SECURITY_MODEL"
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL="$KIT_SECURITY_MODEL"
+            export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+            export ENABLE_TOOL_SEARCH=false
+            unset ANTHROPIC_API_KEY
+          fi
+          unset OPENCODE_API_KEY
+          status=0
+          effort=()
+          [ -z "$KIT_SECURITY_EFFORT" ] || effort=(--effort "$KIT_SECURITY_EFFORT")
+          /opt/agent-kit/claude -p "$prompt" \
+            --output-format json \
+            --json-schema "$(cat "$RUNNER_TEMP/verify-schema.json")" \
+            --model "$KIT_SECURITY_MODEL" \
+            "${effort[@]}" \
+            --max-turns "$KIT_SECURITY_MAX_TURNS" \
+            --restricted \
+            --strict-mcp-config \
+            --permission-prompts none \
+            --no-session-persistence \
+            --settings "$RUNNER_TEMP/claude-settings.json" \
+            --add-dir "$SCAN_INPUT" \
+            --disallowedTools "$SCAN_DENIED" \
+            --allowedTools "$SCAN_ALLOWED" \
+            > "$RESULT" || status=$?
+          if [ ! -s "$RESULT" ]; then
+            echo "::error::Claude Code exited with status $status and no result"
+            exit 1
+          fi
+          result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
+          cost=cost_usd
+          [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
+          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
+          echo "::$stop::"
+          if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
+            echo "::error::Claude Code's run ended in error (exit status $status)"
+            exit 1
+          fi
+      # The candidates the verification kept, as the scan's results. A
+      # candidate is dropped only when it has a verdict and none keeps it; one
+      # the verification gave no verdict is kept and marked unverified, so a
+      # skipped verdict cannot hide a finding. A verdict for an id that is
+      # not a candidate is ignored. Each dropped candidate goes to this
+      # step's log with the verification's reason, workflow commands stopped.
+      - name: Apply the verification
+        if: env.RUN != 'false'
+        env:
+          RESULT: ${{ runner.temp }}/verify-result.json
+          RESULTS: ${{ runner.temp }}/scan-results.json
+        run: |
+          candidates="$SCAN_INPUT/candidates.json"
+          if [ "$(jq '.findings | length' "$candidates")" -eq 0 ]; then
+            jq '. + {filtering_summary: {total_original_findings: 0, excluded_findings: 0, kept_findings: 0}}' "$candidates" > "$RESULTS"
+            echo "no candidate findings to verify"
+            exit 0
+          fi
+          result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          if ! jq -e '
+            .structured_output
+            | type == "object" and (.verdicts | type == "array")
+              and all(.verdicts[];
+                type == "object" and (.id | type == "string") and (.keep | type == "boolean")
+                and (.confidence | type == "number") and (.reason | type == "string"))' <<<"$result" >/dev/null; then
+            echo "::error::the verification's answer is not the structured output the schema asks for: $(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)"
+            exit 1
+          fi
+          # The verdicts go through a file: an argument has a size limit.
+          jq -c '.structured_output.verdicts' <<<"$result" > "$RUNNER_TEMP/verdicts.json"
+          jq --slurpfile v "$RUNNER_TEMP/verdicts.json" '
+            $v[0] as $verdicts
+            | . as $scan
+            | [.findings[] | . as $f
+                | [$verdicts[] | select(.id == $f.id)] as $mine
+                | ($mine | map(select(.keep)) | first) as $kept
+                | if ($mine | length) == 0 then
+                    $f + {_filter_metadata: {verified: false, justification: "the verification gave no verdict on this finding; kept unverified"}}
+                  elif $kept != null then
+                    $f + {_filter_metadata: {verified: true, confidence: $kept.confidence, justification: $kept.reason}}
+                  else
+                    $f + {_excluded: true, _filter_metadata: {verified: true, confidence: $mine[0].confidence, justification: $mine[0].reason}}
+                  end] as $judged
+            | {findings: [$judged[] | select(._excluded | not)],
+               excluded_findings: [$judged[] | select(._excluded) | del(._excluded)],
+               analysis_summary: $scan.analysis_summary,
+               filtering_summary: {
+                 total_original_findings: ($judged | length),
+                 excluded_findings: ([$judged[] | select(._excluded)] | length),
+                 kept_findings: ([$judged[] | select(._excluded | not)] | length)}}' "$candidates" > "$RESULTS"
+          jq -r '.filtering_summary | "the verification kept \(.kept_findings) of \(.total_original_findings) candidate findings"' "$RESULTS"
+          dropped=$(jq -r '
+            def clean($n): tostring | gsub("[\\r\\n\\t`]+"; " ") | gsub("^ +| +$"; "") | .[0:$n];
+            .excluded_findings[]
+            | "- \(.id) \(.severity) \(.category | clean(60)) in \(.file | clean(200)):\(.line): \(._filter_metadata.justification | clean(600))"' "$RESULTS")
+          if [ -n "$dropped" ]; then
+            stop=$(openssl rand -hex 16)
+            echo "::group::Candidates the verification dropped"
+            echo "::stop-commands::$stop"
+            printf '%s\n' "$dropped"
+            echo "::$stop::"
+            echo "::endgroup::"
+          fi
+      # The outcome and findings of a completed scan, written whether or not
+      # a later step (the inline comments or the record) fails, so the
+      # record or the failure notice can list them. When the verification
+      # did not finish, the scan's candidates are listed instead, each
+      # marked unverified, so the failure notice still shows what the scan
+      # found. Only after the scan step ran: a refusal before it has nothing
+      # to summarise. It runs on a cancel too (the job's time limit, most
+      # often during the verification), so the notice can list them then.
+      # Each finding on one line that starts with "- ", every field the
+      # model wrote in a code span with backticks and line breaks taken
+      # out, so a finding cannot mention anyone, link, or add markup.
+      - name: Summarise the scan's findings
+        if: ${{ always() && env.RUN != 'false' && steps.scan.outcome != 'skipped' }}
+        env:
+          RESULTS: ${{ runner.temp }}/scan-results.json
+          BASE: ${{ github.event.pull_request.base.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          source=$RESULTS
+          if [ ! -s "$RESULTS" ] \
+            || ! jq -e 'type == "object" and has("findings") and .analysis_summary.review_completed == true' "$RESULTS" >/dev/null 2>&1; then
+            source="${SCAN_INPUT:-}/candidates.json"
+            if [ -z "${SCAN_INPUT:-}" ] || [ ! -s "$source" ]; then
+              echo "no completed scan result to summarise"
+              exit 0
+            fi
+            echo "the verification did not finish; summarising the scan's candidates as unverified"
+            touch "$RUNNER_TEMP/scan-unverified"
+          fi
+          count=$(jq '[.findings[]? | select(type == "object")] | length' "$source")
+          # Every finding, cleaned as above, goes to this step's log too,
+          # with workflow commands stopped, so the ones past the first 30
+          # can be read there even when a later step is the one that failed.
+          all=$(jq -r --arg unverified "$([ -e "$RUNNER_TEMP/scan-unverified" ] && echo true)" '
+            def clean($n): tostring | gsub("[\\r\\n\\t`]+"; " ") | gsub("^ +| +$"; "") | .[0:$n];
+            [.findings[]? | select(type == "object")][]
+            | (.severity // "" | tostring | ascii_upcase | gsub("[^A-Z]"; "") | .[0:10]) as $sev
+            | (.line | tonumber? // null) as $line
+            | (.description // "" | clean(300)) as $what
+            | "- **\(if $sev == "" then "UNRATED" else $sev end)** `\(.category // "uncategorised" | clean(60))`"
+              + " in `\(.file // "?" | clean(200))\(if $line then ":\($line)" else "" end)`"
+              + (if $what == "" then "" else ": `\($what)`" end)
+              + (if $unverified == "true" or ._filter_metadata.verified == false then " (unverified)" else "" end)
+          ' "$source")
+          list=$(head -n 30 <<<"$all")
+          if [ "$count" -gt 0 ]; then
+            stop=$(openssl rand -hex 16)
+            echo "::group::All $count findings"
+            echo "::stop-commands::$stop"
+            printf '%s\n' "$all"
+            echo "::$stop::"
+            echo "::endgroup::"
+          fi
+          more=""
+          [ "$count" -le 30 ] || more="
+          - and $((count - 30)) more, listed in [the run's log]($RUN_URL) under *Summarise the scan's findings*"
+          # What the scan did not cover, for the record and for the failure
+          # notice alike. The scanner reads git's text diff with the base's
+          # attributes, so a changed file git shows as binary ("-" counts in
+          # --numstat) reaches it with no content, and is named as not
+          # inspected rather than passed off as covered. -z keeps each path
+          # as git stores it; each is cut to 200 characters with line
+          # breaks, tabs and backticks taken out, so none can add a line (a
+          # forged record line, or a workflow command in this log) or leave
+          # its code span. The record names the first 20; this step's log
+          # lists them all.
+          coverage="" unread="" text_files=""
+          numstat="$RUNNER_TEMP/scan-numstat"
+          if ! git --attr-source="origin/$BASE" diff --no-ext-diff --no-textconv --numstat --no-renames -z "origin/$BASE...HEAD" > "$numstat"; then
+            coverage="Which changed files have no text diff (and so were not inspected) could not be read; check the pull request's files by hand."
+            echo "::warning::could not list the changed files that have no text diff"
+          else
+            text_files=0
+            while IFS= read -r -d '' e; do
+              if [[ "$e" == $'-\t-\t'* ]]; then
+                e=${e#$'-\t-\t'}; e=${e//[$'\r\n\t`']/ }
+                unread+="${e:0:200}"$'\n'
+              else
+                text_files=$((text_files + 1))
+              fi
+            done < "$numstat"
+            unread=${unread%$'\n'}
+          fi
+          if [ -n "$unread" ]; then
+            n=$(wc -l <<<"$unread")
+            named=$(head -n 20 <<<"$unread" | awk 'NR > 1 { printf ", " } { printf "`%s`", $0 }')
+            [ "$n" -le 20 ] || named="$named and $((n - 20)) more, listed in [the run's log]($RUN_URL) under *Summarise the scan's findings*"
+            coverage="Not inspected (no text diff, so the scanner read no content): $named. Review those files by hand."
+            echo "::warning::the scanner read no content for $n changed files (no text diff); review those files by hand"
+            stop=$(openssl rand -hex 16)
+            echo "::group::$n files without a text diff"
+            echo "::stop-commands::$stop"
+            printf '%s\n' "$unread"
+            echo "::$stop::"
+            echo "::endgroup::"
+          fi
+          # The scanner's own count of the changed files it read, against
+          # those with a text diff (files.txt's lines with numbers, a
+          # deletion included and a rename counted as its two paths, as the
+          # skill asks): a smaller count is said in the record, since a scan
+          # that left files unread is not a clean bill. It is the model's
+          # report, not a check the workflow can make, and is skipped when
+          # git could not list the files.
+          reviewed=$(jq -r '.analysis_summary.files_reviewed // empty | numbers' "$source")
+          if [ -n "$reviewed" ] && [ -n "$text_files" ] && [ "$reviewed" -lt "$text_files" ]; then
+            partial="The scanner reports reading $reviewed of the $text_files changed files with a text diff; the rest may not have been looked at."
+            echo "::warning::the scanner reports reading $reviewed of $text_files changed files with a text diff"
+            coverage="${coverage:+$coverage
+          }$partial"
+          fi
+          [ -z "$coverage" ] || printf '%s\n' "$coverage" > "$RUNNER_TEMP/scan-coverage.md"
+          printf '%s\n' "$count" > "$RUNNER_TEMP/scan-count"
+          if [ "$count" -gt 0 ]; then
+            printf '%s%s\n' "$list" "$more" > "$RUNNER_TEMP/scan-findings.md"
+          fi
+          if [ "$source" = "$RESULTS" ] && [ "$(jq '.filtering_summary.total_original_findings' "$RESULTS")" -gt 0 ]; then
+            jq -r '.filtering_summary | "The scan found \(.total_original_findings) candidate \(if .total_original_findings == 1 then "finding" else "findings" end); a separate verification run kept \(.kept_findings)."' "$RESULTS" > "$RUNNER_TEMP/scan-filtering.md"
+          fi
+          echo "summarised $count findings"
+      - name: Fail when the scan did not run
+        if: env.RUN != 'false'
+        env:
+          RESULTS: ${{ runner.temp }}/scan-results.json
+        run: |
+          if [ ! -s "$RESULTS" ]; then
+            echo "::error::security scan produced no results file"
+            exit 1
+          fi
+          if ! jq -e 'type == "object" and has("findings") and .analysis_summary.review_completed == true' "$RESULTS" >/dev/null; then
+            echo "::error::security scan did not report a completed review"
+            exit 1
+          fi
+      # Each kept finding, at most 30, as a review comment on its line of the
+      # scanned head, posted by the workflow on the job token (the model has
+      # none). The model's fields go in a text block with backticks taken
+      # out, so they render as written and cannot mention anyone, link, or
+      # close the block. A hidden key (a hash of the path, line and category)
+      # keeps a later scan from repeating a comment already on that line;
+      # GitHub refuses a line outside the diff, which leaves the finding to
+      # the record alone.
+      - name: Comment on the findings' lines
+        if: env.RUN != 'false'
+        env:
+          RESULTS: ${{ runner.temp }}/scan-results.json
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          [ "$(jq '.findings | length' "$RESULTS")" -gt 0 ] || { echo "no findings to comment on"; exit 0; }
+          # The key on each earlier comment's last line, where this step puts
+          # it: the model's text above it cannot claim one.
+          existing=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body | rtrimstr("\n") | split("\n") | last' \
+            | sed -n 's/^<!-- security-scan finding \([0-9a-f]\{64\}\) -->$/\1/p')
+          posted=0 skipped=0 refused=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            path=$(jq -r .file <<<"$f"); line=$(jq -r .line <<<"$f")
+            key=$(jq -j '"\(.file)\u0000\(.line)\u0000\(.category)"' <<<"$f" | sha256sum | cut -d' ' -f1)
+            if grep -qxF "$key" <<<"$existing"; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+            body=$(jq -r '
+              def clean($n): tostring | gsub("\r"; "") | gsub("`"; "") | .[0:$n];
+              "**Security scan: \(.severity)** `\(.category | tostring | gsub("[\\r\\n\\t`]+"; " ") | .[0:60])`"
+              + (if ._filter_metadata.verified == false then " (unverified)" else "" end)
+              + "\n\n```text\n\(.description | clean(1500))\n\nExploit scenario: \(.exploit_scenario | clean(1500))\n\nRecommendation: \(.recommendation | clean(1500))\n```"' <<<"$f")
+            body="$body
+
+          <!-- security-scan finding $key -->"
+            if jq -n --arg body "$body" --arg commit "$HEAD" --arg path "$path" --argjson line "$line" \
+              '{body: $body, commit_id: $commit, path: $path, line: $line, side: "RIGHT"}' \
+              | gh api -X POST "repos/$REPO/pulls/$PR/comments" --input - --jq .html_url; then
+              posted=$((posted + 1))
+              # A second finding with the same key in this run is not posted.
+              existing="$existing"$'\n'"$key"
+            else
+              refused=$((refused + 1))
+              echo "::warning::GitHub refused an inline comment for a finding (its line is not in the diff, most likely); the record lists it"
+            fi
+          done < <(jq -c '.findings[:30][]' "$RESULTS")
+          echo "inline comments: $posted posted, $skipped already on their lines, $refused refused"
+      # One record comment per pull request, updated in place after each
+      # completed scan; the skip step above reads it. It states the outcome
+      # and lists the findings: inline comments go only on lines of the
+      # diff, at most 30 a run and once per line and finding, so the inline
+      # comments alone cannot say what the latest scan found.
+      - name: Record the completed scan
+        if: env.RUN != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # A base push raises no pull request event. It changes the pull
+          # request's diff only when it moves the merge base with the head
+          # (a retarget, a force-push, or a base that now contains part of
+          # the head); a record naming the commit this scan diffed against
+          # would then cover a diff the pull request no longer has, so the
+          # scan fails without one. A push that leaves the merge base alone
+          # leaves the scanned diff exact, and the record stands.
+          scanned=$(git rev-parse "origin/$BASE")
+          live=$(gh api --method GET "repos/$REPO/pulls/$PR" --jq .base.sha)
+          if [ "$live" != "$scanned" ]; then
+            mb_scanned=$(git merge-base "$scanned" "$HEAD")
+            mb_live=$(gh api --method GET "repos/$REPO/compare/$live...$HEAD" --jq .merge_base_commit.sha 2>/dev/null || echo none)
+            if [ "$mb_scanned" != "$mb_live" ]; then
+              echo "::error::the base $BASE moved to $live after this scan diffed against $scanned, and the pull request's diff changed with it; no record, the pull request needs a scan against the new base"
+              exit 1
+            fi
+          fi
+          # The summary step above wrote the count, the list when there is
+          # one, how many candidates the verification kept, and what the scan
+          # did not cover; the check above made sure the scan completed.
+          count=$(cat "$RUNNER_TEMP/scan-count")
+          note=""
+          for f in scan-filtering.md scan-coverage.md; do
+            if [ -s "$RUNNER_TEMP/$f" ]; then
+              note="$note
+          $(cat "$RUNNER_TEMP/$f")"
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            outcome="### Security scan: completed, no findings"
+          else
+            [ "$count" -eq 1 ] && noun=finding || noun=findings
+            outcome="### Security scan: completed, $count $noun
+
+          $(cat "$RUNNER_TEMP/scan-findings.md")
+
+          Inline comments go only on lines of this pull request's diff, at most 30 a run and once per line and finding, so this list is where the latest scan's findings are: the first 30, each description cut at 300 characters, and the rest in the run's log."
+          fi
+          body="<!-- security-scan-record -->
+          $outcome
+
+          Security scan record: scanned head $HEAD against $BASE at $scanned on $(date -u +%Y-%m-%dT%H:%M:%SZ). The security-scan workflow updates this comment after each scan and reads it to decide whether an edit needs another.$note"
+          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .id' | tail -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --jq .html_url
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
+          fi
+      # A run that stops before a result (a refusal, a failed scan, a base
+      # that moved) says so at the top of the record, above the last
+      # completed scan's record, which still decides whether an edit needs
+      # another scan; the next completed scan replaces the notice. A run
+      # cancelled because a newer push took over leaves the record alone;
+      # one cancelled on the head the pull request still has (the job's
+      # time limit, which GitHub enforces by cancelling the job, or a
+      # cancel by hand) did not complete, and says so.
+      - name: Record that the scan did not complete
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          MODE: ${{ env.KIT_SECURITY_SCAN }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          if [ "$JOB_STATUS" = cancelled ]; then
+            live=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+            if [ "$live" != "$HEAD" ]; then
+              echo "cancelled for a newer head ($live); the record is left to its run"
+              exit 0
+            fi
+          fi
+          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .id' | tail -n 1)
+          # The previous record without its marker line and without an
+          # earlier notice, which this one replaces (line endings as LF, in
+          # case the comment was edited in the web editor).
+          previous=""
+          if [ -n "$id" ]; then
+            previous=$(gh api "repos/$REPO/issues/comments/$id" --jq .body \
+              | tr -d '\r' \
+              | sed '1{/^<!-- security-scan-record -->$/d;}' \
+              | sed '/^<!-- scan-not-completed -->$/,/^<!-- \/scan-not-completed -->$/d')
+          fi
+          # In mode "open" a push is not scanned once a scan has completed
+          # (the skip step above), so only a re-run brings a new scan then.
+          if printf '%s\n' "$previous" | grep -q '^Security scan record: scanned head '; then
+            if [ "$MODE" = "push" ]; then
+              again="Re-run it or push to scan again."
+              after="The last completed scan's record follows; it still decides whether an edit needs another scan."
+            elif [ "$MODE" = "open" ]; then
+              again="Re-run it to scan again (in mode open a push is not scanned once a scan has completed)."
+              after="The last completed scan's record follows; it still decides whether an edit or a push needs another scan."
+            else
+              # The settings job failed, so the mode is unknown.
+              again="Fix the settings the run's log names, then re-run it to scan again."
+              after="The last completed scan's record follows."
+            fi
+          else
+            again="Re-run it or push to scan again."
+            after="No scan of this pull request has completed."
+            previous=""
+          fi
+          # A scan that finished before a later step failed (the
+          # verification, the inline comments or the record itself) is not
+          # recorded as completed, but its findings are listed here: the
+          # candidates, marked unverified, when the verification is the step
+          # that did not finish.
+          found=""
+          if [ -s "$RUNNER_TEMP/scan-count" ]; then
+            count=$(cat "$RUNNER_TEMP/scan-count")
+            [ "$count" -eq 1 ] && noun=finding || noun=findings
+            if [ -e "$RUNNER_TEMP/scan-unverified" ]; then
+              [ "$count" -eq 1 ] && noun="unverified candidate finding" || noun="unverified candidate findings"
+              what="The scan of head $HEAD found $count $noun, but the run stopped before the verification finished on $(date -u +%Y-%m-%dT%H:%M:%SZ), so it is not recorded as a completed scan; [its log]($RUN_URL) says why."
+            else
+              what="The scanner finished for head $HEAD with $count $noun, but the run stopped after it on $(date -u +%Y-%m-%dT%H:%M:%SZ), so it is not recorded as a completed scan; [its log]($RUN_URL) says why."
+            fi
+            if [ "$count" -gt 0 ]; then
+              found="
+
+          $(cat "$RUNNER_TEMP/scan-findings.md")"
+            fi
+            if [ -s "$RUNNER_TEMP/scan-coverage.md" ]; then
+              found="$found
+
+          $(cat "$RUNNER_TEMP/scan-coverage.md")"
+            fi
+          else
+            what="The run for head $HEAD stopped before a scan result on $(date -u +%Y-%m-%dT%H:%M:%SZ); [its log]($RUN_URL) says why."
+          fi
+          # The run's id (a re-run keeps it) lets a re-run that the skip
+          # step finds already covered take this notice down again.
+          body="<!-- security-scan-record -->
+          <!-- scan-not-completed -->
+          <!-- scan-not-completed-run $GITHUB_RUN_ID -->
+          ### Security scan: the latest run did not complete
+
+          $what $again$found
+
+          $after
+          <!-- /scan-not-completed -->
+          $previous"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --jq .html_url
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
+          fi

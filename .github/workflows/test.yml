@@ -1,0 +1,37 @@
+name: test
+
+# The MCP server's, the workflow steps' and the installer's tests (tests/).
+# Nothing here is installed into a target: kit-manifest.txt does not list
+# this file.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The installer tests clone this checkout and install from older
+          # commits, the one before the lock rename among them.
+          fetch-depth: 0
+          persist-credentials: false
+      # The runner's own Node, as the review and triage workflows use to run
+      # the MCP server.
+      - name: Test the MCP server and the workflow steps
+        run: |
+          node --version
+          node --test tests/*.test.mjs
+      - name: Test the installer
+        run: bash tests/install.test.sh
