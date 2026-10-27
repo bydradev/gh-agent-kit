@@ -107,9 +107,9 @@ skill, re-tested on DeepSeek.
 The operator chose to keep long-form documentation in `docs/`, reviewed in
 pull requests like the code, rather than in a GitHub Wiki, with dated
 assessments in `docs/reports/` and a short summary in the README. A GitHub
-Pages site for the reports, once the repository is public, is an open
-issue in the kit's original repository, to be filed again in the public
-one.
+Pages site for the reports was planned for once the repository went
+public; on 2026-10-27 the operator dropped it, so the reports stay as
+Markdown in `docs/reports/`.
 
 ### Renamed to gh-agent-kit (2026-10-22)
 
