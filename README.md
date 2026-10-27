@@ -87,8 +87,8 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
    | `KIT_ISSUE_TRIAGE` | `on` | `issue-triage`, the weekly sweep included |
    | `KIT_UPDATE_CHECK` | `on` | `kit-update-check` |
 
-   Write the values in lower case, as shown: unset, or any other word,
-   leaves the workflow off without an error.
+   Unset, or `off`, leaves a workflow off; any other value, a capitalised
+   one included, fails its run.
 
 4. Merge the pull request: issue forms, workflows that run on issues, on a
    schedule or by hand, and the settings file work only from the default

@@ -6,8 +6,8 @@ name: issue-triage
 # Claude Code or, with KIT_TRIAGE_RUNNER=opencode, OpenCode's CLI. It is off
 # until KIT_ISSUE_TRIAGE, a repository variable or a line of
 # .github/gh-agent-kit.yml (the settings job below), is "on", like the other
-# workflows' switches; any other value (or unset) leaves it off, the weekly
-# sweep included.
+# workflows' switches; "off" (or unset) leaves it off, the weekly sweep
+# included, and any other value fails the run.
 
 on:
   issues:
@@ -183,6 +183,17 @@ jobs:
             fi
             if ! [[ "$v" =~ ^$word*$ ]]; then
               echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            # A switch takes only the values that name a state, so a typo
+            # fails the run instead of quietly leaving its workflow off.
+            case "$name" in
+              KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              *) states="" ;;
+            esac
+            if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
+              echo "::error::the setting $name must be ${states// /, } or unset, not '$v' ($from)"
               exit 1
             fi
             echo "$name=$v" >> "$GITHUB_ENV"

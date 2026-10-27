@@ -243,14 +243,15 @@ dated status and links to issues rather than restating them. The rules:
   requests. Each finding is a claim handled as `fresh-eyes-review` *Handling
   findings* says. The reviewer follows `github-pr-review` and the scanner
   `github-security-scan`; the settings `KIT_REVIEW_MODE` and
-  `KIT_SECURITY_SCAN` (`open`, `push` or unset) set when each runs, and
-  `KIT_ISSUE_TRIAGE=on` turns triage on (unset, triage stays off); the
-  other `KIT_*` settings set each workflow's model, effort, turn and time
-  budgets and size limits. A setting is a repository variable or a line
-  of `.github/gh-agent-kit.yml`, read from the default branch, and a
-  variable wins; never put a secret in that file. All three workflows
-  need the `ANTHROPIC_API_KEY` repository secret, except a review, scan or
-  triage whose `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or
+  `KIT_SECURITY_SCAN` (`open`, `push`, `off` or unset) set when each
+  runs, and `KIT_ISSUE_TRIAGE=on` turns triage on (`off` or unset, triage
+  stays off; any other value fails the run); the other `KIT_*` settings
+  set each workflow's model, effort, turn and time budgets and size
+  limits. A setting is a repository variable or a line of
+  `.github/gh-agent-kit.yml`, read from the default branch, and a variable
+  wins; never put a secret in that file. The review, scan and triage
+  workflows need the `ANTHROPIC_API_KEY` repository secret, except one
+  whose `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or
   `KIT_TRIAGE_PROVIDER` is `opencode-go`, which needs `OPENCODE_API_KEY`
   instead.
 - `.github/scripts/sync-labels.sh` creates the label set; run it after
