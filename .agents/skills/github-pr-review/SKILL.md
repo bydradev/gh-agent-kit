@@ -180,6 +180,41 @@ for a change of base branch, `edited-title` for a change of title alone, or
    that heading into the `pr-review verdict` check on the reviewed head,
    which branch protection may require.
 
+   For each issue the pull request closes, the report has an *Acceptance
+   criteria* section between *Earlier findings* and *Coverage*. It marks
+   each criterion against the reviewed head, by the ID the latest bot plan
+   gave it (`AC1`). A criterion of the issue that the plan leaves out gets
+   a line of its own, named by its place in the issue (`issue criterion
+   3, not in the plan`) and marked like the others. With no plan, or one
+   without IDs (written before triage numbered them), number the issue's
+   criteria in order: its *Acceptance criteria* field; without one (the
+   Bug form), its *What should happen* as one criterion, plus one that the
+   steps to reproduce, when given, no longer show the fault; with neither
+   field, the criteria its text states, and with none there, say so. In
+   the report:
+
+   ```markdown
+   ### Acceptance criteria
+
+   **#12**
+   - AC1 Met: `lib/sync.ts:88`; "stops at the last page" passed in `test`
+   - AC2 Not met: R2-01
+   - AC3 Not checkable from the change: the next weekly sweep (see *Limits*)
+   ```
+
+   *Met* names where the change delivers it and, when one does, the check
+   on the head that shows it; the implementer's list in the body is a
+   claim to verify, not evidence. *Not met* names the finding that reports
+   it, a P1 as an unmet requirement. *Not checkable from the change* says
+   what would prove it (a run after merge, a manual check), under *Limits*
+   too. An issue the token could not read, or whose text came withheld,
+   gets one line saying so (step 1). Every round's report carries the
+   section for its head; a follow-up may carry a mark over from the last
+   round, saying so (`as R1`), when the delta does not touch what the mark
+   cites. An addendum carries it for the issues a changed closing
+   reference added, and a rebase-only addendum leaves it out. A pull
+   request that closes no issue has none.
+
 ## Never
 
 - Approve, request changes, merge, push, edit files, resolve threads,
