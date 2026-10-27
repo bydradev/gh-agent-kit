@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/bydradev/gh-agent-kit/compare/v0.3.0...v0.3.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* write the triage skill's date placeholder as code ([#15](https://github.com/bydradev/gh-agent-kit/issues/15)) ([8f297f2](https://github.com/bydradev/gh-agent-kit/commit/8f297f2629f63052f1d24bfbb07ace270233cf5a))
+
 ## [0.3.0](https://github.com/bydradev/gh-agent-kit/compare/v0.2.0...v0.3.0) (2026-10-27)
 
 
