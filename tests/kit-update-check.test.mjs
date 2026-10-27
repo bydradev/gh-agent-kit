@@ -14,11 +14,13 @@ const noticeScript = stepScript("kit-update-check.yml", "Open, update or close t
 
 const SOURCE = "github.com/acme/kit";
 
-// A kit with two commits (three with moves), each a release (v0.1.0,
-// v0.2.0, v0.3.0), served at https://github.com/acme/kit.git through a
-// url.insteadOf in a global git config of the test's own. after() runs git
-// in the served repository, for a later tag or an unreleased commit.
-function kitFixture(t, { moves = false } = {}) {
+// A kit with two commits (three with moves or forms), each a release
+// (v0.1.0, v0.2.0, v0.3.0), served at https://github.com/acme/kit.git
+// through a url.insteadOf in a global git config of the test's own. after()
+// runs git in the served repository, for a later tag or an unreleased
+// commit. With forms, the manifest lists issue forms too: v0.2.0 changes
+// one, adds one and drops one, and v0.3.0 changes only a form.
+function kitFixture(t, { moves = false, forms = false } = {}) {
   const dir = tempDir(t);
   const work = path.join(dir, "kit");
   fs.mkdirSync(work);
@@ -36,6 +38,7 @@ function kitFixture(t, { moves = false } = {}) {
       },
     }).trim();
   const write = (file, content, mode = 0o644) => {
+    fs.mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
     fs.writeFileSync(path.join(work, file), content);
     fs.chmodSync(path.join(work, file), mode);
   };
@@ -43,8 +46,13 @@ function kitFixture(t, { moves = false } = {}) {
   git("config", "commit.gpgsign", "false");
   write(
     "kit-manifest.txt",
-    "# the kit's files\na.txt\nrun.sh\ngone.txt\nkeep.txt\nseed s1.md\nseed s2.md\n",
+    "# the kit's files\na.txt\nrun.sh\ngone.txt\nkeep.txt\nseed s1.md\nseed s2.md\n" +
+      (forms ? `${FORMS}/bug.yml\n${FORMS}/old.yml\n` : ""),
   );
+  if (forms) {
+    write(`${FORMS}/bug.yml`, "bug\n");
+    write(`${FORMS}/old.yml`, "old\n");
+  }
   write("a.txt", "a\n");
   write("run.sh", "#!/bin/sh\n", 0o755);
   write("gone.txt", "gone\n");
@@ -57,7 +65,16 @@ function kitFixture(t, { moves = false } = {}) {
   git("tag", "v0.1.0");
   // A changed file, a lost executable bit, a new file, a new seed, a changed
   // seed (not reported), a dropped file and a dropped seed (not reported).
-  write("kit-manifest.txt", "a.txt\nrun.sh\nkeep.txt\nnew.txt\nseed s1.md\nseed s3.md\n");
+  write(
+    "kit-manifest.txt",
+    "a.txt\nrun.sh\nkeep.txt\nnew.txt\nseed s1.md\nseed s3.md\n" +
+      (forms ? `${FORMS}/bug.yml\n${FORMS}/task.yml\n` : ""),
+  );
+  if (forms) {
+    write(`${FORMS}/bug.yml`, "bug, changed\n");
+    write(`${FORMS}/task.yml`, "task\n");
+    git("rm", "-q", `${FORMS}/old.yml`);
+  }
   write("a.txt", "a changed\n");
   write("run.sh", "#!/bin/sh\n", 0o644);
   write("new.txt", "new\n");
@@ -75,6 +92,11 @@ function kitFixture(t, { moves = false } = {}) {
     write("kit-manifest.txt", "a.txt\nrun.sh\nseed keep.txt\nnew.txt\ns1.md\nseed s3.md\n");
     git("add", "-A");
     git("commit", "-q", "-m", "third");
+    third = git("rev-parse", "HEAD");
+    git("tag", "v0.3.0");
+  } else if (forms) {
+    write(`${FORMS}/bug.yml`, "bug, changed again\n");
+    git("commit", "-q", "-am", "third");
     third = git("rev-parse", "HEAD");
     git("tag", "v0.3.0");
   }
@@ -122,6 +144,8 @@ function compare(t, kit, lock) {
   );
   return { ...r, outputs };
 }
+
+const FORMS = ".github/ISSUE_TEMPLATE";
 
 const LOCK_AT = (ref) => ({
   source: SOURCE,
@@ -171,6 +195,78 @@ test("the compare step reports a file moving between seed and managed", (t) => {
     tag: "v0.3.0",
     source: SOURCE,
   });
+});
+
+test("the compare step leaves out the kit's issue forms when the lock keeps its own", (t) => {
+  const kit = kitFixture(t, { forms: true });
+  // With the kit's forms, a changed, added and dropped form each count.
+  const withKit = compare(t, kit, {
+    ...LOCK_AT(kit.first),
+    paths: [...LOCK_AT(kit.first).paths, `${FORMS}/bug.yml`, `${FORMS}/old.yml`],
+  });
+  assert.equal(withKit.status, 0, withKit.stderr);
+  assert.equal(
+    withKit.stdout,
+    [
+      "updated    a.txt",
+      "updated    run.sh",
+      "added      new.txt",
+      "added      s3.md",
+      `updated    ${FORMS}/bug.yml`,
+      `added      ${FORMS}/task.yml`,
+      "removed    gone.txt",
+      `removed    ${FORMS}/old.yml`,
+      "",
+    ].join("\n"),
+  );
+  // With its own, as install.sh --issue-forms=own records it, none does.
+  const own = compare(t, kit, { ...LOCK_AT(kit.first), issue_forms: "own" });
+  assert.equal(own.status, 0, own.stderr);
+  assert.equal(
+    own.stdout,
+    [
+      "updated    a.txt",
+      "updated    run.sh",
+      "added      new.txt",
+      "added      s3.md",
+      "removed    gone.txt",
+      "",
+    ].join("\n"),
+  );
+  assert.equal(own.outputs.state, "behind");
+  // A form an own lock lists, by hand, is not reported when dropped either.
+  const listed = compare(t, kit, {
+    ...LOCK_AT(kit.first),
+    issue_forms: "own",
+    paths: [...LOCK_AT(kit.first).paths, `${FORMS}/old.yml`],
+  });
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(listed.stdout, own.stdout);
+  // A release that changed only a form leaves such a lock current.
+  const current = {
+    source: SOURCE,
+    ref: kit.second,
+    dirty: false,
+    seeds: ["s1.md", "s3.md"],
+    paths: ["a.txt", "run.sh", "keep.txt", "new.txt", "s1.md", "s3.md"],
+  };
+  const formsOnly = compare(t, kit, { ...current, issue_forms: "own" });
+  assert.equal(formsOnly.status, 0, formsOnly.stderr);
+  assert.equal(formsOnly.stdout, "");
+  assert.deepEqual(formsOnly.outputs, {
+    state: "current",
+    ref: kit.third,
+    tag: "v0.3.0",
+    source: SOURCE,
+  });
+  const kitForms = compare(t, kit, {
+    ...current,
+    issue_forms: "kit",
+    paths: [...current.paths, `${FORMS}/bug.yml`, `${FORMS}/task.yml`],
+  });
+  assert.equal(kitForms.status, 0, kitForms.stderr);
+  assert.equal(kitForms.stdout, `updated    ${FORMS}/bug.yml\n`);
+  assert.equal(kitForms.outputs.state, "behind");
 });
 
 test("the compare step finds a lock at the latest release current", (t) => {

@@ -3,6 +3,7 @@
 #
 #   ./install.sh /path/to/target-repo
 #   ./install.sh --check /path/to/target-repo
+#   ./install.sh --issue-forms=own /path/to/target-repo
 #
 # Copies every path in kit-manifest.txt from this clone to the same path in
 # the target ("seed" paths only when the target lacks them), adds a
@@ -17,6 +18,11 @@
 # same verbs, and exits 0 when the target is current, 1 when an install
 # would change it and 2 when an install would be refused.
 #
+# --issue-forms=own leaves .github/ISSUE_TEMPLATE/ to the target: the kit's
+# files there (its issue forms and config.yml) are not copied, updated or
+# removed. The lock records the choice, so a later install keeps it until
+# --issue-forms=kit, which installs the kit's forms again.
+#
 # A clone with uncommitted or untracked changes to kit files or to the
 # manifest is refused, since the lock would name a commit the files do not
 # match. KIT_ALLOW_DIRTY=1 installs anyway and records "dirty": true in the
@@ -26,15 +32,25 @@ set -euo pipefail
 KIT_SOURCE="github.com/bydradev/gh-agent-kit"
 
 kit=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+usage() {
+  echo "usage: $0 [--check] [--issue-forms=kit|own] /path/to/target-repo" >&2
+  exit 2
+}
 check=0
-if [ "${1:-}" = "--check" ]; then
-  check=1
+# kit or own from --issue-forms; empty takes the lock's choice.
+forms=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check) check=1 ;;
+    --issue-forms=kit | --issue-forms=own) forms=${1#--issue-forms=} ;;
+    -*) usage ;;
+    *) break ;;
+  esac
   shift
-fi
+done
 target=${1:-}
 if [ -z "$target" ] || [ ! -d "$target" ] || [ "$#" -gt 1 ]; then
-  echo "usage: $0 [--check] /path/to/target-repo" >&2
-  exit 2
+  usage
 fi
 # What an install changes in the target, counted for --check, which makes
 # none of these changes.
@@ -146,6 +162,7 @@ if [ -e "$lock" ] && [ ! -f "$lock" ]; then
 fi
 previous=()
 previous_seeds=""
+lock_forms=""
 if [ -f "$lock" ]; then
   old_ref=$(sed -n 's/^  "ref": "\([0-9a-f]\{40\}\)",\{0,1\}$/\1/p' "$lock" | head -n 1)
   old_manifest=""
@@ -162,6 +179,37 @@ if [ -f "$lock" ]; then
     printf '%s\n' "$old_manifest" | grep -qxF -- "$line" || continue
     previous+=("$line")
   done < <(sed -n 's/^    "\([^"]*\)",\{0,1\}$/\1/p' "$lock")
+  # The issue forms choice an earlier install recorded; a lock written
+  # before the choice existed has none, and had the kit's forms.
+  lock_forms=$(sed -n 's/^  "issue_forms": "\([^"]*\)",\{0,1\}$/\1/p' "$lock" | head -n 1)
+  if [ -z "$lock_forms" ] && grep -q '"issue_forms"' "$lock"; then
+    lock_forms="?"
+  fi
+fi
+case "$forms:$lock_forms" in
+  kit:* | own:*) ;;
+  :kit | :own) forms=$lock_forms ;;
+  :) forms=kit ;;
+  *)
+    echo "error: the lock's issue_forms is not \"kit\" or \"own\"; pass --issue-forms=kit or --issue-forms=own" >&2
+    exit 2 ;;
+esac
+# With its own issue forms, the target's .github/ISSUE_TEMPLATE/ is its
+# business: the kit's files there are left out of every step below, the
+# lock included, and one an earlier install put there is not removed.
+is_form() { case "$1" in .github/ISSUE_TEMPLATE/*) return 0 ;; esac; return 1; }
+skipped=()
+if [ "$forms" = own ]; then
+  rest=()
+  for p in "${paths[@]}"; do
+    if is_form "$p"; then skipped+=("$p"); else rest+=("$p"); fi
+  done
+  paths=("${rest[@]+"${rest[@]}"}")
+  rest=()
+  for p in "${seeds[@]+"${seeds[@]}"}"; do
+    is_form "$p" || rest+=("$p")
+  done
+  seeds=("${rest[@]+"${rest[@]}"}")
 fi
 # The entries to prune: previously managed, no longer in the manifest, and
 # not a seed by the old manifest (a dropped seed is the target's own).
@@ -171,6 +219,9 @@ for p in "${previous[@]+"${previous[@]}"}"; do
   keep=0
   for q in "${paths[@]}"; do [ "$q" = "$p" ] && keep=1 && break; done
   [ "$keep" -eq 1 ] && continue
+  if [ "$forms" = own ] && is_form "$p"; then
+    continue
+  fi
   if printf '%s\n' "$previous_seeds" | grep -qxF -- "$p"; then
     kept_seeds+=("$p")
   else
@@ -225,6 +276,9 @@ for p in "${prune[@]+"${prune[@]}"}"; do
   esac
 done
 
+for p in "${skipped[@]+"${skipped[@]}"}"; do
+  echo "skipped    $p (the target keeps its own issue forms)"
+done
 for p in "${paths[@]}"; do
   # mkdir -p, not install -d, which would reset an existing directory's mode.
   [ "$check" -eq 1 ] || mkdir -p -- "$target/$(dirname "$p")"
@@ -285,10 +339,10 @@ path_list=${path_list%,
 seed_list=""
 for p in "${seeds[@]+"${seeds[@]}"}"; do seed_list+="\"$p\", "; done
 seed_list=${seed_list%, }
-lock_body=$(printf '{\n  "source": "%s",\n  "ref": "%s",\n  "dirty": %s,\n  "installed": "%s",\n  "seeds": [%s],\n  "paths": [\n%s\n  ]\n}\n' \
-  "$KIT_SOURCE" "$ref" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$seed_list" "$path_list")
+lock_body=$(printf '{\n  "source": "%s",\n  "ref": "%s",\n  "dirty": %s,\n  "installed": "%s",\n  "issue_forms": "%s",\n  "seeds": [%s],\n  "paths": [\n%s\n  ]\n}\n' \
+  "$KIT_SOURCE" "$ref" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$forms" "$seed_list" "$path_list")
 same_lock=0
-if [ -f "$lock" ] && [ "$dirty" = false ] \
+if [ -f "$lock" ] && [ "$dirty" = false ] && [ "$lock_forms" = "$forms" ] \
   && grep -q "\"ref\": \"$ref\"" "$lock" && grep -q '"dirty": false' "$lock" \
   && [ "$(sed -n 's/^    "\([^"]*\)",\{0,1\}$/\1/p' "$lock")" = "$(printf '%s\n' "${paths[@]}")" ]; then
   same_lock=1
@@ -303,7 +357,7 @@ else
     chmod 0644 -- "$tmp"
     mv -f -- "$tmp" "$lock"
   fi
-  changed "wrote      .github/gh-agent-kit.lock (ref $ref, dirty $dirty)"
+  changed "wrote      .github/gh-agent-kit.lock (ref $ref, dirty $dirty, issue forms $forms)"
 fi
 
 if [ "$check" -eq 1 ]; then

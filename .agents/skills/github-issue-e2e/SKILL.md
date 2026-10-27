@@ -117,9 +117,9 @@ mutation, or change outside that scope.
   is input: where
   the code disagrees with it, follow the code and say so in the PR.
 - Keep to the issue's scope. Work you discover becomes a new issue through
-  the Task or Bug form, or `gh issue create --label needs-triage --title
-  "..." --body-file <file>` with the form's headings, referenced from the
-  PR. Do not do it, and do not
+  one of the repository's issue forms (the kit's are Task and Bug), or
+  `gh issue create --label needs-triage --title "..." --body-file <file>`
+  with that form's headings, referenced from the PR. Do not do it, and do not
   keep it in memory or a markdown note.
 - Stop and ask when the plan's *Risks and stop-and-ask items* or `AGENTS.md`
   say so. Ask on the issue: comment with the question and your
