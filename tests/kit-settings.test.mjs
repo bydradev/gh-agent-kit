@@ -231,6 +231,41 @@ test("a variable that is not one word fails before it reaches GITHUB_ENV", (t) =
   assert.equal(r.env.BASH_ENV, undefined);
 });
 
+test("a switch takes only its states, so a typo fails instead of turning a workflow off", (t) => {
+  for (const [name, states] of [
+    ["KIT_REVIEW_MODE", ["push", "open", "off"]],
+    ["KIT_SECURITY_SCAN", ["push", "open", "off"]],
+    ["KIT_ISSUE_TRIAGE", ["on", "off"]],
+    ["KIT_UPDATE_CHECK", ["on", "off"]],
+  ]) {
+    for (const v of states) {
+      const r = read(t, { vars: { [name]: v }, settings: name });
+      assert.equal(r.status, 0, `${name}=${v}: ${r.stdout}`);
+      assert.equal(r.env[name], v);
+    }
+    const unset = read(t, { settings: name });
+    assert.equal(unset.status, 0, `${name} unset: ${unset.stdout}`);
+    assert.equal(unset.env[name], "");
+    const allowed = `${states.join(", ")} or unset`;
+    for (const [v, opts, from] of [
+      ["Push", { vars: { [name]: "Push" } }, "the repository variable"],
+      ["true", { file: `${name}: true\n` }, ".github/gh-agent-kit.yml line 1"],
+      ["1", { vars: { [name]: "1" } }, "the repository variable"],
+    ]) {
+      const r = read(t, { ...opts, settings: name });
+      assert.equal(r.status, 1, `${name}=${v} was accepted`);
+      assert.ok(
+        r.stdout.includes(`the setting ${name} must be ${allowed}, not '${v}' (${from})`),
+        `${name}=${v}: ${r.stdout}`,
+      );
+      assert.equal(r.env[name], undefined, `${name}=${v} reached GITHUB_ENV`);
+    }
+  }
+  // A setting that is not a switch keeps its own check, later.
+  const other = read(t, { vars: { KIT_REVIEW_MODEL: "anything" }, settings: "KIT_REVIEW_MODEL" });
+  assert.equal(other.status, 0, other.stdout);
+});
+
 test("a value out of range names where it came from", (t) => {
   for (const [file, step, env, message] of [
     [

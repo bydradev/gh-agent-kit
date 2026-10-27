@@ -8,7 +8,7 @@ name: pr-review
 # .github/gh-agent-kit.yml (the settings job below), sets when: "open"
 # reviews once when a PR opens or leaves draft (a later push is reviewed
 # only while no report exists yet), "push" also re-reviews every push,
-# anything else (or unset) turns it off.
+# "off" (or unset) turns it off, and any other value fails the run.
 
 on:
   pull_request:
@@ -191,6 +191,17 @@ jobs:
             fi
             if ! [[ "$v" =~ ^$word*$ ]]; then
               echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            # A switch takes only the values that name a state, so a typo
+            # fails the run instead of quietly leaving its workflow off.
+            case "$name" in
+              KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              *) states="" ;;
+            esac
+            if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
+              echo "::error::the setting $name must be ${states// /, } or unset, not '$v' ($from)"
               exit 1
             fi
             echo "$name=$v" >> "$GITHUB_ENV"

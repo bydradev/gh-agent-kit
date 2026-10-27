@@ -90,23 +90,19 @@ secrets: the file holds settings only.
 | Name | Kind | Value | Effect |
 | --- | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Secret | An Anthropic Console API key | The review, scan and triage workflows need it once turned on (not when their provider is `opencode-go`); without it they fail at the model step |
-| `KIT_REVIEW_MODE` | Setting | `push` or `open` | `push`: review every push; `open`: review once when a pull request opens or leaves draft; any other word, or unset: off |
-| `KIT_SECURITY_SCAN` | Setting | `push` or `open` | Same modes for the security scan; any other word, or unset: off |
-| `KIT_ISSUE_TRIAGE` | Setting | `on` | Triage issues and run the weekly sweep; any other word, or unset: off |
-| `KIT_UPDATE_CHECK` | Setting | `on` | The weekly update check ([Updates](#updates)); any other word, or unset: off |
+| `KIT_REVIEW_MODE` | Setting | `push`, `open`, `off` or unset | `push`: review every push; `open`: review once when a pull request opens or leaves draft; `off` or unset: off |
+| `KIT_SECURITY_SCAN` | Setting | `push`, `open`, `off` or unset | Same modes for the security scan |
+| `KIT_ISSUE_TRIAGE` | Setting | `on`, `off` or unset | `on`: triage issues and run the weekly sweep; `off` or unset: off |
+| `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails at the model step without it |
-
-These four switches are not checked: write their values in lower case,
-as shown. Another word leaves its workflow off without an error, and a
-value in other case is not handled consistently. Each run's settings job
-logs every value it read and where it came from.
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
-optional; unset means the default. Unlike the switches, they are checked: a
-value outside its range fails the run with an error naming the setting and
-where it came from (the variable, or the file's line) instead of running
-with something else.
+optional; unset means the default. A value outside its range, a switch's
+included, fails the run with an error naming the setting, its allowed
+values and where the value came from (the variable, or the file's line)
+instead of running with something else, so a misspelt switch cannot leave
+its workflow off unnoticed. Values are matched exactly: `Push` fails too.
 
 | Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
