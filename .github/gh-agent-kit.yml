@@ -1,0 +1,4 @@
+# The kit's settings; a repository variable of the same name wins.
+KIT_REVIEW_MODE: push
+KIT_SECURITY_SCAN: open
+KIT_ISSUE_TRIAGE: on
