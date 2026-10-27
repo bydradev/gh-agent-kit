@@ -39,9 +39,13 @@ Set when it went public, on 2026-10-27:
 - by hand, Dependabot malware alerts on, and the auto-triage preset that
   dismisses low-impact alerts for development-scoped dependencies off.
 
-Still to do: a target repository installed from the original repository
-has a lock whose ref is outside this repository's history, so the operator
-reinstalls the kit in each one from a release of this repository.
+Added later the same day: a *Code scanning* ruleset on the default branch,
+with no bypass, so a merge waits for CodeQL's results and is blocked by a
+security alert of medium severity or higher, or by an error-level alert.
+
+The one target repository installed from the original repository, whose
+lock named a commit outside this repository's history, was reinstalled
+from v0.1.0 on 2026-10-27.
 
 ### Settings in a repository file (2026-10-26)
 

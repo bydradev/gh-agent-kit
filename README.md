@@ -1,48 +1,56 @@
 # gh-agent-kit
 
-GitHub Issues as the backlog for coding agents, with Claude doing the
-triage, the pull request review and the security scan.
+GitHub Issues as the backlog for coding agents, with AI triage, pull
+request review and security scanning in GitHub Actions.
 
-The kit is four GitHub Actions workflows, one small MCP server and four
-skills. `install.sh` copies them into your repository as plain files, pinned
-to a commit of this one, so you review them like any other change. Every
-workflow stays off until a setting turns it on.
+The kit is four GitHub Actions workflows, an MCP server, four skills, issue
+forms and a label script. `install.sh` copies them into your repository as
+plain files, pinned to a commit of this one, so you review them like any
+other change. Until a setting turns a workflow on, it runs only a short
+settings check.
 
 The kit was extracted from a working pilot and ships as tagged releases.
-It runs on GitHub-hosted Ubuntu runners, through the Claude Code CLI on an
-Anthropic API key (the review, the scan and triage can use an OpenCode Go
-key instead).
+It runs on GitHub-hosted Ubuntu runners; [How it runs](#how-it-runs) says
+which program and which model each workflow uses.
 
 ## What you get
 
 - **Issue triage.** Each new issue, and each issue edited, reopened or
   re-labelled `needs-triage`, gets a type, a priority and a plan comment, or
-  a `needs-operator` question when Claude cannot decide it. A weekly sweep
-  triages the untriaged backlog and warns about stale claims. The bot never
-  approves work: `ready` and `agent:approved` are the operator's.
-- **Pull request review.** Claude reviews each pull request against the
+  a `needs-operator` question when the model cannot decide it. A weekly
+  sweep triages the untriaged backlog and warns about stale claims. The bot
+  never approves work: `ready` and `agent:approved` are the operator's.
+- **Pull request review.** A model reviews each pull request against the
   repository's own review guidelines, posts inline findings and a numbered
   report, and sets a `pr-review verdict` check. It runs once when the pull
   request opens, or on every push; a later review covers only what changed
   since the last one.
-- **Security scan.** Claude scans each pull request's change for
-  vulnerabilities, once or on every push. A second run checks each
-  candidate in a fresh session and drops the false positives; the rest are
-  posted on the changed lines, with a record of what was scanned.
+- **Security scan.** A model scans each pull request's change for
+  vulnerabilities, once or on every push. A second run, in a fresh session,
+  checks each candidate against the code and drops the ones it rejects; the
+  rest are posted on the changed lines (marked unverified when it gave no
+  verdict), with a record of what was scanned. Known-vulnerable
+  dependencies are left to a dependency scanner such as Dependabot
+  ([The security scan](docs/setup.md#the-security-scan)).
 - **An update notice.** A weekly check opens one issue when the kit's
   latest release has changed files your repository installed from it, and
-  closes it once you are current. It reads the kit as data and runs none of its code.
-- **An implementation skill** (`github-issue-e2e`) for an agent picking up
-  an approved issue: claim, branch, implement, validate, review, and open
-  the pull request that closes it.
+  closes it once you are current. It reads the kit as data and runs none of
+  its code.
+- **An implementation skill** (`github-issue-e2e`) for the coding agent
+  that picks up an approved issue: claim, branch, implement, validate,
+  review, and open the pull request that closes it.
 
-The review and the scan read their rules from the base branch, never from
-the change under review.
+The review and the scan follow the base branch's copies of their skills,
+the review guidelines and every `AGENTS.md`, and the review uses the
+base's MCP server, never the change's copies. A skill or server the base
+lacks comes from the change, as on the pull request that first installs
+the kit. The workflow files are the exception: a pull request runs its
+own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
 
 ## Quick start
 
-1. Install the files from the latest release into your repository, then
-   commit them on a branch and open a pull request:
+1. Install the files from the latest release into your repository, on a
+   branch:
 
    ```sh
    git clone https://github.com/bydradev/gh-agent-kit
@@ -51,6 +59,10 @@ the change under review.
      ./gh-agent-kit/install.sh /path/to/your-repo
    ```
 
+   Add the *Work tracking* block from
+   [`docs/agents-md-block.md`](docs/agents-md-block.md) to your
+   `AGENTS.md`, then commit both and open a pull request.
+
    This README and `docs/` describe the default branch, which can be
    ahead of the latest release; the copies in your checkout describe the
    release you installed.
@@ -58,97 +70,90 @@ the change under review.
    `./gh-agent-kit/install.sh --check /path/to/your-repo` shows what an
    install or update would change, and changes nothing.
 
-2. Create the labels with `.github/scripts/sync-labels.sh owner/repo`.
-3. Add the `ANTHROPIC_API_KEY` repository secret (or `OPENCODE_API_KEY`
-   for a review, scan or triage on [OpenCode Go](docs/setup.md#opencode-go)).
-4. Turn on the workflows you want with these settings, each a repository
-   variable or a line of
+2. From your repository, create the labels with
+   `.github/scripts/sync-labels.sh owner/repo`.
+3. Add the `ANTHROPIC_API_KEY` repository secret. A workflow on
+   [OpenCode Go](docs/setup.md#opencode-go) needs the `OPENCODE_API_KEY`
+   secret instead, and its provider setting (`KIT_REVIEW_PROVIDER`,
+   `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go`.
+   Then turn on the workflows you want with these settings, each a
+   repository variable or a line of
    [`.github/gh-agent-kit.yml`](docs/setup.md#the-settings-file):
 
-   | Setting | Values | Workflow |
+   | Setting | Turns on with | Workflow |
    | --- | --- | --- |
    | `KIT_REVIEW_MODE` | `open` (once per pull request) or `push` (every push) | `pr-review` |
    | `KIT_SECURITY_SCAN` | `open` or `push` | `security-scan` |
    | `KIT_ISSUE_TRIAGE` | `on` | `issue-triage`, the weekly sweep included |
    | `KIT_UPDATE_CHECK` | `on` | `kit-update-check` |
 
-5. Open an issue and a pull request, and check the first runs.
+   Write the values in lower case, as shown: unset, or any other word,
+   leaves the workflow off without an error.
+
+4. Merge the pull request: issue forms, workflows that run on issues, on a
+   schedule or by hand, and the settings file work only from the default
+   branch.
+5. Open an issue and a pull request, and check the first runs. A passing
+   `pr-review verdict` check means the reviewer found nothing blocking,
+   not that anyone agreed to merge: the kit never approves or merges a
+   pull request, so that decision stays yours.
 
 [`docs/setup.md`](docs/setup.md) walks through each step in full.
 
-## Models
+## How it runs
 
-| Workflow | Default | On OpenCode Go | Effort |
+Three of the workflows use a model, through one of two programs and on one
+of two hosts:
+
+| Workflow | Program | Model host | Default model |
 | --- | --- | --- | --- |
-| `pr-review` | `claude-opus-5-5` | `deepseek-v4.1-flash` | the CLI's default, `medium` on Opus 5.5 |
-| `security-scan` | `claude-opus-5-5` | `deepseek-v4.1-flash` | `xhigh` (none on OpenCode Go, where effort is untested) |
-| `issue-triage` | `claude-sonnet-5-5` | `deepseek-v4.1-flash` | the CLI's default, `medium` |
+| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go |
+| `security-scan` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5` at effort `xhigh`; `deepseek-v4.1-flash` on Go |
+| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go |
+| `kit-update-check` | none: `git` and `gh` only | none | none |
 
-Each is a setting (`KIT_*_MODEL`, `KIT_*_EFFORT`, `KIT_*_PROVIDER`
-and, for triage, `KIT_TRIAGE_RUNNER`), alongside the turn, time and size
-limits;
-[`docs/setup.md`](docs/setup.md#3-add-the-secret-and-the-settings) lists
-them all. Claude Code's docs give `medium` as the default effort for Opus
-5.5, Sonnet 5.5 and Haiku 5.5
-(<https://code.claude.com/docs/en/model-config>, read 2026-10-23).
+- **OpenCode Go** is OpenCode's monthly model subscription. Claude Code
+  reaches the Go models served on Go's Anthropic-style endpoint. With
+  `KIT_TRIAGE_PROVIDER=opencode-go`, `KIT_TRIAGE_RUNNER=opencode` runs
+  triage in OpenCode's own CLI instead, which reaches the Go models its
+  pinned release lists ([OpenCode Go](docs/setup.md#opencode-go)).
+- **Codex** runs no workflow. Like any coding agent, it can follow the
+  implementation skill. Codex and OpenCode read skills from
+  `.agents/skills`, and Claude Code from `.claude/skills`, where
+  `install.sh` links each kit skill
+  ([Codex](https://learn.chatgpt.com/docs/build-skills),
+  [OpenCode](https://opencode.ai/docs/skills/),
+  [Claude Code](https://code.claude.com/docs/en/skills), read 2026-10-27).
 
-Each default was tested against cheaper models on the same past work:
+Every model, effort level, turn and time limit and size limit is a setting
+([`docs/setup.md`](docs/setup.md#3-add-the-secret-and-the-settings) lists
+them). Each default was backtested against cheaper models on the same past
+work ([reports](docs/reports/)):
 
-| Job | Use | Tested against it | Report |
-| --- | --- | --- | --- |
-| Review and scan | Opus 5.5; on OpenCode Go, DeepSeek V4.1 Flash | DeepSeek V4.1 Flash, MiniMax M3, Qwen3.8 Flash and MiniMax M3.1 Flash, on OpenCode Go | [2026-10-25](docs/reports/2026-10-25-review-models.md) |
-| Triage | Sonnet 5.5; on OpenCode Go, DeepSeek V4.1 Flash | Haiku 5.5 at effort `high`; DeepSeek V4.1 Flash, Qwen3.8 Flash and MiniMax M3.1 Flash, on OpenCode Go | [2026-10-23](docs/reports/2026-10-23-triage-model.md), [2026-10-25](docs/reports/2026-10-25-triage-deepseek.md), [2026-10-26](docs/reports/2026-10-26-triage-go-models.md) |
-
-**Reviews and scans.** Opus 5.5 found the most real problems. DeepSeek
-V4.1 Flash found 10 of Opus's 14 findings (one in part) and raised none
-that were wrong, at about a tenth of the cost; it rates severity higher, so
-it blocks more often. It is the only model tested that fits the Go Plus
-allowance at 644 pushes a month (off-peak; DeepSeek costs double at peak
-hours). The others either cost about five times as
-much (MiniMax M3), fit only about 400 pushes a month (Qwen3.8 Flash), or
-made wrong blocking findings (MiniMax M3.1 Flash).
-
-**Triage.** No cheaper model passed. Every one set priority one level
-too high, and never too low, in 17 to 28 of its 63 runs:
-
-- **Haiku 5.5** costs about a ninth as much per run, but failed five of
-  six tests. It also labelled chores as bugs in 15 runs.
-- **DeepSeek V4.1 Flash** on Go costs about a sixth as much and failed
-  only on priority. It is the default when triage runs on Go.
-- **Qwen3.8 Flash** and **MiniMax M3.1 Flash** on Go also missed the type
-  bar, and each left an issue untriaged in 2 runs.
-
-A repository that weighs cost differently can set
-`KIT_TRIAGE_MODEL=claude-haiku-5-5` with `KIT_TRIAGE_EFFORT=high`, or
-`KIT_TRIAGE_PROVIDER=opencode-go`. Both are configurations that were
-tested.
-
-### Providers
-
-Every run uses Claude through the Claude Code CLI by default. The review,
-the scan and triage can instead run on an OpenCode Go model through the
-same CLI (`KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` and
-`KIT_TRIAGE_PROVIDER`, see [OpenCode Go](docs/setup.md#opencode-go)).
-Triage can also run in OpenCode's own CLI, for Go models Claude Code
-cannot reach (`KIT_TRIAGE_RUNNER`, see
-[OpenCode CLI for triage](docs/setup.md#opencode-cli-for-triage)).
-
-The provider-specific parts are small and marked: the *Install Claude
-Code* and *Run the …* steps of each workflow, the scan's *Verify the
-candidate findings* step, and the two key secrets. Everything else (the
-gates, the MCP server, the skills, the reports, the `KIT_*` settings) is
-provider-free, so adding another CLI means adding its own install and run
-steps and key.
+- **Reviews and scans.** Opus 5.5 was the better reviewer and stays the
+  default. On Go, DeepSeek V4.1 Flash found 10 of Opus's 14 findings (one
+  in part), raised none that were wrong and cost about a tenth as much
+  (off-peak; DeepSeek costs double at peak hours); it rates severity
+  higher, so it blocks more often. It was also the only Go model tested
+  that fit Go Plus's allowance at the maintainer's measured volume of 644
+  pushes a month.
+- **Triage.** No cheaper model passed: every one set priority one level
+  too high in 17 to 28 of its 63 runs. DeepSeek V4.1 Flash came closest and
+  is the default on Go. Haiku 5.5 at effort `high`
+  (`KIT_TRIAGE_MODEL=claude-haiku-5-5`, `KIT_TRIAGE_EFFORT=high`) costs
+  about a ninth as much as Sonnet 5.5 but failed five of six tests.
 
 ## What the model can do
 
 In the review and triage runs the model has no shell, no file writes and
 no network. Its GitHub reads and writes are named tools of the kit's MCP
-server, which limits writes to the one issue or pull request and refuses
-them once the head moves. The scan's model has no GitHub access at all: it
-reads the checkout and the diff the workflow wrote, and the workflow posts
-what it found. [`docs/setup.md`](docs/setup.md#what-each-run-may-do) has
-the details.
+server, which limits writes to the one issue or pull request the run is
+for and refuses a review's writes once the head moves. The reviewer may
+also file up to five backlog issues for findings outside the change, and
+the sweep only dispatches triage runs. The scan's model has no GitHub
+access at all: it reads the checkout and the diff the workflow wrote, and
+the workflow posts what it found.
+[`docs/setup.md`](docs/setup.md#what-each-run-may-do) has the details.
 
 ## Requirements in the target repository
 
@@ -162,19 +167,20 @@ the details.
 - Issues and pull requests from collaborators with write access: the
   workflows refuse events from anyone else.
 - An Anthropic API key with credit (or an OpenCode Go key for the review,
-  the scan and triage), and `gh` and `jq` locally for the label script.
+  the scan and triage), `git` for the install and `gh` for the label
+  script.
 
 ## Documentation
 
 - [`docs/setup.md`](docs/setup.md): install, secrets and settings, costs,
-  OpenCode Go, what each run may do, the verdict check, the lock file,
-  updates and the pinned CLI.
+  OpenCode Go, what each run may do, the verdict check, the scan's
+  instructions file, the lock file, updates and the pinned CLIs.
 - [`docs/labels.md`](docs/labels.md): the fifteen labels, the issue
   lifecycle and who sets what.
 - [`docs/agents-md-block.md`](docs/agents-md-block.md): the *Work tracking*
   rules to add to your `AGENTS.md`.
 - [`docs/reports/`](docs/reports/): the dated tests behind the default
-  models (see [Models](#models)).
+  models (see [How it runs](#how-it-runs)).
 - `.agents/skills/github-pr-review`, `github-security-scan`,
   `github-issue-triage` and `github-issue-e2e`: what the reviewer, the
   scanner, the triage bot and an implementing agent follow.
