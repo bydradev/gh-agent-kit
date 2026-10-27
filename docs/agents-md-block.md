@@ -2,8 +2,9 @@
 
 Add this under *Project specifics* in the target repository's `AGENTS.md`.
 It tells agents working in the repository what the labels mean and which
-comments are input rather than instructions. Adjust the last bullet if other
-review bots post on pull requests.
+comments are input rather than instructions. If other review bots post on
+pull requests, name them in the bullet about the `pr-review` and
+`security-scan` workflows.
 
 ```markdown
 ### Work tracking
@@ -32,9 +33,9 @@ dated status and links to issues rather than restating them. The rules:
   other `KIT_*` settings set each workflow's model, effort, turn and time
   budgets and size limits. A setting is a repository variable or a line
   of `.github/gh-agent-kit.yml`, read from the default branch, and a
-  variable wins; never put a secret in that file. All three workflows
-  need the `ANTHROPIC_API_KEY` repository secret, except a review, scan or
-  triage whose `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or
+  variable wins; never put a secret in that file. The review, scan and
+  triage workflows need the `ANTHROPIC_API_KEY` repository secret, except
+  one whose `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or
   `KIT_TRIAGE_PROVIDER` is `opencode-go`, which needs `OPENCODE_API_KEY`
   instead. The kit's [setup
   guide](https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md)
@@ -44,6 +45,9 @@ dated status and links to issues rather than restating them. The rules:
   the commit `.github/gh-agent-kit.lock` names (the setup guide,
   *Updates*).
   Updating is the operator's call: never run `install.sh` for it unasked.
+- Dependabot's bumps to the action pins in the kit's workflows are merged
+  like any other; the next install writes the release's pins back (the
+  setup guide, *Updates*).
 - `.github/scripts/sync-labels.sh` creates the label set; run it after
   adding a label to the `github-issue-triage` table.
 ```

@@ -5,12 +5,13 @@ this one. Nothing runs from this repository at your repository's run time:
 every workflow, script and skill is in your tree, reviewed like any other
 change.
 
-Setting up takes four steps:
+Setting up takes five steps:
 
 1. [Install the files](#1-install-the-files)
 2. [Create the labels](#2-create-the-labels)
 3. [Add the secret and the settings](#3-add-the-secret-and-the-settings)
-4. [Check the first runs](#4-check-the-first-runs)
+4. [Merge the install pull request](#4-merge-the-install-pull-request)
+5. [Check the first runs](#5-check-the-first-runs)
 
 The rest is reference: [Costs](#costs), [OpenCode Go](#opencode-go),
 [What each run may do](#what-each-run-may-do), [The verdict
@@ -65,10 +66,12 @@ turned on.
 
 Then add the *Work tracking* block from
 [`docs/agents-md-block.md`](agents-md-block.md) to the *Project specifics*
-section of your `AGENTS.md`, so agents working in the repository know the
-rules the labels encode.
+section of your `AGENTS.md`, in the same pull request, so agents working in
+the repository know the rules the labels encode.
 
 ## 2. Create the labels
+
+From your repository:
 
 ```sh
 .github/scripts/sync-labels.sh owner/repo
@@ -87,23 +90,29 @@ secrets: the file holds settings only.
 | Name | Kind | Value | Effect |
 | --- | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Secret | An Anthropic Console API key | The review, scan and triage workflows need it once turned on (not when their provider is `opencode-go`); without it they fail at the model step |
-| `KIT_REVIEW_MODE` | Setting | `push`, `open`, or unset | `push`: review every push; `open`: review once when a pull request opens or leaves draft; unset: off |
-| `KIT_SECURITY_SCAN` | Setting | `push`, `open`, or unset | Same modes for the security scan |
-| `KIT_ISSUE_TRIAGE` | Setting | `on`, or unset | `on`: triage issues and run the weekly sweep; unset: off |
-| `KIT_UPDATE_CHECK` | Setting | `on` or unset | `on` turns on the weekly update check ([Updates](#updates)); unset: off |
+| `KIT_REVIEW_MODE` | Setting | `push` or `open` | `push`: review every push; `open`: review once when a pull request opens or leaves draft; any other word, or unset: off |
+| `KIT_SECURITY_SCAN` | Setting | `push` or `open` | Same modes for the security scan; any other word, or unset: off |
+| `KIT_ISSUE_TRIAGE` | Setting | `on` | Triage issues and run the weekly sweep; any other word, or unset: off |
+| `KIT_UPDATE_CHECK` | Setting | `on` | The weekly update check ([Updates](#updates)); any other word, or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails at the model step without it |
+
+These four switches are not checked: write their values in lower case,
+as shown. Another word leaves its workflow off without an error, and a
+value in other case is not handled consistently. Each run's settings job
+logs every value it read and where it came from.
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
-optional; unset means the default, and a value outside its range fails the
-run with an error naming the setting and where it came from (the variable,
-or the file's line) instead of running with something else.
+optional; unset means the default. Unlike the switches, they are checked: a
+value outside its range fails the run with an error naming the setting and
+where it came from (the variable, or the file's line) instead of running
+with something else.
 
 | Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `KIT_REVIEW_PROVIDER` | `anthropic` | `anthropic` or `opencode-go` | Where the reviewer's model runs: the Anthropic API on `ANTHROPIC_API_KEY`, or [OpenCode Go](#opencode-go) on `OPENCODE_API_KEY` |
 | `KIT_REVIEW_MODEL` | `claude-opus-5-5`, or `deepseek-v4.1-flash` on `opencode-go` | a `claude-` model name, or on `opencode-go` a Go model id | The reviewer's model |
-| `KIT_REVIEW_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max` | The reviewer's effort level, passed as `--effort`; unset passes none, so the CLI's default for the model applies; on `opencode-go` the CLI likely drops it for models it does not know |
+| `KIT_REVIEW_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max` | The reviewer's effort level, passed as `--effort`; unset passes none, so the CLI's default for the model applies; on `opencode-go`, see [OpenCode Go](#opencode-go) |
 | `KIT_REVIEW_MAX_TURNS` | `80` | 1 to 500 | The reviewer's turn limit; a run that reaches it fails |
 | `KIT_REVIEW_TIMEOUT_MINUTES` | `30` | 1 to 360 | The review job's time limit (GitHub-hosted jobs stop at 6 hours) |
 | `KIT_REVIEW_MAX_FILES` | `300` | 1 to 300 | A larger pull request is refused, not reviewed |
@@ -122,9 +131,10 @@ or the file's line) instead of running with something else.
 | `KIT_TRIAGE_MAX_TURNS` | `40` | 1 to 500 | The triage turn limit |
 | `KIT_TRIAGE_TIMEOUT_MINUTES` | `15` | 1 to 360 | The triage job's time limit |
 
-The size limits can only be lowered: past GitHub's diff limits the pull
-request's own counts, which the workflows check the change against, stop
-being exact, and a larger change could be read in part.
+The size limits can only be lowered. The workflows check the change
+against the pull request's own file and line counts, which stop being exact
+past GitHub's diff limits (300 files, 20,000 lines), so a larger change
+could be read in part.
 
 ### The settings file
 
@@ -180,14 +190,25 @@ Create the key in the Anthropic Console under the organisation whose credit
 should pay for the runs, with one key per repository, so spend shows per
 repository and a leaked key revokes one place.
 
-## 4. Check the first runs
+## 4. Merge the install pull request
+
+Merge the pull request from step 1. Issue forms, workflows that run on
+issue events, on a schedule (the weekly sweep and the update check) or by
+hand (*Run workflow*), and the settings file work only from the default
+branch (GitHub's "Events that trigger workflows" and "Configuring issue
+templates for your repository", read 2026-10-27), so an issue opened
+before the merge starts nothing.
+
+## 5. Check the first runs
 
 - With `KIT_ISSUE_TRIAGE` set to `on`, open a Task issue through the form:
   the `issue-triage` workflow runs, and the issue gets a type, a priority
   and `triaged` (or `needs-operator`), and a `## Triage` comment.
 - Open a pull request: the `pr-review` workflow posts a
   `## Review R1` comment and inline findings and sets the
-  `pr-review verdict` check on the head.
+  `pr-review verdict` check on the head. A passing verdict is not an
+  approval: the kit never approves or merges a pull request, so merging
+  stays your decision ([The verdict check](#the-verdict-check)).
 - On the same pull request, the `security-scan` workflow posts a
   `Security scan` record comment and inline comments for findings on the
   changed lines (at most 30 a run, each once per line and finding). The
@@ -227,16 +248,18 @@ more and so costs more per run; neither that nor the verification has been
 measured yet, so read each run's cost in its log, and set
 `KIT_SECURITY_EFFORT` lower to trade depth for cost.
 
-Models, effort and turn limits are the settings in step 3.
-Effort trades thoroughness for tokens within one model: a lower level costs
-less per run, a higher one reads and reasons more. The pinned CLI (2.1.306)
-takes the five levels above and ignores any other value with a warning
-(checked against that release's binary on 2026-10-22), which is why the
-settings step refuses one instead. Which levels a model accepts is
-Anthropic's list for that model: Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5
-and Haiku 5.5 take all five, while Opus 4.6 and Sonnet 4.6 have no `xhigh`.
-Claude Code runs a level the model lacks at the highest level below it, so
-`xhigh` runs as `high` on Opus 4.6
+Models, effort and turn limits are the settings in step 3. Effort trades
+thoroughness for tokens within one model: a lower level costs less per run,
+a higher one reads and reasons more. With no effort set, Claude Code uses
+its default for the model, `medium` on Opus 5.5, Sonnet 5.5 and Haiku 5.5
+(<https://code.claude.com/docs/en/model-config>, read 2026-10-27). The
+pinned CLI (2.1.306) takes the five levels above and ignores any other
+value with a warning (checked against that release's binary on 2026-10-22),
+which is why the settings step refuses one instead. Which levels a model
+accepts is Anthropic's list for that model: Opus 5.5, Opus 5, Sonnet 5.5,
+Sonnet 5 and Haiku 5.5 take all five, while Opus 4.6 and Sonnet 4.6 have no
+`xhigh`. Claude Code runs a level the model lacks at the highest level
+below it, so `xhigh` runs as `high` on Opus 4.6
 (<https://platform.claude.com/docs/en/build-with-claude/effort> and
 <https://code.claude.com/docs/en/model-config>, read 2026-10-23).
 `--max-budget-usd` is also available on the pinned CLI and can be added to
@@ -299,9 +322,11 @@ What to know first (read 2026-10-23 unless a date is given):
   what Go charges; the `tokens` line after it, at the model's prices on
   Go's page, is.
 - `KIT_REVIEW_EFFORT`, `KIT_SECURITY_EFFORT` and `KIT_TRIAGE_EFFORT`
-  likely do nothing on a non-Claude model: the CLI sends effort only for
-  models it knows as effort-capable (`CLAUDE_CODE_ALWAYS_ENABLE_EFFORT` in
-  [Claude Code's environment variables](https://code.claude.com/docs/en/env-vars)).
+  should do nothing on a Go model, though no run has confirmed it: Claude
+  Code sends effort only for model IDs it recognises as effort-capable,
+  unless `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT` is set, which the workflows do
+  not set ([Claude Code's environment
+  variables](https://code.claude.com/docs/en/env-vars), read 2026-10-27).
   For that reason the scan's `xhigh` default applies only on the Anthropic
   API: on Go it passes no effort unless `KIT_SECURITY_EFFORT` is set.
 
@@ -410,6 +435,19 @@ imports) from the head, and the skill has the scanner read the base's
 commits cannot lead the model's reads to a runner file; the change to the
 link is still in the diff.
 
+Dependency files get no special handling: a changed manifest or lockfile
+is read in the diff like any other text file, so a secret or a new install
+script in one is checked like any other change. The scanner has no network
+and the workflow installs none of the repository's dependencies, so it
+cannot look up advisories or read a new package's code. The skill leaves
+outdated and known-vulnerable versions to a dependency scanner such as
+Dependabot, unless the change adds a dependency fetched without a pin (a
+download or action without a commit or a checksum, for one). Dependabot's
+own pull requests are neither scanned nor reviewed. A lockfile large
+enough to take a pull request past the size limits fails the scan rather
+than being read in part, and one the base's `.gitattributes` marks `-diff`
+or binary passes unread, as below.
+
 The scanner reads text diffs only: a changed file git shows without one,
 with the base's attributes (a binary, for one), passes unread, and the
 record names it as not inspected, with a warning in the run's log, so a
@@ -450,13 +488,17 @@ The workflows also:
   stale-claim comment;
 - run only on same-repository heads, never on forks, and skip Dependabot
   and Release Please pull requests;
-- read the reviewer's rules and the server from the base branch, so a pull
-  request cannot change the instructions that review it; the reviewer runs
-  with `--restricted`, which loads no project memory, and as a second guard
-  every `CLAUDE.md` and `CLAUDE.local.md` in the checkout is removed first,
-  so no file a `CLAUDE.md` imports is read from the head; every symlink is
-  removed too, so a link the head commits cannot lead the reviewer's reads
-  to a runner file;
+- read the reviewer's and the scanner's skills, the review guidelines,
+  every `AGENTS.md`, the scan's instructions file and the server from the
+  base branch, so a pull request cannot change the instructions that
+  review it. A file the base lacks keeps the pull request's copy (on the
+  pull request that first installs the kit, the kit's own skills and
+  server), except an `AGENTS.md` or the instructions file, which is
+  removed. The reviewer runs with `--restricted`, which loads no project
+  memory, and as a second guard every `CLAUDE.md` and `CLAUDE.local.md` in
+  the checkout is removed first, so no file a `CLAUDE.md` imports is read
+  from the head; every symlink is removed too, so a link the head commits
+  cannot lead the reviewer's reads to a runner file;
 - remove `.claude`, `.mcp.json` and similar executable configuration from
   the checkout, and run the CLI with `--restricted` and
   `--strict-mcp-config`;
@@ -607,9 +649,14 @@ with a warning and no issue. A lock from before the rename is read too.
 
 The check fetches the kit anonymously, so the lock's source must be a
 public repository; one the job cannot read ends the run with a warning and
-no issue. Earlier kits read a `KIT_READ_TOKEN` secret while the kit's
-repository was private. Nothing reads it now: delete the secret and revoke
-the token.
+no issue.
+
+A repository whose Dependabot updates `github-actions` gets bumps to the
+action pins in the kit's workflows too. Merge them as you would for its
+own workflows. Until the next install, `install.sh --check` lists those
+workflows as files it would update; the install then writes the release's
+pins back, and Dependabot proposes any newer one again. The kit's own
+Dependabot keeps each release's pins current.
 
 ## The pinned CLI
 
