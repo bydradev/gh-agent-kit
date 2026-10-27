@@ -54,7 +54,6 @@ check contains "$t/.github/gh-agent-kit.lock" '"source": "github.com/bydradev/gh
 check contains "$t/.github/gh-agent-kit.lock" "\"ref\": \"$head\","
 check contains "$t/.github/gh-agent-kit.lock" '"dirty": false,'
 check contains "$t/.github/gh-agent-kit.lock" '"seeds": [".github/security-review-instructions.md"],'
-check test ! -e "$t/.github/agent-kit.lock"
 
 it "a second install changes nothing, the lock included"
 cp "$t/.github/gh-agent-kit.lock" "$work/lock.before"
@@ -268,91 +267,6 @@ check install "$t"
 check contains "$work/out" "is not in the history of this clone's commit"
 check test -f "$t/.github/ISSUE_TEMPLATE/config.yml"
 git -C "$kit" checkout -q "$head"
-
-# Before the rename to gh-agent-kit the installer wrote
-# .github/agent-kit.lock and .github/agent-kit/LICENSE. This repository's
-# history starts after the rename, so the clone gets a kit commit with the
-# licence at its old path (before_rename) and one that moves it back
-# (after_rename), and old_install leaves a target as an install from
-# before_rename did: the licence at the old path, the lock under its old
-# name and with the kit's old name as its source.
-mkdir -p "$kit/.github/agent-kit"
-git -C "$kit" mv .github/gh-agent-kit/LICENSE .github/agent-kit/LICENSE
-sed -i.bak 's/^\.github\/gh-agent-kit\/LICENSE$/.github\/agent-kit\/LICENSE/' "$kit/kit-manifest.txt"
-rm -f "$kit/kit-manifest.txt.bak"
-git -C "$kit" commit -q -am "the licence at its path before the rename"
-before_rename=$(git -C "$kit" rev-parse HEAD)
-after_rename=$(git -C "$kit" commit-tree -p "$before_rename" -m "the licence at its path after the rename" "$head^{tree}")
-git -C "$kit" checkout -q "$after_rename"
-old_install() {
-  git -C "$kit" checkout -q "$before_rename" \
-    && "$kit/install.sh" "$1" \
-    && mv "$1/.github/gh-agent-kit.lock" "$1/.github/agent-kit.lock" \
-    && sed -i.bak 's/"source": "github.com\/bydradev\/gh-agent-kit"/"source": "github.com\/bydradev\/github-agent-kit"/' "$1/.github/agent-kit.lock" \
-    && rm -f "$1/.github/agent-kit.lock.bak"
-  local status=$?
-  git -C "$kit" checkout -q "$after_rename"
-  return "$status"
-}
-
-it "an install from before the rename is migrated to the new lock and licence path"
-new_target
-check old_install "$t" > "$work/out" 2>&1
-check test -f "$t/.github/agent-kit.lock"
-check test -f "$t/.github/agent-kit/LICENSE"
-git -C "$t" add -A && git -C "$t" commit -q -m "kit before the rename"
-check test "$(check_mode "$t"; echo $?)" = 1
-check contains "$work/out" "removed    .github/agent-kit.lock (replaced by .github/gh-agent-kit.lock)"
-check test -f "$t/.github/agent-kit.lock"
-check test -f "$t/.github/agent-kit/LICENSE"
-check test ! -e "$t/.github/gh-agent-kit.lock"
-check install "$t"
-check test ! -e "$t/.github/agent-kit.lock"
-check test ! -e "$t/.github/agent-kit"
-check test -f "$t/.github/gh-agent-kit/LICENSE"
-check contains "$t/.github/gh-agent-kit.lock" '"source": "github.com/bydradev/gh-agent-kit",'
-check contains "$work/out" "removed    .github/agent-kit.lock (replaced by .github/gh-agent-kit.lock)"
-check contains "$work/out" ".github/agent-kit/LICENSE"
-
-it "a migration whose old ref the clone cannot check still removes the old licence copy"
-new_target
-check old_install "$t" > "$work/out" 2>&1
-sed -i.bak "s/\"ref\": \"[0-9a-f]*\"/\"ref\": \"$(printf '1%.0s' {1..40})\"/" "$t/.github/agent-kit.lock"
-rm -f "$t/.github/agent-kit.lock.bak"
-check install "$t"
-check test ! -e "$t/.github/agent-kit/LICENSE"
-check test ! -e "$t/.github/agent-kit.lock"
-
-it "a migration whose old ref the clone cannot check keeps an edited old licence copy"
-new_target
-check old_install "$t" > "$work/out" 2>&1
-sed -i.bak "s/\"ref\": \"[0-9a-f]*\"/\"ref\": \"$(printf '1%.0s' {1..40})\"/" "$t/.github/agent-kit.lock"
-rm -f "$t/.github/agent-kit.lock.bak"
-echo "ours" >> "$t/.github/agent-kit/LICENSE"
-check install "$t"
-check contains "$t/.github/agent-kit/LICENSE" "ours"
-check contains "$work/out" "kept       .github/agent-kit/LICENSE (not the kit's licence text"
-check test ! -e "$t/.github/agent-kit.lock"
-
-it "a migration whose old ref the clone cannot check removes the old licence copy after the kit's licence text changed"
-new_target
-check old_install "$t" > "$work/out" 2>&1
-sed -i.bak "s/\"ref\": \"[0-9a-f]*\"/\"ref\": \"$(printf '1%.0s' {1..40})\"/" "$t/.github/agent-kit.lock"
-rm -f "$t/.github/agent-kit.lock.bak"
-echo "appendix" >> "$kit/.github/gh-agent-kit/LICENSE"
-git -C "$kit" commit -qam "licence text changes"
-check install "$t"
-check test ! -e "$t/.github/agent-kit/LICENSE"
-check test ! -e "$t/.github/agent-kit.lock"
-git -C "$kit" reset -q --hard HEAD~1
-
-it "a target with both locks is refused"
-new_target
-check old_install "$t" > "$work/out" 2>&1
-cp "$t/.github/agent-kit.lock" "$t/.github/gh-agent-kit.lock"
-check test "$(install "$t"; echo $?)" = 2
-check contains "$work/out" "has both .github/gh-agent-kit.lock and .github/agent-kit.lock"
-check test -f "$t/.github/agent-kit/LICENSE"
 
 echo "$passes passed, $failures failed"
 [ "$failures" -eq 0 ]

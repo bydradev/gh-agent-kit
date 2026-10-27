@@ -8,9 +8,8 @@
 # the target ("seed" paths only when the target lacks them), adds a
 # .claude/skills/<name> symlink for each skill (creating .claude/skills
 # when the target lacks it), and writes .github/gh-agent-kit.lock with this
-# clone's commit when that changed (a lock from before the rename to
-# gh-agent-kit, .github/agent-kit.lock, is read and replaced by it). It
-# changes nothing else in the target: commit the result on a branch and
+# clone's commit when that changed. It changes nothing else in the target:
+# commit the result on a branch and
 # open a pull request. Re-run from a newer clone to update; the diff of the
 # kit's files is printed at the end.
 #
@@ -139,32 +138,16 @@ no_symlink_on() {
 # read from that manifest, not from the lock's "seeds" list. Without such
 # a ref, nothing is removed.
 lock="$target/.github/gh-agent-kit.lock"
-# Before the rename to gh-agent-kit the lock was .github/agent-kit.lock. A
-# target with only that one is read from it, and it is removed once the new
-# lock is written; a target with both is refused, since either could be
-# the one that describes its files.
-legacy_lock="$target/.github/agent-kit.lock"
-# Checked before a lock is read: a symlink there would be read through.
+# Checked before the lock is read: a symlink there would be read through.
 no_symlink_on .github/gh-agent-kit.lock
-no_symlink_on .github/agent-kit.lock
-for f in "$lock" "$legacy_lock"; do
-  if [ -e "$f" ] && [ ! -f "$f" ]; then
-    echo "error: $f exists and is not a regular file; move it aside" >&2
-    exit 2
-  fi
-done
-read_lock=$lock
-if [ -f "$legacy_lock" ]; then
-  if [ -f "$lock" ]; then
-    echo "error: $target has both .github/gh-agent-kit.lock and .github/agent-kit.lock (the lock from before the rename); remove the one that does not match the kit's files" >&2
-    exit 2
-  fi
-  read_lock=$legacy_lock
+if [ -e "$lock" ] && [ ! -f "$lock" ]; then
+  echo "error: $lock exists and is not a regular file; move it aside" >&2
+  exit 2
 fi
 previous=()
 previous_seeds=""
-if [ -f "$read_lock" ]; then
-  old_ref=$(sed -n 's/^  "ref": "\([0-9a-f]\{40\}\)",\{0,1\}$/\1/p' "$read_lock" | head -n 1)
+if [ -f "$lock" ]; then
+  old_ref=$(sed -n 's/^  "ref": "\([0-9a-f]\{40\}\)",\{0,1\}$/\1/p' "$lock" | head -n 1)
   old_manifest=""
   if [ -n "$old_ref" ] && git -C "$kit" merge-base --is-ancestor "$old_ref" HEAD 2>/dev/null \
     && git -C "$kit" cat-file -e "$old_ref:kit-manifest.txt" 2>/dev/null; then
@@ -178,7 +161,7 @@ if [ -f "$read_lock" ]; then
     case "$line" in /*|*..*|'') continue ;; esac
     printf '%s\n' "$old_manifest" | grep -qxF -- "$line" || continue
     previous+=("$line")
-  done < <(sed -n 's/^    "\([^"]*\)",\{0,1\}$/\1/p' "$read_lock")
+  done < <(sed -n 's/^    "\([^"]*\)",\{0,1\}$/\1/p' "$lock")
 fi
 # The entries to prune: previously managed, no longer in the manifest, and
 # not a seed by the old manifest (a dropped seed is the target's own).
@@ -194,29 +177,6 @@ for p in "${previous[@]+"${previous[@]}"}"; do
     prune+=("$p")
   fi
 done
-# The licence copy moved with the rename. An old lock that lists
-# .github/agent-kit/LICENSE has it removed even when the lock's ref cannot
-# be checked (a shallow clone), since the new lock no longer names that
-# path and no later update could remove it; the lock is then unproven, so
-# only a file that is still the licence text the kit installed there goes.
-# That text is pinned by its SHA-256 (the only one that path ever held), not
-# compared with the kit's current copy, which may change later.
-legacy_licence_sha256=fbf7adc15c76b931b0e8dd68504dd7c70c509ba4d2ec4e091382999c4cd473ea
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum -- "$1"; else shasum -a 256 -- "$1"; fi | cut -d' ' -f1
-}
-if [ "$read_lock" = "$legacy_lock" ] \
-  && sed -n 's/^    "\([^"]*\)",\{0,1\}$/\1/p' "$legacy_lock" | grep -qxF .github/agent-kit/LICENSE; then
-  listed=0
-  for p in "${prune[@]+"${prune[@]}"}"; do [ "$p" = .github/agent-kit/LICENSE ] && listed=1; done
-  if [ "$listed" -eq 0 ] && [ -f "$target/.github/agent-kit/LICENSE" ]; then
-    if [ "$(sha256_of "$target/.github/agent-kit/LICENSE")" = "$legacy_licence_sha256" ]; then
-      prune+=(.github/agent-kit/LICENSE)
-    else
-      echo "kept       .github/agent-kit/LICENSE (not the kit's licence text; left as is)" >&2
-    fi
-  fi
-fi
 # .claude/skills is linked into only when it and .claude are directories
 # of the target's own: through a symlink the links would land elsewhere.
 skills_dir() {
@@ -345,10 +305,6 @@ else
   fi
   changed "wrote      .github/gh-agent-kit.lock (ref $ref, dirty $dirty)"
 fi
-if [ "$read_lock" = "$legacy_lock" ]; then
-  [ "$check" -eq 1 ] || rm -f -- "$legacy_lock"
-  changed "removed    .github/agent-kit.lock (replaced by .github/gh-agent-kit.lock)"
-fi
 
 if [ "$check" -eq 1 ]; then
   echo
@@ -370,7 +326,7 @@ for p in "${paths[@]}" "${prune[@]+"${prune[@]}"}"; do
 done
 echo
 echo "Changes in the target (the kit's files and skill links only):"
-git -C "$target" --no-pager diff --stat -- "${paths[@]/#/$target/}" "${prune[@]+"${prune[@]/#/$target/}"}" "${links[@]+"${links[@]}"}" "$lock" "$legacy_lock" || true
+git -C "$target" --no-pager diff --stat -- "${paths[@]/#/$target/}" "${prune[@]+"${prune[@]/#/$target/}"}" "${links[@]+"${links[@]}"}" "$lock" || true
 untracked=$(git -C "$target" ls-files --others --exclude-standard -- "${paths[@]/#/$target/}" "${links[@]+"${links[@]}"}" "$lock" 2>/dev/null || true)
 [ -z "$untracked" ] || printf 'new:\n%s\n' "$untracked"
 echo

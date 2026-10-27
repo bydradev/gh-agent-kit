@@ -120,7 +120,9 @@ Markdown in `docs/reports/`.
 The operator renamed the repository from github-agent-kit on 2026-10-22,
 following gh-repo-bootstrapper's `gh-` pattern, and chose to rename the
 lock and the licence directory with it (`.github/gh-agent-kit.lock`,
-`.github/gh-agent-kit/`); `install.sh` migrates a target's old lock. The MCP
+`.github/gh-agent-kit/`). `install.sh` and the update check read a
+target's old lock until 2026-10-27, when that code was dropped: no target
+still had one, and no release of this repository ever wrote it. The MCP
 server keeps the name `agent-kit`.
 
 GitHub redirects the old name, web and `git clone`, `fetch` and `push`

@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The installer tests clone this checkout and install from older
-          # commits, the one before the lock rename among them.
+          # The installer tests clone this checkout and install from
+          # commits in that clone.
           fetch-depth: 0
           persist-credentials: false
       # The runner's own Node, as the review and triage workflows use to run
