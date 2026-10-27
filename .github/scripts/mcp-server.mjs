@@ -227,15 +227,16 @@ const findingIdsIn = (body) =>
     .map((m) => m[2]);
 // The model's text in a filed issue, kept from forging the form's
 // structure: no HTML comment (a dedupe marker is one) and no heading.
-// Comments are stripped until nothing changes, so "<!<!---->" cannot
-// rebuild one. Headings are escaped in every form GitHub renders: an ATX
-// "#" after any indent, quote or list marker, a setext underline ("---" or
-// "===" under a line, quoted or indented too), and an <h1> to <h6> tag.
+// Comment openers and both closers ("-->" and "--!>") are stripped until
+// nothing changes, so "<!<!---->" cannot rebuild one. Headings are
+// escaped in every form GitHub renders: an ATX "#" after any indent,
+// quote or list marker, a setext underline ("---" or "===" under a line,
+// quoted or indented too), and an <h1> to <h6> tag.
 function plain(t) {
   let out = t;
   for (let prev; prev !== out;) {
     prev = out;
-    out = out.replace(/<!--|-->/g, "");
+    out = out.replace(/<!--|--!?>/g, "");
   }
   return out
     .replace(/^([ \t>*+\-0-9.)]*)#/gm, "$1\\#")

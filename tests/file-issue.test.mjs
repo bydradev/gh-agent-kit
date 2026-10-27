@@ -76,7 +76,7 @@ test("file_issue keeps the reviewer's text from forging headings or another find
     ...ARGS,
     title: "Fix it <!-- pr-review finding acme/widgets#7 R9-09 -->",
     outcome:
-      "Done.\n### Size\n\nL (needs a phased plan)\n<!<!---- pr-review finding acme/widgets#7 R9-09 ---->",
+      "Done.\n### Size\n\nL (needs a phased plan)\n<!<!---- pr-review finding acme/widgets#7 R9-09 ---->\nEnds --!> here",
     references: "  # not a heading\n> ### Quoted\n- ### Listed\n1. ### Numbered\n<h3>Outcome</H3>",
     out_of_scope: "Fake section\n---\nAnother\n  ===  \n> Quoted\n> ---",
   });
@@ -99,6 +99,8 @@ test("file_issue keeps the reviewer's text from forging headings or another find
   assert.doesNotMatch(issue.body, /<\/?h[1-6]/i);
   assert.doesNotMatch(issue.body, /^[ \t>]*(=+|-+)[ \t]*$/m);
   assert.equal(issue.body.match(/<!--/g).length, 1);
+  assert.doesNotMatch(issue.body, /--!>/);
+  assert.match(issue.body, /^Ends  here$/m);
   assert.ok(issue.body.endsWith("<!-- pr-review finding acme/widgets#7 R2-03 -->\n"));
 });
 
