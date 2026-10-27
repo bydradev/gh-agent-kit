@@ -52,10 +52,14 @@ from v0.1.0 on 2026-10-27.
 Every `KIT_*` setting can now be a line of `.github/gh-agent-kit.yml`,
 read from the default branch, as well as a repository variable; a variable
 wins (`docs/setup.md`, *The settings file*). Each workflow gained a
-`settings` job ahead of its main job. Still to do once it is released:
-move this repository and each target repository from variables to the
-file (add the file, then delete each variable it sets, which only the
-operator can do here), and confirm on a real run that a switched-off workflow's run no
+`settings` job ahead of its main job. On 2026-10-27 this repository's
+three settings moved from variables into the file with the same values
+(`KIT_REVIEW_MODE: push`, `KIT_SECURITY_SCAN: open`,
+`KIT_ISSUE_TRIAGE: on`); the operator deletes those variables once the
+file is on `main`. Two target repositories moved the same way on
+2026-10-27, with their variables deleted; the others add the file by hand
+when the kit is installed there (`docs/setup.md`, *The settings file*).
+Still to do: confirm on a real run that a switched-off workflow's run no
 longer reads as a successful review in the review's skip steps.
 
 ### Security scan on the pinned CLI (2026-10-23)
