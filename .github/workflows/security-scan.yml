@@ -282,7 +282,8 @@ jobs:
           }
           # The scan defaults to xhigh on the Anthropic API (a Claude model
           # without xhigh runs at its highest level below it). On OpenCode Go
-          # it passes none: effort there is untested.
+          # it passes none, so the CLI sends its own default: no level had a
+          # reliable effect on Go's default model (docs/setup.md, OpenCode Go).
           case "$PROVIDER" in
             ''|anthropic)
               echo "KIT_SECURITY_PROVIDER=anthropic" >> "$GITHUB_ENV"

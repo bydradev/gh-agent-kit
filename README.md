@@ -114,9 +114,9 @@ of two hosts:
 
 | Workflow | Program | Model host | Default model |
 | --- | --- | --- | --- |
-| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go |
+| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5` at effort `medium`, Claude Code's default; `deepseek-v4.1-flash` on Go |
 | `security-scan` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5` at effort `xhigh`; `deepseek-v4.1-flash` on Go |
-| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go |
+| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5` at effort `medium`, Claude Code's default; `deepseek-v4.1-flash` on Go |
 | `kit-update-check` | none: `git` and `gh` only | none | none |
 
 - **OpenCode Go** is OpenCode's monthly model subscription. Claude Code
