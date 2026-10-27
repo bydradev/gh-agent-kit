@@ -54,6 +54,7 @@ check contains "$t/.github/gh-agent-kit.lock" '"source": "github.com/bydradev/gh
 check contains "$t/.github/gh-agent-kit.lock" "\"ref\": \"$head\","
 check contains "$t/.github/gh-agent-kit.lock" '"dirty": false,'
 check contains "$t/.github/gh-agent-kit.lock" '"seeds": [".github/security-review-instructions.md"],'
+check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "kit",'
 
 it "a second install changes nothing, the lock included"
 cp "$t/.github/gh-agent-kit.lock" "$work/lock.before"
@@ -231,6 +232,84 @@ check contains "$work/out" "is a symlink"
 check test "$(check_mode "$t" extra; echo $?)" = 2
 check contains "$work/out" "usage:"
 check test "$("$kit/install.sh" --check > "$work/out" 2>&1; echo $?)" = 2
+new_target
+check test "$(check_mode --issue-forms=yes "$t"; echo $?)" = 2
+check contains "$work/out" "usage:"
+check test "$(install --force "$t"; echo $?)" = 2
+check test ! -e "$t/.github"
+
+forms=(.github/ISSUE_TEMPLATE/bug.yml .github/ISSUE_TEMPLATE/task.yml .github/ISSUE_TEMPLATE/config.yml)
+
+it "--issue-forms=own leaves the target's forms alone, and the lock keeps the choice"
+new_target
+mkdir -p "$t/.github/ISSUE_TEMPLATE"
+echo "ours" > "$t/.github/ISSUE_TEMPLATE/config.yml"
+echo "ours" > "$t/.github/ISSUE_TEMPLATE/bug_report.yml"
+check install --issue-forms=own "$t"
+check test "$(cat "$t/.github/ISSUE_TEMPLATE/config.yml")" = "ours"
+check test "$(cat "$t/.github/ISSUE_TEMPLATE/bug_report.yml")" = "ours"
+check test ! -e "$t/.github/ISSUE_TEMPLATE/bug.yml"
+check test ! -e "$t/.github/ISSUE_TEMPLATE/task.yml"
+for p in "${forms[@]}"; do
+  check contains "$work/out" "skipped    $p (the target keeps its own issue forms)"
+  check test -z "$(grep -F "\"$p\"" "$t/.github/gh-agent-kit.lock")"
+done
+check cmp -s "$kit/.github/workflows/pr-review.yml" "$t/.github/workflows/pr-review.yml"
+check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "own",'
+check contains "$work/out" "issue forms own)"
+# Without the flag, a later install and --check follow the lock.
+check test "$(check_mode "$t"; echo $?)" = 0
+check contains "$work/out" "skipped    .github/ISSUE_TEMPLATE/bug.yml"
+check install "$t"
+check test ! -e "$t/.github/ISSUE_TEMPLATE/bug.yml"
+check test "$(cat "$t/.github/ISSUE_TEMPLATE/config.yml")" = "ours"
+check contains "$work/out" "unchanged  .github/gh-agent-kit.lock"
+# --issue-forms=kit installs the kit's forms again, over the target's own.
+check test "$(check_mode --issue-forms=kit "$t"; echo $?)" = 1
+check contains "$work/out" "added      .github/ISSUE_TEMPLATE/bug.yml"
+check contains "$work/out" "updated    .github/ISSUE_TEMPLATE/config.yml"
+check install --issue-forms=kit "$t"
+for p in "${forms[@]}"; do
+  check cmp -s "$kit/$p" "$t/$p"
+  check contains "$t/.github/gh-agent-kit.lock" "\"$p\""
+done
+check test "$(cat "$t/.github/ISSUE_TEMPLATE/bug_report.yml")" = "ours"
+check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "kit",'
+
+it "switching an install to its own forms removes none of the kit's and adds none back"
+new_target
+check install "$t"
+rm "$t/.github/ISSUE_TEMPLATE/bug.yml" "$t/.github/ISSUE_TEMPLATE/task.yml"
+echo "ours" > "$t/.github/ISSUE_TEMPLATE/config.yml"
+snapshot "$t" > "$work/before"
+check test "$(check_mode --issue-forms=own "$t"; echo $?)" = 1
+check contains "$work/out" "make the 1 change(s) above"
+check contains "$work/out" "wrote      .github/gh-agent-kit.lock"
+check test -z "$(grep -E '^(added|updated|removed) ' "$work/out")"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+check install --issue-forms=own "$t"
+check test ! -e "$t/.github/ISSUE_TEMPLATE/bug.yml"
+check test ! -e "$t/.github/ISSUE_TEMPLATE/task.yml"
+check test "$(cat "$t/.github/ISSUE_TEMPLATE/config.yml")" = "ours"
+check test -z "$(grep -F ISSUE_TEMPLATE "$t/.github/gh-agent-kit.lock")"
+
+it "a lock whose issue_forms the installer cannot read is refused unless the flag decides"
+new_target
+check install "$t"
+sed -i.bak 's/"issue_forms": "kit"/"issue_forms": "mine"/' "$t/.github/gh-agent-kit.lock"
+rm -f "$t/.github/gh-agent-kit.lock.bak"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "the lock's issue_forms is not"
+check test "$(check_mode "$t"; echo $?)" = 2
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+sed -i.bak 's/"issue_forms": "mine",/"issue_forms" : "own",/' "$t/.github/gh-agent-kit.lock"
+rm -f "$t/.github/gh-agent-kit.lock.bak"
+check test "$(install "$t"; echo $?)" = 2
+check install --issue-forms=own "$t"
+check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "own",'
 
 # A later kit commit that drops a file and a seed from the manifest.
 git -C "$kit" checkout -q -b dropped
@@ -255,6 +334,16 @@ check contains "$work/out" "removed    .github/ISSUE_TEMPLATE/config.yml (no lon
 check test -f "$t/.github/security-review-instructions.md"
 check contains "$work/out" "kept       .github/security-review-instructions.md (a seed file the kit no longer ships"
 check contains "$t/.github/gh-agent-kit.lock" "\"ref\": \"$dropped\","
+
+it "with its own forms, a form the kit dropped stays"
+new_target
+git -C "$kit" checkout -q "$head"
+check install "$t"
+git -C "$kit" checkout -q "$dropped"
+check install --issue-forms=own "$t"
+check test -f "$t/.github/ISSUE_TEMPLATE/config.yml"
+check test -z "$(grep -E '^removed ' "$work/out")"
+check test -f "$t/.github/ISSUE_TEMPLATE/bug.yml"
 
 it "a lock whose ref is not in the clone's history removes nothing"
 new_target

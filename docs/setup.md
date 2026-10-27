@@ -64,6 +64,25 @@ and to follow the repository's security policy instead, so a public target
 should have one: a `SECURITY.md`, or private vulnerability reporting
 turned on.
 
+A repository with issue forms of its own can keep them:
+
+```sh
+./install.sh --issue-forms=own /path/to/your-repo
+```
+
+The kit's Bug and Task forms and its `config.yml` are then not copied, and
+no install replaces or removes a file in `.github/ISSUE_TEMPLATE/`, one an
+earlier install copied included. The lock records the choice
+([The lock file](#the-lock-file)), so later installs and `--check` keep it
+without the option, and the update check leaves the kit's forms out;
+`--issue-forms=kit` installs them again, over any files of the same names.
+An installer from a release without the option ignores the choice and
+writes the kit's forms, so update such a target from a release that has
+it.
+Triage does not need the kit's forms: a new issue starts it whether or not
+its form adds `needs-triage`. Name your own forms in the first bullet of
+the *Work tracking* block below, in place of the Task and Bug forms.
+
 Then add the *Work tracking* block from
 [`docs/agents-md-block.md`](agents-md-block.md) to the *Project specifics*
 section of your `AGENTS.md`, in the same pull request, so agents working in
@@ -581,9 +600,14 @@ the scanner works from the skill and `AGENTS.md` alone and says nothing.
 - `source`: the kit repository;
 - `ref`: the kit commit the files came from;
 - `installed`: the time of the install, in UTC;
+- `issue_forms`: `own` when the target keeps its own issue forms
+  (`--issue-forms=own`), else `kit`; a lock without it, from an earlier
+  release, counts as `kit`, and one the installer cannot read is refused
+  unless `--issue-forms` decides;
 - `dirty`: true when the installer's clone had uncommitted or untracked kit
   files, ignored ones included, the manifest among them;
-- `paths`: the files this install manages;
+- `paths`: the files this install manages, none in
+  `.github/ISSUE_TEMPLATE/` when `issue_forms` is `own`;
 - `seeds`: the ones among them copied only when missing.
 
 Commit it with the install: it is how the next update, and anyone reading
@@ -596,7 +620,9 @@ seed is the target's own by then and stays (the lock's `seeds` list is for the
 reader, not the installer). That needs the lock's ref in the history of the
 clone's commit (a full clone, or that commit fetched); from a shallow clone,
 or with a ref that is not an ancestor, nothing is removed and the installer
-says so. The lock is rewritten only when the ref or the path list changes.
+says so. A target that keeps its own issue forms loses none of them this
+way. The lock is rewritten only when the ref, the path list or
+`issue_forms` changes.
 
 The installer refuses to write through a symlink anywhere on a managed path,
 and replaces a file by writing a new one and renaming it over the old, so a
@@ -618,7 +644,9 @@ code from the kit runs: the clone is read with `git` only, so the
 repository still runs only files it has reviewed and committed. A seed
 file's content is the repository's own, so a seed counts only when the kit
 adds one or moves one between seed and managed, and local edits to the
-kit's files are not checked (`install.sh --check` shows those).
+kit's files are not checked (`install.sh --check` shows those). With the
+lock's `issue_forms` set to `own`, the kit's files in
+`.github/ISSUE_TEMPLATE/` never count.
 
 When the release is ahead, the workflow opens one issue labelled
 `needs-operator` listing those files, and edits that issue on later runs

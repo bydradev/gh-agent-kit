@@ -23,7 +23,7 @@ nothing in the issue can.
 
 | Group | Labels | Who sets |
 | --- | --- | --- |
-| Type | `bug`, `feature`, `chore`, `docs` | bot (the Bug form pre-applies `bug`) |
+| Type | `bug`, `feature`, `chore`, `docs` | bot (the kit's Bug form pre-applies `bug`) |
 | Priority | `P0`, `P1`, `P2`, `P3` (as `review-guidelines` defines them) | bot; operator may change |
 | State | `needs-triage` → `triaged` → `ready` → `in-progress` → closed; `blocked`, `needs-operator` at any point | `needs-triage`, `triaged`, `needs-operator`: bot. `ready`: operator. `in-progress`, `blocked`: the implementing agent |
 | Authority | `agent:approved` | operator only |

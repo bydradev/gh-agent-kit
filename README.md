@@ -73,7 +73,9 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
    release you installed.
 
    `./gh-agent-kit/install.sh --check /path/to/your-repo` shows what an
-   install or update would change, and changes nothing.
+   install or update would change, and changes nothing. A repository with
+   issue forms of its own keeps them with `--issue-forms=own`
+   ([Install the files](docs/setup.md#1-install-the-files)).
 
 2. From your repository, create the labels with
    `.github/scripts/sync-labels.sh owner/repo`.
@@ -215,6 +217,9 @@ fifteen, and `install.sh` copies them:
 .agents/skills/{github-issue-triage,github-issue-e2e}/SKILL.md
 .github/gh-agent-kit/LICENSE              (a copy of this repository's LICENSE)
 ```
+
+With `--issue-forms=own`, the three files in `.github/ISSUE_TEMPLATE/` are
+left out.
 
 ## Contributing and licence
 
