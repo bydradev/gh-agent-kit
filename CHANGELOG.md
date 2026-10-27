@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/bydradev/gh-agent-kit/compare/v0.2.0...v0.3.0) (2026-10-27)
+
+
+### Features
+
+* let an install keep a repository's own issue forms ([#12](https://github.com/bydradev/gh-agent-kit/issues/12)) ([cdba9ce](https://github.com/bydradev/gh-agent-kit/commit/cdba9cec3e62f752c15af5db113fd5e25f8af324))
+* report each acceptance criterion with its evidence ([#13](https://github.com/bydradev/gh-agent-kit/issues/13)) ([d4b1eee](https://github.com/bydradev/gh-agent-kit/commit/d4b1eee81bc4f0e15b0cede4ec715eeb3b8bc2b0))
+
 ## [0.2.0](https://github.com/bydradev/gh-agent-kit/compare/v0.1.0...v0.2.0) (2026-10-27)
 
 
