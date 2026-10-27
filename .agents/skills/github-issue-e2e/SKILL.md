@@ -153,10 +153,23 @@ mutation, or change outside that scope.
 
 - Run the validation the repository's validation skill names for the
   changed area, plus each phase's named check from the plan.
+- Give each acceptance criterion its evidence, by the plan's ID (`AC1`):
+  a check you ran and its result, or the file and line that delivers it
+  where no check can. A plan without IDs (written before triage numbered
+  them) leaves you to number the issue's criteria in order: its
+  *Acceptance criteria* field; without one (the Bug form), its *What
+  should happen* as one criterion, plus one that the steps to reproduce,
+  when given, no longer show the fault; with neither, say so. Never mark a
+  criterion met on a guess. *Not verified* is only for a criterion the
+  change delivers that nothing before merge can show; a criterion the
+  change does not deliver is not a caveat: finish it, or stop and ask as
+  step 3 says.
 - Run `fresh-eyes-review` before the PR leaves draft; resolve blocking
   findings.
 - Open the PR with the `pull-requests` skill. The body's *Why* section
-  carries `Closes #<n>`. Mention any new issues you opened.
+  carries `Closes #<n>`, and its section on checks (such as *How it was
+  checked*) lists the criteria with their evidence as step 6 shows, for the
+  reviewer to verify. Mention any new issues you opened.
 
 ## 5. Handle review findings on the PR
 
@@ -165,8 +178,9 @@ workflows, and any other review bot the repository configures) and people
 comment on the PR. Every
 finding is a claim handled under `fresh-eyes-review` *Handling findings*:
 reproduce it, then fix with a commit or refute with evidence, replying on the
-thread with the finding's ID. Consolidate duplicates across reviewers in one
-reply that names each ID. Before pushing any fix, re-fetch the issue and
+thread with the finding's ID. A fix that changes a criterion's evidence
+updates its line in the PR body. Consolidate duplicates across reviewers in
+one reply that names each ID. Before pushing any fix, re-fetch the issue and
 repeat the step 4 check (with its claimed-state labels): `agent:approved`
 must still be present, no `reopened` or `renamed` event or body edit may
 postdate it, and the latest `## Triage`
@@ -183,18 +197,26 @@ and escalate on the issue, as `fresh-eyes-review` says.
 
 ## 6. Terminal state and report
 
-Done means: the PR is open and not draft, its checks pass, and no blocking
-finding is open. Merging is the operator's; never merge. Then comment on the
+Done means: the PR is open and not draft, its checks pass, no blocking
+finding is open, and every criterion is *met* or *not verified* as step 4
+allows. Merging is the operator's; never merge. Then comment on the
 issue:
 
 ```markdown
 ## Ready for review
 - PR: #<pr>
+- Acceptance criteria:
+  - AC1 <criterion>: met; <check and result, or `path:line`>
+  - AC2 <criterion>: not verified; <why, and what would prove it>
 - Checks run: <list>; not run: <list and why>
 - Deviations from the plan: <or none>
 - Caveats for the operator: <or none>
 - New issues: #<a>, #<b>
 ```
+
+One line per criterion, as the PR body lists them after the last fix. A
+*not verified* line says what would show it after merge (a scheduled run,
+a release) and is a caveat for the operator too.
 
 Leave `in-progress` on; the PR's `Closes #<n>` closes the issue on merge.
 Review rounds that arrive on the open PR afterwards are worked from the PR

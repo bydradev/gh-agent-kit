@@ -16,15 +16,19 @@ which program and which model each workflow uses.
 ## What you get
 
 - **Issue triage.** Each new issue, and each issue edited, reopened or
-  re-labelled `needs-triage`, gets a type, a priority and a plan comment, or
-  a `needs-operator` question when the model cannot decide it. A weekly
-  sweep triages the untriaged backlog and warns about stale claims. The bot
-  never approves work: `ready` and `agent:approved` are the operator's.
+  re-labelled `needs-triage`, gets a type, a priority and a plan comment
+  that ties each acceptance criterion to a phase and to how it is proved,
+  or a `needs-operator` question when the model cannot decide it. A
+  weekly sweep triages the untriaged backlog and warns about stale claims.
+  The bot never approves work: `ready` and `agent:approved` are the
+  operator's.
 - **Pull request review.** A model reviews each pull request against the
   repository's own review guidelines, posts inline findings and a numbered
-  report, and sets a `pr-review verdict` check. It runs once when the pull
-  request opens, or on every push; a later review covers only what changed
-  since the last one.
+  report that marks each acceptance criterion of the issues it closes as
+  met, not met or not checkable from the change, and sets a
+  `pr-review verdict` check. It runs once when the pull request opens, or
+  on every push; a later review covers only what changed since the last
+  one.
 - **Security scan.** A model scans each pull request's change for
   vulnerabilities, once or on every push. A second run, in a fresh session,
   checks each candidate against the code and drops the ones it rejects; the
@@ -38,7 +42,8 @@ which program and which model each workflow uses.
   its code.
 - **An implementation skill** (`github-issue-e2e`) for the coding agent
   that picks up an approved issue: claim, branch, implement, validate,
-  review, and open the pull request that closes it.
+  review, open the pull request that closes it, and report each acceptance
+  criterion on the issue with its evidence.
 
 The review and the scan follow the base branch's copies of their skills,
 the review guidelines and every `AGENTS.md`, and the review uses the

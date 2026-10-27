@@ -93,8 +93,9 @@ nothing in the issue can.
    issue references. Use `Grep` and `Glob` to find the code the change
    touches. Do not run builds or tests.
 3. **Decide whether it can be planned.** It can when a reviewer could check
-   it: the outcome is stated, the acceptance criteria are checkable, and the
-   references resolve. Otherwise it needs the operator.
+   it: the outcome is stated, the acceptance criteria are checkable (on an
+   issue without that field, such as the Bug form's, *What should happen*
+   is), and the references resolve. Otherwise it needs the operator.
    All writes are tools of the same server, bound to this run's issue
    and event: `add_label`, `remove_label`, and `comment` (once per run;
    the tool refuses a second, and every write is refused once the issue
@@ -124,11 +125,18 @@ nothing in the issue can.
    **Type / priority:** feature / P2. Why: ...
    **Size:** S | M | L
 
+   ### Acceptance criteria
+   - **AC1** <the first criterion, in the issue's words>
+   - **AC2** ...
+
    ### Plan
-   1. **<phase>**: what changes, in which files (`path/to/file.ts`), and the
-      doc or rule it follows (`docs/x.md` §y, AGENTS.md *Code review rules*).
+   1. **<phase>** (AC1, AC2): what changes, in which files
+      (`path/to/file.ts`), and the doc or rule it follows (`docs/x.md` §y,
+      AGENTS.md *Code review rules*). Proved by: <named script, suite or
+      test>.
    2. ...
-   Each phase ends with the validation that proves it (named script or suite).
+   Each phase names the criteria it delivers and ends with the validation
+   that proves them.
 
    ### Risks and stop-and-ask items
    - Anything that touches an AGENTS.md *Stop and ask* item, production,
@@ -137,6 +145,18 @@ nothing in the issue can.
    ### Related
    - #<n> (duplicate? depends on? superseded by?)
    ```
+
+   Number the criteria in the issue's order and keep its words, adding the
+   operator's answer to a criterion an answer settled ("per the answer of
+   <date>"). An issue without an *Acceptance criteria* field (the Bug form)
+   gets its *What should happen* as one criterion, plus one that the steps
+   to reproduce, when given, no longer show the fault; one with neither
+   field takes them from its text, and with none there step 3 sends it to
+   the operator. Every criterion is delivered by at least one phase. Where
+   no check can prove one, its phase says what a reviewer reads instead (the
+   file and the behaviour it shows); where only something after merge can (a
+   scheduled run, a release), it says so. The implementer and the reviewer
+   report on each criterion by these IDs.
 
    Suggest a duplicate or a split; do not close or re-title. Where the issue
    disagrees with the repository's documented behaviour, say so under
