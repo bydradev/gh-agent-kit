@@ -189,8 +189,9 @@ for a change of base branch, `edited-title` for a change of title alone, or
    without IDs (written before triage numbered them), number the issue's
    criteria in order: its *Acceptance criteria* field; without one (the
    Bug form), its *What should happen* as one criterion, plus one that the
-   steps to reproduce, when given, no longer show the fault; with neither,
-   say so. In the report:
+   steps to reproduce, when given, no longer show the fault; with neither
+   field, the criteria its text states, and with none there, say so. In
+   the report:
 
    ```markdown
    ### Acceptance criteria

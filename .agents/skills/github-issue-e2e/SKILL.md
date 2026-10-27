@@ -159,11 +159,11 @@ mutation, or change outside that scope.
   them) leaves you to number the issue's criteria in order: its
   *Acceptance criteria* field; without one (the Bug form), its *What
   should happen* as one criterion, plus one that the steps to reproduce,
-  when given, no longer show the fault; with neither, say so. Never mark a
-  criterion met on a guess. *Not verified* is only for a criterion the
-  change delivers that nothing before merge can show; a criterion the
-  change does not deliver is not a caveat: finish it, or stop and ask as
-  step 3 says.
+  when given, no longer show the fault; with neither field, the criteria
+  its text states, and with none there, say so. Never mark a criterion met
+  on a guess. *Not verified* is only for a criterion the change delivers
+  that nothing before merge can show; a criterion the change does not
+  deliver is not a caveat: finish it, or stop and ask as step 3 says.
 - Run `fresh-eyes-review` before the PR leaves draft; resolve blocking
   findings.
 - Open the PR with the `pull-requests` skill. The body's *Why* section
