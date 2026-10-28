@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { opencodeStub, recorded } from "./helpers/opencode.mjs";
+import { opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -134,12 +134,14 @@ const SUCCESS = [
 
 // The run step with the CLI replaced by a stub that lists `models`, writes
 // what the run was started with and prints `events` (one JSON object a
-// line) with `exit`.
+// line) with `exit`, or each of `runs` in turn, and sleep replaced by one
+// that records its waits.
 function run(
   t,
   {
     events = SUCCESS,
     exit = 0,
+    runs,
     key = "ok",
     allowed = TRIAGE_ALLOWED,
     maxTurns = "40",
@@ -152,7 +154,8 @@ function run(
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   fs.mkdirSync(temp);
-  const files = opencodeStub(dir, { events, exit, models, modelsExit });
+  const files = opencodeStub(dir, { events, exit, runs, models, modelsExit });
+  const sleep = sleepStub(dir);
   const mcp = {
     mcpServers: {
       "agent-kit": {
@@ -175,8 +178,9 @@ function run(
     KIT_TRIAGE_MAX_TURNS: maxTurns,
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
+    PATH: sleep.path,
   });
-  return { ...r, ...recorded(files), temp, dir };
+  return { ...r, ...recorded(files), slept: sleep.slept(), temp, dir };
 }
 
 test("issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
@@ -420,4 +424,155 @@ test("issue-triage.yml: before OpenCode runs, .git and the symlinks leave the ch
   // It comes before OpenCode first runs.
   const text = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
   assert.ok(text.indexOf(`- name: ${NAME}\n`) < text.indexOf("- name: Run the triage on OpenCode\n"));
+});
+
+// Go's capacity refusal, as the run's error event gives it.
+const refused = (after = "after 7 s") => ({
+  type: "error",
+  sessionID: "ses_1",
+  error: {
+    name: "APIError",
+    data: { message: `Upstream request failed: [ttft_admission_refused] the cell is at capacity; retry shortly (${after})` },
+  },
+});
+const inSession = (events) => events.map((e) => (typeof e === "string" ? e : { sessionID: "ses_1", ...e }));
+// Two steps, the second refused.
+const REFUSED = inSession([
+  { type: "step_start", part: {} },
+  { type: "step_finish", part: { reason: "tool-calls", cost: 0.1, tokens: { input: 4 } } },
+  { type: "step_start", part: {} },
+  refused(),
+]);
+const CARRY_ON =
+  "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again.";
+
+test("issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session", (t) => {
+  const r = run(t, { runs: [{ events: REFUSED, exit: 1 }, { events: inSession(SUCCESS) }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.calls.length, 2);
+  assert.deepEqual(r.calls[0].args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
+  // The second run continues the session with the steps the first left.
+  assert.deepEqual(r.calls[1].args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "--session", "ses_1", CARRY_ON]);
+  assert.deepEqual(r.calls[1].config.agent, { build: { steps: 38 } });
+  assert.deepEqual({ ...r.calls[1].config, agent: null }, { ...r.calls[0].config, agent: null });
+  assert.deepEqual(r.slept, ["7"]);
+  assert.match(
+    r.stdout,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 7 s \(refusal 1 of 3 in a row\)$/m,
+  );
+  // Steps, cost and tokens are both runs'; the refusal it carried on from
+  // is not an error of the run.
+  assert.match(r.stdout, /^steps: 4$/m);
+  assert.match(r.stdout, /^cost_usd \(Go prices\): 0\.85$/m);
+  assert.match(r.stdout, /^tokens: input 15, /m);
+  assert.match(r.stdout, /^errors: $/m);
+  assert.match(r.stdout, /^result: Triaged\.$/m);
+  assert.equal(fs.readFileSync(path.join(r.temp, "opencode-events.jsonl"), "utf8").trim().split("\n").length, REFUSED.length + SUCCESS.length);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the wait is the one the refusal names, a minute at most", (t) => {
+  for (const [after, want] of [
+    ["after 0 s", "0"],
+    ["after 59s", "59"],
+    ["after 900 s", "60"],
+    ["soon", "30"],
+  ]) {
+    const events = [...REFUSED.slice(0, -1), refused(after)];
+    const r = run(t, { runs: [{ events, exit: 1 }, { events: inSession(SUCCESS) }] });
+    assert.equal(r.status, 0, after + r.stdout + r.stderr);
+    assert.deepEqual(r.slept, [want], after);
+  }
+  // Without the number, the refusal still reads as one.
+  const plain = run(t, {
+    runs: [
+      { events: [...REFUSED.slice(0, -1), { ...refused(), error: { name: "APIError", data: { message: "the cell is at capacity" } } }], exit: 1 },
+      { events: inSession(SUCCESS) },
+    ],
+  });
+  assert.deepEqual(plain.slept, ["30"]);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: three refusals running at most, then the run fails", (t) => {
+  const r = run(t, { runs: [{ events: REFUSED, exit: 1 }] });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.calls.length, 4);
+  assert.deepEqual(r.slept, ["7", "7", "7"]);
+  // Each run gets the steps the ones before it left.
+  assert.deepEqual(
+    r.calls.map((c) => c.config.agent.build.steps),
+    [40, 38, 36, 34],
+  );
+  assert.match(r.stdout, /^errors: Upstream request failed: \[ttft_admission_refused\] the cell is at capacity; retry shortly \(after 7 s\)$/m);
+  assert.match(r.stdout, /^::error::OpenCode's run ended in error \(exit status 1\)$/m);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run", (t) => {
+  for (const [opts, calls] of [
+    // Another error.
+    [{ runs: [{ events: [...REFUSED.slice(0, -1), { ...refused(), error: { name: "APIError", data: { message: "Upstream request failed: Invalid credential" } } }], exit: 1 }] }, 1],
+    // An earlier refusal is not the attempt's last error.
+    [{ runs: [{ events: [...REFUSED, { type: "error", sessionID: "ses_1", error: { name: "UnknownError" } }], exit: 1 }] }, 1],
+    // No session to carry on.
+    [{ runs: [{ events: REFUSED.map((e) => ({ ...e, sessionID: undefined })), exit: 1 }] }, 1],
+    // Every step used.
+    [{ runs: [{ events: REFUSED, exit: 1 }], maxTurns: "2" }, 1],
+  ]) {
+    const r = run(t, opts);
+    assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout);
+    assert.equal(r.calls.length, calls, JSON.stringify(opts));
+    assert.deepEqual(r.slept, [], JSON.stringify(opts));
+  }
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: a run that ends in error shows what the CLI printed, with commands stopped", (t) => {
+  const stub = run(t, { events: [{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "length" } }] });
+  assert.equal(stub.status, 1, stub.stdout + stub.stderr);
+  const lines = stub.stdout.split("\n");
+  const at = lines.indexOf("OpenCode's stderr, its last 50 lines:");
+  assert.notEqual(at, -1, stub.stdout);
+  const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+  assert.ok(begin, stub.stdout);
+  assert.ok(lines.indexOf(`::${begin[1]}::`) > at, stub.stdout);
+});
+
+test("issue-triage.yml: .git comes back after the run, whether or not it succeeded", (t) => {
+  const NAME = "Put .git back in the checkout";
+  assert.equal(stepIf(NAME), "always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'");
+  const text = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
+  const at = (name) => {
+    const i = text.indexOf(`- name: ${name}\n`);
+    assert.notEqual(i, -1, name);
+    return i;
+  };
+  const order = ["Hide .git and the checkout's symlinks from OpenCode", "Run the triage on OpenCode", NAME, "Remove the token file"];
+  for (let i = 1; i < order.length; i++) assert.ok(at(order[i - 1]) < at(order[i]), `${order[i - 1]} before ${order[i]}`);
+  // No step between the move and the return calls git.
+  const between = text.slice(at(order[0]), at(NAME));
+  for (const step of between.split(/\n {6}- /).slice(1)) {
+    assert.doesNotMatch(step.replace(/^\s*#.*$/gm, ""), /\bgit (?!back)/, step.split("\n")[0]);
+  }
+
+  const dir = tempDir(t);
+  const temp = path.join(dir, "runner-temp");
+  fs.mkdirSync(temp);
+  const work = path.join(dir, "checkout");
+  fs.mkdirSync(path.join(work, ".git"), { recursive: true });
+  fs.writeFileSync(path.join(work, ".git", "config"), "[core]\n");
+  const step = (name) =>
+    spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", stepScript(FILE, name)], {
+      cwd: work,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, HOME: dir, RUNNER_TEMP: temp },
+    });
+  const hidden = step(order[0]);
+  assert.equal(hidden.status, 0, hidden.stdout + hidden.stderr);
+  assert.ok(!fs.existsSync(path.join(work, ".git")));
+  const back = step(NAME);
+  assert.equal(back.status, 0, back.stdout + back.stderr);
+  assert.equal(fs.readFileSync(path.join(work, ".git", "config"), "utf8"), "[core]\n");
+  assert.ok(!fs.existsSync(path.join(temp, "checkout-git")));
+  // Nothing moved (a run that stopped before the move): nothing to do.
+  const again = step(NAME);
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.ok(fs.existsSync(path.join(work, ".git", "config")));
 });

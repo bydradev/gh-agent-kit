@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { opencodeStub, recorded } from "./helpers/opencode.mjs";
+import { opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -218,6 +218,7 @@ function run(
   {
     events = SUCCESS,
     exit = 0,
+    runs,
     key = "ok",
     allowed = REVIEW_ALLOWED,
     maxTurns = "120",
@@ -231,7 +232,8 @@ function run(
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   fs.mkdirSync(temp);
-  const files = opencodeStub(dir, { events, exit, models, modelsExit });
+  const files = opencodeStub(dir, { events, exit, runs, models, modelsExit });
+  const sleep = sleepStub(dir);
   const mcp = {
     mcpServers: {
       "agent-kit": {
@@ -263,8 +265,9 @@ function run(
     KIT_REVIEW_MAX_TURNS: maxTurns,
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
+    PATH: sleep.path,
   });
-  return { ...r, ...recorded(files), temp, dir };
+  return { ...r, ...recorded(files), slept: sleep.slept(), temp, dir };
 }
 
 test("pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
@@ -529,4 +532,30 @@ test("pr-review.yml: .git leaves the checkout for OpenCode, the server still rea
   const again = step("Put .git back in the checkout");
   assert.equal(again.status, 0, again.stdout + again.stderr);
   assert.ok(fs.existsSync(path.join(work, ".git", "HEAD")));
+});
+
+test("pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session", (t) => {
+  const refused = {
+    type: "error",
+    sessionID: "ses_1",
+    error: { name: "APIError", data: { message: "Upstream request failed: [ttft_admission_refused] the cell is at capacity; retry shortly (after 12 s)" } },
+  };
+  const first = [{ type: "step_start", sessionID: "ses_1", part: {} }, refused];
+  const r = run(t, { runs: [{ events: first, exit: 1 }, { events: SUCCESS.map((e) => ({ sessionID: "ses_1", ...e })) }], effort: "high" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.calls.length, 2);
+  assert.deepEqual(r.calls[1].args.slice(0, 8), ["run", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "high", "--session"]);
+  assert.equal(r.calls[1].args[8], "ses_1");
+  assert.match(r.calls[1].args[9], /^OpenCode Go turned your last request away because it was at capacity/);
+  assert.deepEqual(r.calls[1].config.agent, { build: { steps: 119 } });
+  assert.deepEqual(r.slept, ["12"]);
+  assert.match(r.stdout, /^errors: $/m);
+
+  // The same loop as triage's, on the review's settings.
+  const loop = (file, kind) => {
+    const script = stepScript(file, kind === "REVIEW" ? "Run the review on OpenCode" : "Run the triage on OpenCode");
+    return script.slice(script.indexOf("# Go turns a request away"), script.indexOf("events=$(cat \"$RESULT\")")).replaceAll(`KIT_${kind}_`, "KIT_X_");
+  };
+  assert.ok(loop(FILE, "REVIEW").length > 1000);
+  assert.equal(loop(FILE, "REVIEW"), loop("issue-triage.yml", "TRIAGE"));
 });
