@@ -2,9 +2,11 @@ name: pr-review
 
 # Claude reviews pull requests on the API key in ANTHROPIC_API_KEY, following
 # the github-pr-review skill; Claude Code runs directly (see "Install Claude
-# Code" below). KIT_REVIEW_PROVIDER=opencode-go runs the same CLI on an
-# OpenCode Go model instead, on the key in OPENCODE_API_KEY (see "Run the
-# review"). KIT_REVIEW_MODE, a repository variable or a line of
+# Code" below). KIT_REVIEW_PROVIDER=opencode-go runs it on an OpenCode Go
+# model instead, on the key in OPENCODE_API_KEY, in OpenCode's CLI (see "Run
+# the review on OpenCode"), or in Claude Code with KIT_REVIEW_RUNNER set to
+# claude-code (see "Run the review").
+# KIT_REVIEW_MODE, a repository variable or a line of
 # .github/gh-agent-kit.yml (the settings job below), sets when: "open"
 # reviews once when a PR opens or leaves draft (a later push is reviewed
 # only while no report exists yet), "push" also re-reviews every push,
@@ -76,6 +78,7 @@ jobs:
       SETTINGS: >-
         KIT_REVIEW_MODE
         KIT_REVIEW_PROVIDER
+        KIT_REVIEW_RUNNER
         KIT_REVIEW_MODEL
         KIT_REVIEW_EFFORT
         KIT_REVIEW_MAX_TURNS
@@ -85,6 +88,7 @@ jobs:
     outputs:
       KIT_REVIEW_MODE: ${{ steps.pass.outputs.KIT_REVIEW_MODE }}
       KIT_REVIEW_PROVIDER: ${{ steps.pass.outputs.KIT_REVIEW_PROVIDER }}
+      KIT_REVIEW_RUNNER: ${{ steps.pass.outputs.KIT_REVIEW_RUNNER }}
       KIT_REVIEW_MODEL: ${{ steps.pass.outputs.KIT_REVIEW_MODEL }}
       KIT_REVIEW_EFFORT: ${{ steps.pass.outputs.KIT_REVIEW_EFFORT }}
       KIT_REVIEW_MAX_TURNS: ${{ steps.pass.outputs.KIT_REVIEW_MAX_TURNS }}
@@ -105,10 +109,10 @@ jobs:
           # set any of them, and a name outside this list fails the run.
           # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
           known=(
-            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_MODEL KIT_REVIEW_EFFORT
-            KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES KIT_REVIEW_MAX_FILES
-            KIT_REVIEW_MAX_LINES
-            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_MODEL
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_RUNNER KIT_REVIEW_MODEL
+            KIT_REVIEW_EFFORT KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES
+            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_RUNNER KIT_SECURITY_MODEL
             KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
             KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
@@ -217,6 +221,7 @@ jobs:
         if: env.KIT_REVIEW_MODE == 'push' || env.KIT_REVIEW_MODE == 'open'
         env:
           PROVIDER: ${{ env.KIT_REVIEW_PROVIDER }}
+          RUNNER: ${{ env.KIT_REVIEW_RUNNER }}
           MODEL: ${{ env.KIT_REVIEW_MODEL }}
           EFFORT: ${{ env.KIT_REVIEW_EFFORT }}
           MAX_TURNS: ${{ env.KIT_REVIEW_MAX_TURNS }}
@@ -251,9 +256,13 @@ jobs:
           # An OpenCode Go model id, or the default when unset. Claude Code
           # speaks only the Anthropic Messages API, so the id must be one Go
           # serves on its anthropic/v1/messages endpoint; another fails at
-          # the model step. Go's endpoint table is not the whole list: the
-          # default answered there on 2026-10-25 though the table names only
-          # the OpenAI-style endpoint for it (the kit's setup guide,
+          # the model step on the claude-code runner. OpenCode's CLI takes
+          # any of Go's endpoints, for the models its pinned release lists
+          # (the run fetches no newer list, so another fails at the model
+          # step). Go's endpoint table is not the whole list: the default
+          # answered on the Anthropic endpoint on 2026-10-25 though the table
+          # names only the OpenAI-style endpoint for it (the kit's setup
+          # guide,
           # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go).
           # Go's -contributor models train on prompts, so they are refused.
           go_model() {
@@ -270,6 +279,40 @@ jobs:
             echo "$name=$value" >> "$GITHUB_ENV"
             echo "$name=$value"
           }
+          # The program that runs the skill. Unset, it follows the provider:
+          # OpenCode's CLI on OpenCode Go and Claude Code on the Anthropic
+          # API (OpenCode's CLI runs only on Go here). Claude Code can run on
+          # Go through Go's Anthropic endpoint, but it thinks far longer
+          # there: 10k to 34k tokens a turn and a review past the time limit,
+          # against under 2k a step on average and 7 minutes in OpenCode's
+          # CLI (the kit's setup guide,
+          # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go,
+          # measured 2026-10-28), so it warns. The runner is read first, so
+          # an opencode runner without the Go provider is named as such, not
+          # as a model the provider does not take. On OpenCode the effort
+          # level becomes the model's --variant, which the run step checks
+          # against the pinned CLI's model list.
+          case "$RUNNER" in
+            '')
+              runner=claude-code
+              [ "$PROVIDER" != opencode-go ] || runner=opencode ;;
+            claude-code)
+              runner=claude-code
+              if [ "$PROVIDER" = opencode-go ]; then
+                echo "::warning::the setting KIT_REVIEW_RUNNER is claude-code on OpenCode Go, where Claude Code runs Go's models slower than OpenCode's CLI and reviews can hit the time limit; the kit recommends leaving it unset ($(from KIT_REVIEW_RUNNER))"
+              fi ;;
+            opencode)
+              if [ "$PROVIDER" != opencode-go ]; then
+                echo "::error::the setting KIT_REVIEW_RUNNER is opencode, which needs KIT_REVIEW_PROVIDER set to opencode-go, not '${PROVIDER:-unset}' ($(from KIT_REVIEW_RUNNER); KIT_REVIEW_PROVIDER: $(from KIT_REVIEW_PROVIDER))"
+                exit 1
+              fi
+              runner=opencode ;;
+            *)
+              echo "::error::the setting KIT_REVIEW_RUNNER must be claude-code, opencode or unset, not '$RUNNER' ($(from KIT_REVIEW_RUNNER))"
+              exit 1 ;;
+          esac
+          echo "KIT_REVIEW_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "KIT_REVIEW_RUNNER=$runner"
           case "$PROVIDER" in
             ''|anthropic)
               echo "KIT_REVIEW_PROVIDER=anthropic" >> "$GITHUB_ENV"
@@ -284,8 +327,11 @@ jobs:
               exit 1 ;;
           esac
           # An effort level the CLI takes, or none when unset: the run then
-          # passes no --effort and the CLI's default for the model applies.
-          # The CLI ignores an unknown level with a warning, so it fails here.
+          # passes no --effort (no --variant on OpenCode) and the CLI's
+          # default for the model applies. Claude Code ignores an unknown
+          # level with a warning and OpenCode an unknown variant silently,
+          # so it fails here, and on OpenCode a level the model lacks fails
+          # the run step.
           effort() {
             local name=$1 value=$2
             if [ -n "$value" ] && ! [[ "$value" =~ ^(low|medium|high|xhigh|max)$ ]]; then
@@ -336,6 +382,7 @@ jobs:
       PR: ${{ github.event.pull_request.number || github.event.inputs.pr }}
       KIT_REVIEW_MODE: ${{ needs.settings.outputs.KIT_REVIEW_MODE }}
       KIT_REVIEW_PROVIDER: ${{ needs.settings.outputs.KIT_REVIEW_PROVIDER }}
+      KIT_REVIEW_RUNNER: ${{ needs.settings.outputs.KIT_REVIEW_RUNNER }}
       KIT_REVIEW_MODEL: ${{ needs.settings.outputs.KIT_REVIEW_MODEL }}
       KIT_REVIEW_EFFORT: ${{ needs.settings.outputs.KIT_REVIEW_EFFORT }}
       KIT_REVIEW_MAX_TURNS: ${{ needs.settings.outputs.KIT_REVIEW_MAX_TURNS }}
@@ -727,7 +774,7 @@ jobs:
       # allowed_non_write_users path (v1.0.256), including its Ubuntu 24.04
       # AppArmor relaxation.
       - name: Install subprocess isolation dependencies
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'
         run: |
           # The image ships apt sources the kit does not use, and one failing
           # (a 403 from packages.microsoft.com on 2026-10-22) fails the
@@ -817,7 +864,7 @@ jobs:
       # security-scan.yml and in issue-triage.yml together, in one pull
       # request.
       - name: Install Claude Code
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'
         env:
           VERSION: 2.1.306
           SHA256: 520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe
@@ -835,6 +882,40 @@ jobs:
           sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /opt/agent-kit/claude
           rm -f -- "$RUNNER_TEMP/claude"
           DISABLE_AUTOUPDATER=1 /opt/agent-kit/claude --version
+      # OpenCode 1.19.3 imports the plugins a checkout names, in
+      # .opencode/plugin, .opencode/plugins and the plugin list of an
+      # opencode.json or opencode.jsonc, even with
+      # OPENCODE_DISABLE_PROJECT_CONFIG and OPENCODE_PURE set (tried
+      # 2026-10-28): the module's own code runs in the CLI's process,
+      # beside the Go key. So on the opencode runner they go before the CLI
+      # first runs, with the rest of the checkout's OpenCode configuration.
+      # The diff still shows a change to them.
+      - name: Remove the checkout's OpenCode configuration
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'
+        run: |
+          rm -rf -- .opencode opencode.json opencode.jsonc
+      # On the opencode runner the model runs in OpenCode's CLI instead, the
+      # release issue-triage.yml pins: the linux-x64 build from
+      # the project's GitHub releases (anomalyco/opencode, v1.19.3 published
+      # 2026-10-16), checked against its SHA-256 (the same binary as npm's
+      # opencode-linux-x64@1.19.3, compared 2026-10-26) and installed
+      # root-owned outside the checkout, like Claude Code. Retried the same
+      # way as Claude Code's download. Move both pins together.
+      - name: Install OpenCode
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'
+        env:
+          VERSION: 1.19.3
+          SHA256: 179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 300 \
+            -o "$RUNNER_TEMP/opencode.tar.gz" \
+            "https://github.com/anomalyco/opencode/releases/download/v$VERSION/opencode-linux-x64.tar.gz"
+          mkdir "$RUNNER_TEMP/opencode-release"
+          tar -xzf "$RUNNER_TEMP/opencode.tar.gz" -C "$RUNNER_TEMP/opencode-release" opencode
+          echo "$SHA256  $RUNNER_TEMP/opencode-release/opencode" | sha256sum -c -
+          sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-release/opencode" /opt/agent-kit/opencode
+          rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/opencode-release"
+          HOME="$RUNNER_TEMP" OPENCODE_DISABLE_AUTOUPDATE=1 /opt/agent-kit/opencode --version
       # The model runs no shell command and no gh command of its own:
       # every read and every write are MCP tools of the server above.
       # --restricted drops the code-running tools and ignores the user,
@@ -864,7 +945,7 @@ jobs:
       # docs, "Tool search through an LLM gateway"). The scrub below also
       # removes ANTHROPIC_AUTH_TOKEN from the server's environment.
       - name: Run the review
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'claude-code'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -927,6 +1008,174 @@ jobs:
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
+          fi
+      # OpenCode's grep and glob tools take a path inside the checkout and
+      # are checked only against their pattern, so a read rule for .git
+      # does not cover them (issue-triage.yml, tried with 1.19.3 on
+      # 2026-10-26). So on the opencode runner, .git moves out of the
+      # checkout for the run, and the MCP server, whose diff, show, log
+      # and range_diff tools read it, is given its new place as GIT_DIR.
+      # The checkout's symlinks are already gone (see "Remove the
+      # checkout's symlinks"). A later step puts .git back for the checkout
+      # action's cleanup.
+      - name: Move .git out of the checkout for OpenCode
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'
+        run: |
+          mv -- .git "$RUNNER_TEMP/checkout-git"
+      # The same review on OpenCode's CLI (the opencode runner), held to
+      # what the Claude Code run allows, as issue-triage.yml's "Run the
+      # triage on OpenCode" sets out (opencode.ai/docs: config,
+      # permissions, mcp-servers and cli, read 2026-10-26):
+      #
+      # - Its configuration is the one in OPENCODE_CONFIG_CONTENT, which
+      #   outranks a project's own; OPENCODE_DISABLE_PROJECT_CONFIG leaves
+      #   out the checkout's settings, OPENCODE_PURE loads no external
+      #   plugins, and HOME and the XDG directories point at an empty
+      #   directory, so no global configuration or saved login is read. The
+      #   checkout's own plugins still load with both set, so they are
+      #   removed first (see "Remove the checkout's OpenCode
+      #   configuration").
+      # - Every permission is denied, and only read, grep and glob and the
+      #   server's tools that REVIEW_ALLOWED names, as agent-kit_<tool>, are
+      #   allowed again. Paths outside the checkout are denied
+      #   (external_directory), which keeps the model out of the moved .git.
+      # - The MCP server starts through env -i with PATH, HOME,
+      #   GITHUB_WORKSPACE, GIT_DIR and the variables of its own
+      #   configuration, so the Go key in OpenCode's environment never
+      #   reaches it; the model has no tool that starts a process.
+      # - agent.build.steps is the turn limit. OpenCode ends a run that
+      #   reaches it with a text answer and exit status 0, so a run that
+      #   used every step fails here, as Claude Code's does at --max-turns.
+      #   An error event (a refused key or model, an API failure) or a last
+      #   step that did not stop on its own fails it as well.
+      # - small_model is the review model too, so the session title
+      #   OpenCode generates does not go to another model.
+      # - The prompt adds that the review runs in OpenCode's CLI, so the
+      #   report's Reviewer line names it (the github-pr-review skill).
+      #
+      # A set effort level goes to OpenCode as --variant, once the pinned
+      # CLI's model list shows the model has that variant. Cost and tokens
+      # are OpenCode's own, at Go's prices.
+      - name: Run the review on OpenCode
+        if: env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          PROMPT: "Read .agents/skills/github-pr-review/SKILL.md and follow it to review ${{ github.repository }} pull request ${{ github.event.pull_request.number || github.event.inputs.pr }}; this run was started by the ${{ (github.event.action == 'edited' && github.event.changes.base != null && 'edited-base') || (github.event.action == 'edited' && github.event.changes.title != null && github.event.changes.body == null && 'edited-title') || github.event.action || 'dispatch' }} event. The review runs in OpenCode's CLI."
+          RESULT: ${{ runner.temp }}/opencode-events.jsonl
+        run: |
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "::error::KIT_REVIEW_RUNNER is opencode but the OPENCODE_API_KEY secret is not set"
+            exit 1
+          fi
+          node=$(command -v node)
+          permission=$(jq -cn --arg allowed "$REVIEW_ALLOWED" '
+            {"*": "deny", external_directory: "deny",
+             read: {"*": "allow", ".git": "deny", ".git/*": "deny"},
+             grep: "allow", glob: "allow"} +
+            ([$allowed | split(",")[] |
+              if . == "Read" or . == "Grep" or . == "Glob" then {}
+              elif startswith("mcp__agent-kit__") then {("agent-kit_" + ltrimstr("mcp__agent-kit__")): "allow"}
+              else error("no OpenCode permission for the allowed tool \(.)") end] | add)')
+          server=$(jq -c --arg node "$node" --arg path "$PATH" --arg home "$HOME" --arg workspace "$GITHUB_WORKSPACE" --arg gitdir "$RUNNER_TEMP/checkout-git" '
+            .mcpServers["agent-kit"] |
+            ["/usr/bin/env", "-i", "PATH=\($path)", "HOME=\($home)", "GITHUB_WORKSPACE=\($workspace)", "GIT_DIR=\($gitdir)"]
+            + (.env | to_entries | map("\(.key)=\(.value)")) + [$node] + .args' <<<"$MCP_CONFIG")
+          config=$(jq -cn --arg model "opencode-go/$KIT_REVIEW_MODEL" --argjson steps "$KIT_REVIEW_MAX_TURNS" \
+            --argjson permission "$permission" --argjson server "$server" '{
+              "$schema": "https://opencode.ai/config.json",
+              autoupdate: false, share: "disabled", lsp: false, formatter: false,
+              model: $model, small_model: $model,
+              provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}},
+              mcp: {"agent-kit": {type: "local", command: $server, timeout: 120000}},
+              permission: $permission,
+              agent: {build: {steps: $steps}}
+            }')
+          echo "$config" | jq '{model, permission, agent, mcp_command: .mcp["agent-kit"].command[0:6]}'
+          home="$RUNNER_TEMP/opencode-home"
+          mkdir -p "$home"
+          # The CLI with the configuration in $1 and the empty home.
+          oc() {
+            local config=$1
+            shift
+            HOME="$home" XDG_CONFIG_HOME="$home/config" XDG_DATA_HOME="$home/data" \
+              XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state" \
+              OPENCODE_CONFIG_CONTENT="$config" \
+              OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_PURE=1 OPENCODE_DISABLE_CLAUDE_CODE=1 \
+              OPENCODE_DISABLE_EXTERNAL_SKILLS=1 OPENCODE_DISABLE_AUTOUPDATE=1 \
+              OPENCODE_DISABLE_LSP_DOWNLOAD=1 OPENCODE_DISABLE_MODELS_FETCH=1 \
+              GH_TOKEN="" GITHUB_TOKEN="" \
+              /opt/agent-kit/opencode "$@"
+          }
+          # The model's entry in the pinned CLI's own model list (no newer
+          # list is fetched), and the effort level as one of its variants:
+          # OpenCode runs a variant the model lacks without any, silently.
+          list=$(jq -cn '{provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}}}')
+          listed=0
+          oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \
+            2> "$RUNNER_TEMP/opencode-models-stderr" || listed=$?
+          if [ "$listed" -ne 0 ]; then
+            tail -n 20 "$RUNNER_TEMP/opencode-models-stderr" >&2
+            echo "::error::OpenCode could not list its models (exit status $listed), so KIT_REVIEW_MODEL could not be checked"
+            exit 1
+          fi
+          info=$(awk -v want="opencode-go/$KIT_REVIEW_MODEL" '$0 == want { on = 1; next } on && /^[^ {}"]+\/[^ ]+$/ { exit } on' "$RUNNER_TEMP/opencode-models")
+          if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"; then
+            echo "::error::the setting KIT_REVIEW_MODEL is '$KIT_REVIEW_MODEL', which the pinned OpenCode does not list for OpenCode Go"
+            exit 1
+          fi
+          variant=()
+          if [ -n "$KIT_REVIEW_EFFORT" ]; then
+            if ! jq -e --arg v "$KIT_REVIEW_EFFORT" '.variants // {} | has($v)' >/dev/null <<<"$info"; then
+              echo "::error::the setting KIT_REVIEW_EFFORT is '$KIT_REVIEW_EFFORT', which OpenCode does not offer for $KIT_REVIEW_MODEL; it offers $(jq -r '.variants // {} | keys | if length == 0 then "none" else join(", ") end' <<<"$info"), or leave it unset"
+              exit 1
+            fi
+            variant=(--variant "$KIT_REVIEW_EFFORT")
+          fi
+          echo "variant: ${KIT_REVIEW_EFFORT:-none, so the model default applies}"
+          status=0
+          oc "$config" run --format json -m "opencode-go/$KIT_REVIEW_MODEL" "${variant[@]}" "$PROMPT" \
+            > "$RESULT" 2> "$RUNNER_TEMP/opencode-stderr" || status=$?
+          # One JSON event a line; anything else on stdout is left out.
+          events=$(jq -cR 'fromjson? | objects' "$RESULT")
+          if [ -z "$events" ]; then
+            tail -n 50 "$RUNNER_TEMP/opencode-stderr" >&2
+            echo "::error::OpenCode exited with status $status and no events"
+            exit 1
+          fi
+          summary=$(jq -s '{
+            steps: map(select(.type == "step_start")) | length,
+            reason: (map(select(.type == "step_finish")) | last | .part.reason // ""),
+            cost: (map(select(.type == "step_finish") | .part.cost // 0) | add // 0),
+            input: (map(select(.type == "step_finish") | .part.tokens.input // 0) | add // 0),
+            cache_read: (map(select(.type == "step_finish") | .part.tokens.cache.read // 0) | add // 0),
+            cache_write: (map(select(.type == "step_finish") | .part.tokens.cache.write // 0) | add // 0),
+            output: (map(select(.type == "step_finish") | .part.tokens.output // 0) | add // 0),
+            reasoning: (map(select(.type == "step_finish") | .part.tokens.reasoning // 0) | add // 0),
+            errors: (map(select(.type == "error") | .error.data.message // .error.name // "error") | join("; ")),
+            result: (map(select(.type == "text") | .part.text // "") | last // "")
+          }' <<<"$events")
+          # The model's last message, with workflow commands stopped: text the
+          # pull request steered could otherwise annotate or mask the log.
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
+          jq -r '"steps: \(.steps)\nlast step: \(.reason)\ncost_usd (Go prices): \(.cost)\ntokens: input \(.input), cache read \(.cache_read), cache write \(.cache_write), output \(.output), reasoning \(.reasoning)\nerrors: \(.errors)\nresult: \(.result | .[0:2000])"' <<<"$summary"
+          echo "::$stop::"
+          if [ "$status" -ne 0 ] || [ -n "$(jq -r '.errors' <<<"$summary")" ] || [ "$(jq -r '.reason' <<<"$summary")" != "stop" ]; then
+            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-stderr" >&2
+            echo "::error::OpenCode's run ended in error (exit status $status)"
+            exit 1
+          fi
+          if [ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_REVIEW_MAX_TURNS" ]; then
+            echo "::error::OpenCode's run reached the turn limit (KIT_REVIEW_MAX_TURNS=$KIT_REVIEW_MAX_TURNS)"
+            exit 1
+          fi
+      # Back where actions/checkout's post step cleans its configuration,
+      # whether or not the run succeeded.
+      - name: Put .git back in the checkout
+        if: always() && env.KIT_REVIEW_RUNNER == 'opencode'
+        run: |
+          if [ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]; then
+            mv -- "$RUNNER_TEMP/checkout-git" .git
           fi
       - name: Remove the token file
         if: always()

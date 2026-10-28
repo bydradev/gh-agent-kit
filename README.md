@@ -82,8 +82,9 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
 3. Add the `ANTHROPIC_API_KEY` repository secret. A workflow on
    [OpenCode Go](docs/setup.md#opencode-go) needs the `OPENCODE_API_KEY`
    secret instead, and its provider setting (`KIT_REVIEW_PROVIDER`,
-   `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go`.
-   Then turn on the workflows you want with these settings, each a
+   `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go`;
+   it then runs in [OpenCode's CLI](docs/setup.md#opencode-cli). Then turn
+   on the workflows you want with these settings, each a
    repository variable or a line of
    [`.github/gh-agent-kit.yml`](docs/setup.md#the-settings-file):
 
@@ -114,20 +115,23 @@ runner) on one of two hosts (the provider):
 
 | Workflow | Runner (program) | Provider (model host) | Default model | Default effort |
 | --- | --- | --- | --- | --- |
-| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
-| `security-scan` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `xhigh` |
-| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
+| `pr-review` | Claude Code CLI; OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
+| `security-scan` | Claude Code CLI; OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `xhigh` |
+| `issue-triage` | Claude Code CLI; OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
 | `kit-update-check` | none: `git` and `gh` only | none | none | none |
 
 The effort column is for the Anthropic API. On Go the kit sets no default
-level, so Claude Code sends its own: `high` for DeepSeek V4.1 Flash
-([OpenCode Go](docs/setup.md#opencode-go)).
+level and OpenCode's CLI sends none, so the model's own default applies:
+`high` for DeepSeek V4.1 Flash ([OpenCode CLI](docs/setup.md#opencode-cli)).
 
-- **OpenCode Go** is OpenCode's monthly model subscription. Claude Code
-  reaches the Go models served on Go's Anthropic-style endpoint. With
-  `KIT_TRIAGE_PROVIDER=opencode-go`, `KIT_TRIAGE_RUNNER=opencode` runs
-  triage in OpenCode's own CLI instead, which reaches the Go models its
-  pinned release lists ([OpenCode Go](docs/setup.md#opencode-go)).
+- **OpenCode Go** is OpenCode's monthly model subscription. On Go each
+  workflow runs in OpenCode's own CLI unless its runner setting
+  (`KIT_REVIEW_RUNNER`, `KIT_SECURITY_RUNNER` or `KIT_TRIAGE_RUNNER`) says
+  `claude-code`. **Running Go's models in Claude Code is not recommended**:
+  on 2026-10-28 every DeepSeek V4.1 Flash review in Claude Code ran out of
+  time at 30 minutes, while OpenCode's CLI finished the same review in
+  about 7 minutes and scanned the pull request in 87 seconds to Claude
+  Code's 3 minutes 41 ([OpenCode Go](docs/setup.md#opencode-go)).
 - **Codex** runs no workflow. Like any coding agent, it can follow the
   implementation skill. Codex and OpenCode read skills from
   `.agents/skills`, and Claude Code from `.claude/skills`, where

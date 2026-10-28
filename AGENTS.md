@@ -161,10 +161,11 @@ check it against a target installed with `install.sh`.
 
 `tests/` holds the MCP server's tests (Node's test runner, the server run
 over stdio with a stub `gh` and real `git`), the workflow steps' (the update
-check's two scripts, `pr-review.yml`'s no-verdict, body-edit skip, rules
-and symlink steps, `security-scan.yml`'s steps, the review's, the scan's
-and triage's provider settings and run steps, `issue-triage.yml`'s access
-gate, state check and OpenCode runner, and
+check's two scripts, `pr-review.yml`'s no-verdict, body-edit skip, rules,
+symlink and OpenCode runner steps, `security-scan.yml`'s steps (its
+OpenCode runner's against a stub server), the
+review's, the scan's and triage's provider settings and run steps,
+`issue-triage.yml`'s access gate, state check and OpenCode runner, and
 `public-content.yml`'s two steps, read from their workflow by
 `tests/helpers/workflow.mjs` and run against the stub `gh`, a stub CLI or a
 scratch repository, the update check's against a scratch kit too) and the
