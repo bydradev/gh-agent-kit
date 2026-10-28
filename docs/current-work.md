@@ -62,6 +62,13 @@ when the kit is installed there (`docs/setup.md`, *The settings file*).
 Still to do: confirm on a real run that a switched-off workflow's run no
 longer reads as a successful review in the review's skip steps.
 
+On 2026-10-28 this repository's review, scan and triage moved to OpenCode
+Go, on its default model `deepseek-v4.1-flash`: `KIT_REVIEW_PROVIDER`,
+`KIT_SECURITY_PROVIDER` and `KIT_TRIAGE_PROVIDER` are `opencode-go` and
+`KIT_REVIEW_MAX_TURNS` is 120 in `.github/gh-agent-kit.yml`. The operator
+added the `OPENCODE_API_KEY` secret that day; `ANTHROPIC_API_KEY` stays
+set, unused while the providers are `opencode-go`.
+
 ### Security scan on the pinned CLI (2026-10-23)
 
 The operator chose to replace `anthropics/claude-code-security-review` with
