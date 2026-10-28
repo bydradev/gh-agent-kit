@@ -117,7 +117,11 @@ pull requests like the code, rather than in a GitHub Wiki, with dated
 assessments in `docs/reports/` and a short summary in the README. A GitHub
 Pages site for the reports was planned for once the repository went
 public; on 2026-10-27 the operator dropped it, so the reports stay as
-Markdown in `docs/reports/`.
+Markdown in `docs/reports/`. On 2026-10-28 `docs/reports/README.md` put
+the four backtests side by side, with each model's results, cost and fit
+on Go Plus, and the three Go reports gained a correction: with no level
+set, Claude Code sent their models `high`, its default for a model it
+does not know.
 
 ### Renamed to gh-agent-kit (2026-10-22)
 
