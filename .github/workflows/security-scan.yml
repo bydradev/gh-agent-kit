@@ -1,13 +1,15 @@
 name: security-scan
 
 # Claude Code scans pull requests for security vulnerabilities on the API
-# key in ANTHROPIC_API_KEY (or, with KIT_SECURITY_PROVIDER=opencode-go, on an
-# OpenCode Go model and the key in OPENCODE_API_KEY, as pr-review.yml's
-# "Run the review" explains), following the github-security-scan skill: one
-# run of the pinned CLI (the review workflow's, see "Install Claude Code")
-# looks for vulnerabilities the change introduces, and a second run, in a
-# fresh session, checks each candidate against the code and keeps only the
-# ones it can trace. The model has no shell, no network and no GitHub
+# key in ANTHROPIC_API_KEY. KIT_SECURITY_PROVIDER=opencode-go scans on an
+# OpenCode Go model instead, on the key in OPENCODE_API_KEY, in OpenCode's
+# CLI (see "Run the scan on OpenCode"), or in Claude Code with
+# KIT_SECURITY_RUNNER set to claude-code (as pr-review.yml's "Run the
+# review" explains). Either way the scan follows the github-security-scan
+# skill: one run of the pinned CLI (the review workflow's, see "Install
+# Claude Code" and "Install OpenCode") looks for vulnerabilities the change
+# introduces, and a second run, in a fresh session, checks each candidate
+# against the code and keeps only the ones it can trace. The model has no shell, no network and no GitHub
 # access; the workflow posts what it found. KIT_SECURITY_SCAN, a
 # repository variable or a line of .github/gh-agent-kit.yml (the settings
 # job below), sets when:
@@ -76,6 +78,7 @@ jobs:
       SETTINGS: >-
         KIT_SECURITY_SCAN
         KIT_SECURITY_PROVIDER
+        KIT_SECURITY_RUNNER
         KIT_SECURITY_MODEL
         KIT_SECURITY_EFFORT
         KIT_SECURITY_MAX_TURNS
@@ -85,6 +88,7 @@ jobs:
     outputs:
       KIT_SECURITY_SCAN: ${{ steps.pass.outputs.KIT_SECURITY_SCAN }}
       KIT_SECURITY_PROVIDER: ${{ steps.pass.outputs.KIT_SECURITY_PROVIDER }}
+      KIT_SECURITY_RUNNER: ${{ steps.pass.outputs.KIT_SECURITY_RUNNER }}
       KIT_SECURITY_MODEL: ${{ steps.pass.outputs.KIT_SECURITY_MODEL }}
       KIT_SECURITY_EFFORT: ${{ steps.pass.outputs.KIT_SECURITY_EFFORT }}
       KIT_SECURITY_MAX_TURNS: ${{ steps.pass.outputs.KIT_SECURITY_MAX_TURNS }}
@@ -105,10 +109,10 @@ jobs:
           # set any of them, and a name outside this list fails the run.
           # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
           known=(
-            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_MODEL KIT_REVIEW_EFFORT
-            KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES KIT_REVIEW_MAX_FILES
-            KIT_REVIEW_MAX_LINES
-            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_MODEL
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_RUNNER KIT_REVIEW_MODEL
+            KIT_REVIEW_EFFORT KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES
+            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_RUNNER KIT_SECURITY_MODEL
             KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
             KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
@@ -218,6 +222,7 @@ jobs:
         if: env.KIT_SECURITY_SCAN == 'push' || env.KIT_SECURITY_SCAN == 'open'
         env:
           PROVIDER: ${{ env.KIT_SECURITY_PROVIDER }}
+          RUNNER: ${{ env.KIT_SECURITY_RUNNER }}
           MODEL: ${{ env.KIT_SECURITY_MODEL }}
           EFFORT: ${{ env.KIT_SECURITY_EFFORT }}
           MAX_TURNS: ${{ env.KIT_SECURITY_MAX_TURNS }}
@@ -267,9 +272,11 @@ jobs:
             echo "$name=$value"
           }
           # An effort level the CLI takes, or the default when unset; an empty
-          # default passes no --effort, so the CLI's default for the model
-          # applies. The CLI ignores an unknown level with a warning, so it
-          # fails here.
+          # default passes no --effort (no --variant on OpenCode), so the
+          # CLI's default for the model applies. Claude Code ignores an
+          # unknown level with a warning and OpenCode an unknown variant
+          # silently, so it fails here, and on OpenCode a level the model
+          # lacks fails the run step.
           effort() {
             local name=$1 value=$2 default=$3
             [ -n "$value" ] || value=$default
@@ -286,6 +293,40 @@ jobs:
           # reliable effect on Go's default model (the setup guide's OpenCode
           # Go section,
           # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go).
+          # The program that runs the skill. Unset, it follows the provider:
+          # OpenCode's CLI on OpenCode Go and Claude Code on the Anthropic
+          # API (OpenCode's CLI runs only on Go here). Claude Code can run on
+          # Go through Go's Anthropic endpoint, but it thinks far longer
+          # there: 10k to 34k tokens a turn and a review past the time limit,
+          # against under 2k a step on average and 7 minutes in OpenCode's
+          # CLI (the kit's setup guide,
+          # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go,
+          # measured 2026-10-28), so it warns. The runner is read first, so
+          # an opencode runner without the Go provider is named as such, not
+          # as a model the provider does not take. On OpenCode the effort
+          # level becomes the model's --variant, which the run step checks
+          # against the pinned CLI's model list.
+          case "$RUNNER" in
+            '')
+              runner=claude-code
+              [ "$PROVIDER" != opencode-go ] || runner=opencode ;;
+            claude-code)
+              runner=claude-code
+              if [ "$PROVIDER" = opencode-go ]; then
+                echo "::warning::the setting KIT_SECURITY_RUNNER is claude-code on OpenCode Go, where Claude Code runs Go's models slower than OpenCode's CLI; the kit recommends leaving it unset ($(from KIT_SECURITY_RUNNER))"
+              fi ;;
+            opencode)
+              if [ "$PROVIDER" != opencode-go ]; then
+                echo "::error::the setting KIT_SECURITY_RUNNER is opencode, which needs KIT_SECURITY_PROVIDER set to opencode-go, not '${PROVIDER:-unset}' ($(from KIT_SECURITY_RUNNER); KIT_SECURITY_PROVIDER: $(from KIT_SECURITY_PROVIDER))"
+                exit 1
+              fi
+              runner=opencode ;;
+            *)
+              echo "::error::the setting KIT_SECURITY_RUNNER must be claude-code, opencode or unset, not '$RUNNER' ($(from KIT_SECURITY_RUNNER))"
+              exit 1 ;;
+          esac
+          echo "KIT_SECURITY_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "KIT_SECURITY_RUNNER=$runner"
           case "$PROVIDER" in
             ''|anthropic)
               echo "KIT_SECURITY_PROVIDER=anthropic" >> "$GITHUB_ENV"
@@ -335,6 +376,7 @@ jobs:
     env:
       KIT_SECURITY_SCAN: ${{ needs.settings.outputs.KIT_SECURITY_SCAN }}
       KIT_SECURITY_PROVIDER: ${{ needs.settings.outputs.KIT_SECURITY_PROVIDER }}
+      KIT_SECURITY_RUNNER: ${{ needs.settings.outputs.KIT_SECURITY_RUNNER }}
       KIT_SECURITY_MODEL: ${{ needs.settings.outputs.KIT_SECURITY_MODEL }}
       KIT_SECURITY_EFFORT: ${{ needs.settings.outputs.KIT_SECURITY_EFFORT }}
       KIT_SECURITY_MAX_TURNS: ${{ needs.settings.outputs.KIT_SECURITY_MAX_TURNS }}
@@ -584,7 +626,7 @@ jobs:
       # allowed_non_write_users path (v1.0.256), including its Ubuntu 24.04
       # AppArmor relaxation.
       - name: Install subprocess isolation dependencies
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'
         run: |
           # The image ships apt sources the kit does not use, and one failing
           # (a 403 from packages.microsoft.com on 2026-10-22) fails the
@@ -661,7 +703,7 @@ jobs:
       # installed root-owned outside the checkout. Move the pin as that
       # step says, in the three workflows together.
       - name: Install Claude Code
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'
         env:
           VERSION: 2.1.306
           SHA256: 520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe
@@ -680,6 +722,46 @@ jobs:
           sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /opt/agent-kit/claude
           rm -f -- "$RUNNER_TEMP/claude"
           DISABLE_AUTOUPDATER=1 /opt/agent-kit/claude --version
+      # OpenCode 1.19.3 imports the plugins a checkout names (in
+      # .opencode/plugin, .opencode/plugins and the plugin list of an
+      # opencode.json or opencode.jsonc) even with
+      # OPENCODE_DISABLE_PROJECT_CONFIG and OPENCODE_PURE set, as
+      # pr-review.yml's "Remove the checkout's OpenCode configuration" says,
+      # so on the opencode runner they go before the CLI first runs. The
+      # diff in the input directory still shows a change to them.
+      - name: Remove the checkout's OpenCode configuration
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
+        run: |
+          rm -rf -- .opencode opencode.json opencode.jsonc
+      # The release the review and triage workflows pin, installed the way
+      # pr-review.yml's "Install OpenCode" says. Move the pins together.
+      - name: Install OpenCode
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
+        env:
+          VERSION: 1.19.3
+          SHA256: 179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 300 \
+            -o "$RUNNER_TEMP/opencode.tar.gz" \
+            "https://github.com/anomalyco/opencode/releases/download/v$VERSION/opencode-linux-x64.tar.gz"
+          mkdir "$RUNNER_TEMP/opencode-release"
+          tar -xzf "$RUNNER_TEMP/opencode.tar.gz" -C "$RUNNER_TEMP/opencode-release" opencode
+          echo "$SHA256  $RUNNER_TEMP/opencode-release/opencode" | sha256sum -c -
+          sudo install -d -o root -g root -m 0755 /opt/agent-kit
+          sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-release/opencode" /opt/agent-kit/opencode
+          rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/opencode-release"
+          HOME="$RUNNER_TEMP" OPENCODE_DISABLE_AUTOUPDATE=1 /opt/agent-kit/opencode --version
+      # OpenCode's grep and glob tools take a path and are checked only
+      # against their pattern, so the read rules for .git do not cover them
+      # (issue-triage.yml, tried with 1.19.3 on 2026-10-26). So on the
+      # opencode runner .git moves out of the checkout once the inputs are
+      # written, and "Put .git back in the checkout" returns it for the
+      # record step, which reads the base's commit. The symlinks are
+      # already gone (see "Remove the checkout's symlinks").
+      - name: Move .git out of the checkout for OpenCode
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
+        run: |
+          mv -- .git "$RUNNER_TEMP/checkout-git"
       # The scan: the model reads the change and answers with its candidate
       # findings. --restricted drops the code-running tools and ignores the
       # user, project and local settings files (the one passed with
@@ -704,7 +786,7 @@ jobs:
       # it leaves no structured_output for the collect step, which fails.
       - id: scan
         name: Run the scan
-        if: env.RUN != 'false'
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -773,12 +855,233 @@ jobs:
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
           fi
-      # The scan's structured output, checked field by field (the CLI
-      # validates it against the schema; this does not rely on that), with
-      # an id for each candidate (F1, F2, ...), written where the
-      # verification run reads it. A run with no structured output (the
-      # model declined, or its answer did not fit the schema) did not
-      # complete a scan.
+      # The same scan on OpenCode's CLI (the opencode runner), held to
+      # what the Claude Code run allows as pr-review.yml's "Run the
+      # review on OpenCode" sets out: an inline configuration, an empty
+      # home, every permission denied but read, grep and glob in the
+      # checkout and the input directory, and the step limit. The run
+      # goes through OpenCode's own server rather than `opencode run`,
+      # so that each message comes back with its parts and any error and
+      # the answer can be asked for again, on loopback behind a password
+      # made here; with --port 0, 1.19.3 takes port 4096 when it is free
+      # and otherwise one the system picks (its server code, read
+      # 2026-10-28). The prompt carries the schema, and the answer,
+      # taken from the model's last message and checked here, is written
+      # in the shape of Claude Code's result, so the checks below read
+      # either. Cost and tokens are OpenCode's own, at Go's prices.
+      # Through these steps from outside GitHub, the scan of kit pull
+      # request 23 took 36 and 96 seconds (5 and 6 steps) in two runs,
+      # against 3 minutes 41 seconds and 22 turns in Claude Code on Go
+      # (2026-10-28).
+      - id: scan_opencode
+        name: Run the scan on OpenCode
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SCHEMA: ${{ runner.temp }}/scan-schema.json
+          RESULT: ${{ runner.temp }}/scan-result.json
+        run: |
+          prompt="Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the scan of $REPO pull request $PR. The input directory is $SCAN_INPUT: files.txt lists the changed files and diff.patch is the diff. The scan runs in OpenCode's CLI."
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "::error::KIT_SECURITY_RUNNER is opencode but the OPENCODE_API_KEY secret is not set"
+            exit 1
+          fi
+          permission=$(jq -cn --arg input "$SCAN_INPUT" '
+            {"*": "deny",
+             external_directory: {"*": "deny", ($input): "allow", ($input + "/*"): "allow"},
+             read: {"*": "allow", ".git": "deny", ".git/*": "deny"},
+             grep: "allow", glob: "allow"}')
+          config=$(jq -cn --arg model "opencode-go/$KIT_SECURITY_MODEL" --argjson steps "$KIT_SECURITY_MAX_TURNS" \
+            --argjson permission "$permission" '{
+              "$schema": "https://opencode.ai/config.json",
+              autoupdate: false, share: "disabled", lsp: false, formatter: false,
+              model: $model, small_model: $model,
+              provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}},
+              permission: $permission,
+              agent: {build: {steps: $steps}}
+            }')
+          echo "$config" | jq '{model, permission, agent}'
+          home="$RUNNER_TEMP/opencode-home"
+          mkdir -p "$home"
+          # The CLI's environment beside its configuration, as in
+          # pr-review.yml: the empty home, and the switches.
+          isolated=(HOME="$home" XDG_CONFIG_HOME="$home/config" XDG_DATA_HOME="$home/data"
+            XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state"
+            OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_PURE=1 OPENCODE_DISABLE_CLAUDE_CODE=1
+            OPENCODE_DISABLE_EXTERNAL_SKILLS=1 OPENCODE_DISABLE_AUTOUPDATE=1
+            OPENCODE_DISABLE_LSP_DOWNLOAD=1 OPENCODE_DISABLE_MODELS_FETCH=1
+            GH_TOKEN= GITHUB_TOKEN=)
+          # The CLI with the configuration in $1.
+          oc() {
+            local config=$1
+            shift
+            env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" /opt/agent-kit/opencode "$@"
+          }
+          # The model's entry in the pinned CLI's own model list, and the
+          # effort level as one of its variants, as in pr-review.yml.
+          list=$(jq -cn '{provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}}}')
+          listed=0
+          oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \
+            2> "$RUNNER_TEMP/opencode-models-stderr" || listed=$?
+          if [ "$listed" -ne 0 ]; then
+            tail -n 20 "$RUNNER_TEMP/opencode-models-stderr" >&2
+            echo "::error::OpenCode could not list its models (exit status $listed), so KIT_SECURITY_MODEL could not be checked"
+            exit 1
+          fi
+          info=$(awk -v want="opencode-go/$KIT_SECURITY_MODEL" '$0 == want { on = 1; next } on && /^[^ {}"]+\/[^ ]+$/ { exit } on' "$RUNNER_TEMP/opencode-models")
+          if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"; then
+            echo "::error::the setting KIT_SECURITY_MODEL is '$KIT_SECURITY_MODEL', which the pinned OpenCode does not list for OpenCode Go"
+            exit 1
+          fi
+          if [ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.variants // {} | has($v)' >/dev/null <<<"$info"; then
+            echo "::error::the setting KIT_SECURITY_EFFORT is '$KIT_SECURITY_EFFORT', which OpenCode does not offer for $KIT_SECURITY_MODEL; it offers $(jq -r '.variants // {} | keys | if length == 0 then "none" else join(", ") end' <<<"$info"), or leave it unset"
+            exit 1
+          fi
+          echo "variant: ${KIT_SECURITY_EFFORT:-none, so the model default applies}"
+          # The server on a local port it picks, behind a password of its
+          # own. A plain command, not oc, so that $! is the server itself
+          # and the kill below stops it.
+          password=$(openssl rand -hex 32)
+          env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
+            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          url=""
+          for _ in $(seq 1 120); do
+            url=$(grep -m1 -o 'http://127\.0\.0\.1:[0-9]*' "$RUNNER_TEMP/opencode-serve.log" || true)
+            [ -z "$url" ] || break
+            kill -0 "$server" 2>/dev/null || break
+            sleep 1
+          done
+          if [ -z "$url" ]; then
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            echo "::error::OpenCode's server did not start"
+            exit 1
+          fi
+          api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
+          session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
+          # A message with the text in $1.
+          ask() {
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" '{
+                model: {providerID: "opencode-go", modelID: $model},
+                parts: [{type: "text", text: $text}]
+              } + (if $variant == "" then {} else {variant: $variant} end)'
+          }
+          # The answer: the last message's last text when it is one JSON
+          # object, alone or as the whole of one code fence, that fits the
+          # schema; otherwise nothing. Nothing is taken from among other
+          # text, where a quoted object (from the pull request, say) could
+          # pass for the answer. fits checks the keywords the workflow's
+          # schemas use.
+          read_answer() {
+            jq -c --slurpfile schema "$SCHEMA" '
+              def fits($s):
+                . as $v
+                | ($s.type // null) as $t
+                | ($t == null or $t == type or ($t == "integer" and type == "number" and . == floor))
+                  and ($s.enum == null or any($s.enum[]; . == $v))
+                  and ($s.minimum == null or . >= $s.minimum)
+                  and ($s.maximum == null or . <= $s.maximum)
+                  and ($s.maxItems == null or length <= $s.maxItems)
+                  and (type != "object"
+                    or ((($s.required // []) | all(. as $k | $v | has($k)))
+                      and ($s.additionalProperties != false or ((keys - (($s.properties // {}) | keys)) | length) == 0)
+                      and all(to_entries[]; ($s.properties[.key] // null) as $p | $p == null or (.value | fits($p)))))
+                  and (type != "array" or $s.items == null or all(.[]; fits($s.items)));
+              [.parts[]? | select(.type == "text") | .text] | last // ""
+              | (try fromjson catch null) // (capture("^\\s*```(?:json)?\\s*(?<j>[\\s\\S]*?)\\s*```\\s*$").j | try fromjson catch null)
+              | select(. != null and fits($schema[0]))' "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The model answers in text, as JSON, and the workflow checks it
+          # against the schema; an answer that does not fit is asked for
+          # again in the same session, twice at most. OpenCode's json_schema
+          # format is not used: it makes 1.19.3 force a tool call on every
+          # step (tool_choice "required", its prompt loop, read 2026-10-28),
+          # which some of Go's DeepSeek V4.1 Flash servers refuse in
+          # thinking mode. On 2026-10-28 one refused a scan's first request
+          # on GitHub's runner; test requests sent over the next half hour
+          # were refused at times one in four and at worst five in eight,
+          # and a local scan that asked again after each refusal, with
+          # pauses of up to a minute, was refused four times running.
+          status=0
+          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
+            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # Through a file: an argument has a size limit.
+          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          for _ in 1 2; do
+            [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
+              && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
+            echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
+            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
+              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          done
+          # An answer that is not JSON (no answer at all, or a proxy's page)
+          # reads as none.
+          jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"
+          # Every step's message, for the turn count, cost and tokens,
+          # exported from OpenCode's store once the server has stopped.
+          kill "$server" 2>/dev/null || true
+          wait "$server" 2>/dev/null || true
+          if ! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/null \
+            || ! jq -e '.messages | type == "array"' "$RUNNER_TEMP/opencode-session.json" >/dev/null 2>&1; then
+            echo "::warning::OpenCode did not export the session, so the turn count, cost and tokens below are missing"
+            echo '{"messages": []}' > "$RUNNER_TEMP/opencode-session.json"
+          fi
+          # The answer in the shape of Claude Code's result, which the
+          # steps after this one read: structured_output is the answer that
+          # fits, and a run without one is an error. An answer that is not a
+          # message (the server's own error) is the error.
+          jq -n --argjson status "$status" --slurpfile structured "$RUNNER_TEMP/opencode-structured.json" \
+            --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
+            ($answer[0] // {}) as $a | [$session[0].messages[] | select(.info.role == "assistant")] as $m
+            | ($structured[0] // null) as $structured
+            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end)
+               else $a.info.error // (if $structured == null then {name: "no JSON answer that fits the schema"} else null end) end) as $error
+            | {type: "result",
+               subtype: (if $status == 0 and $error == null then "success" else "error" end),
+               is_error: ($status != 0 or $error != null),
+               num_turns: ([$m[] | .parts[]? | select(.type == "step-start")] | length),
+               total_cost_usd: ([$m[] | .info.cost // 0] | add // 0),
+               usage: {
+                 input_tokens: ([$m[] | .info.tokens.input // 0] | add // 0),
+                 cache_read_input_tokens: ([$m[] | .info.tokens.cache.read // 0] | add // 0),
+                 cache_creation_input_tokens: ([$m[] | .info.tokens.cache.write // 0] | add // 0),
+                 output_tokens: ([$m[] | .info.tokens.output // 0] | add // 0),
+                 reasoning_tokens: ([$m[] | .info.tokens.reasoning // 0] | add // 0)},
+               errors: (if $error == null then [] else [$error.data.message // $error.message // $error.name // "error"] end),
+               result: ([$m[] | .parts[]? | select(.type == "text") | .text] | last // ""),
+               structured_output: $structured}' > "$RESULT"
+          result=$(cat "$RESULT")
+          # The model's last message, with workflow commands stopped: text the
+          # pull request steered could otherwise annotate or mask the log.
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
+          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
+          echo "::$stop::"
+          if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
+            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
+            exit 1
+          fi
+          # The step limit is the run's, so the steps after a second prompt,
+          # which asked for the answer again, do not count.
+          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
+            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
+            | length' "$RUNNER_TEMP/opencode-session.json")
+          if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
+            echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
+            exit 1
+          fi
+      # The scan's structured output, checked field by field (Claude
+      # Code's CLI, or on OpenCode the step that ran the scan, checks it
+      # against the schema; this does not rely on either), with an id
+      # for each candidate (F1, F2, ...), written where the verification
+      # run reads it. A run with no structured output (the model
+      # declined, or its answer did not fit the schema) did not complete
+      # a scan.
       - name: Collect the scan's candidate findings
         if: env.RUN != 'false'
         env:
@@ -813,7 +1116,7 @@ jobs:
       # something.
       - id: verify
         name: Verify the candidate findings
-        if: env.RUN != 'false' && env.CANDIDATES != '' && env.CANDIDATES != '0'
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code' && env.CANDIDATES != '' && env.CANDIDATES != '0'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -877,6 +1180,218 @@ jobs:
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
+          fi
+      # The verification on OpenCode's CLI, the same way as "Run the scan on
+      # OpenCode", in a session of its own.
+      - id: verify_opencode
+        name: Verify the candidate findings on OpenCode
+        if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode' && env.CANDIDATES != '' && env.CANDIDATES != '0'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SCHEMA: ${{ runner.temp }}/verify-schema.json
+          RESULT: ${{ runner.temp }}/verify-result.json
+        run: |
+          prompt="Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the verification of the scan of $REPO pull request $PR. The input directory is $SCAN_INPUT: candidates.json holds the $CANDIDATES candidate findings, files.txt lists the changed files and diff.patch is the diff. The verification runs in OpenCode's CLI."
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "::error::KIT_SECURITY_RUNNER is opencode but the OPENCODE_API_KEY secret is not set"
+            exit 1
+          fi
+          permission=$(jq -cn --arg input "$SCAN_INPUT" '
+            {"*": "deny",
+             external_directory: {"*": "deny", ($input): "allow", ($input + "/*"): "allow"},
+             read: {"*": "allow", ".git": "deny", ".git/*": "deny"},
+             grep: "allow", glob: "allow"}')
+          config=$(jq -cn --arg model "opencode-go/$KIT_SECURITY_MODEL" --argjson steps "$KIT_SECURITY_MAX_TURNS" \
+            --argjson permission "$permission" '{
+              "$schema": "https://opencode.ai/config.json",
+              autoupdate: false, share: "disabled", lsp: false, formatter: false,
+              model: $model, small_model: $model,
+              provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}},
+              permission: $permission,
+              agent: {build: {steps: $steps}}
+            }')
+          echo "$config" | jq '{model, permission, agent}'
+          home="$RUNNER_TEMP/opencode-home"
+          mkdir -p "$home"
+          # The CLI's environment beside its configuration, as in
+          # pr-review.yml: the empty home, and the switches.
+          isolated=(HOME="$home" XDG_CONFIG_HOME="$home/config" XDG_DATA_HOME="$home/data"
+            XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state"
+            OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_PURE=1 OPENCODE_DISABLE_CLAUDE_CODE=1
+            OPENCODE_DISABLE_EXTERNAL_SKILLS=1 OPENCODE_DISABLE_AUTOUPDATE=1
+            OPENCODE_DISABLE_LSP_DOWNLOAD=1 OPENCODE_DISABLE_MODELS_FETCH=1
+            GH_TOKEN= GITHUB_TOKEN=)
+          # The CLI with the configuration in $1.
+          oc() {
+            local config=$1
+            shift
+            env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" /opt/agent-kit/opencode "$@"
+          }
+          # The model's entry in the pinned CLI's own model list, and the
+          # effort level as one of its variants, as in pr-review.yml.
+          list=$(jq -cn '{provider: {"opencode-go": {options: {apiKey: "{env:OPENCODE_API_KEY}"}}}}')
+          listed=0
+          oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \
+            2> "$RUNNER_TEMP/opencode-models-stderr" || listed=$?
+          if [ "$listed" -ne 0 ]; then
+            tail -n 20 "$RUNNER_TEMP/opencode-models-stderr" >&2
+            echo "::error::OpenCode could not list its models (exit status $listed), so KIT_SECURITY_MODEL could not be checked"
+            exit 1
+          fi
+          info=$(awk -v want="opencode-go/$KIT_SECURITY_MODEL" '$0 == want { on = 1; next } on && /^[^ {}"]+\/[^ ]+$/ { exit } on' "$RUNNER_TEMP/opencode-models")
+          if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"; then
+            echo "::error::the setting KIT_SECURITY_MODEL is '$KIT_SECURITY_MODEL', which the pinned OpenCode does not list for OpenCode Go"
+            exit 1
+          fi
+          if [ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.variants // {} | has($v)' >/dev/null <<<"$info"; then
+            echo "::error::the setting KIT_SECURITY_EFFORT is '$KIT_SECURITY_EFFORT', which OpenCode does not offer for $KIT_SECURITY_MODEL; it offers $(jq -r '.variants // {} | keys | if length == 0 then "none" else join(", ") end' <<<"$info"), or leave it unset"
+            exit 1
+          fi
+          echo "variant: ${KIT_SECURITY_EFFORT:-none, so the model default applies}"
+          # The server on a local port it picks, behind a password of its
+          # own. A plain command, not oc, so that $! is the server itself
+          # and the kill below stops it.
+          password=$(openssl rand -hex 32)
+          env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
+            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          url=""
+          for _ in $(seq 1 120); do
+            url=$(grep -m1 -o 'http://127\.0\.0\.1:[0-9]*' "$RUNNER_TEMP/opencode-serve.log" || true)
+            [ -z "$url" ] || break
+            kill -0 "$server" 2>/dev/null || break
+            sleep 1
+          done
+          if [ -z "$url" ]; then
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            echo "::error::OpenCode's server did not start"
+            exit 1
+          fi
+          api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
+          session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
+          # A message with the text in $1.
+          ask() {
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" '{
+                model: {providerID: "opencode-go", modelID: $model},
+                parts: [{type: "text", text: $text}]
+              } + (if $variant == "" then {} else {variant: $variant} end)'
+          }
+          # The answer: the last message's last text when it is one JSON
+          # object, alone or as the whole of one code fence, that fits the
+          # schema; otherwise nothing. Nothing is taken from among other
+          # text, where a quoted object (from the pull request, say) could
+          # pass for the answer. fits checks the keywords the workflow's
+          # schemas use.
+          read_answer() {
+            jq -c --slurpfile schema "$SCHEMA" '
+              def fits($s):
+                . as $v
+                | ($s.type // null) as $t
+                | ($t == null or $t == type or ($t == "integer" and type == "number" and . == floor))
+                  and ($s.enum == null or any($s.enum[]; . == $v))
+                  and ($s.minimum == null or . >= $s.minimum)
+                  and ($s.maximum == null or . <= $s.maximum)
+                  and ($s.maxItems == null or length <= $s.maxItems)
+                  and (type != "object"
+                    or ((($s.required // []) | all(. as $k | $v | has($k)))
+                      and ($s.additionalProperties != false or ((keys - (($s.properties // {}) | keys)) | length) == 0)
+                      and all(to_entries[]; ($s.properties[.key] // null) as $p | $p == null or (.value | fits($p)))))
+                  and (type != "array" or $s.items == null or all(.[]; fits($s.items)));
+              [.parts[]? | select(.type == "text") | .text] | last // ""
+              | (try fromjson catch null) // (capture("^\\s*```(?:json)?\\s*(?<j>[\\s\\S]*?)\\s*```\\s*$").j | try fromjson catch null)
+              | select(. != null and fits($schema[0]))' "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The model answers in text, as JSON, and the workflow checks it
+          # against the schema; an answer that does not fit is asked for
+          # again in the same session, twice at most. OpenCode's json_schema
+          # format is not used: it makes 1.19.3 force a tool call on every
+          # step (tool_choice "required", its prompt loop, read 2026-10-28),
+          # which some of Go's DeepSeek V4.1 Flash servers refuse in
+          # thinking mode. On 2026-10-28 one refused a scan's first request
+          # on GitHub's runner; test requests sent over the next half hour
+          # were refused at times one in four and at worst five in eight,
+          # and a local scan that asked again after each refusal, with
+          # pauses of up to a minute, was refused four times running.
+          status=0
+          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
+            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # Through a file: an argument has a size limit.
+          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          for _ in 1 2; do
+            [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
+              && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
+            echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
+            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
+              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          done
+          # An answer that is not JSON (no answer at all, or a proxy's page)
+          # reads as none.
+          jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"
+          # Every step's message, for the turn count, cost and tokens,
+          # exported from OpenCode's store once the server has stopped.
+          kill "$server" 2>/dev/null || true
+          wait "$server" 2>/dev/null || true
+          if ! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/null \
+            || ! jq -e '.messages | type == "array"' "$RUNNER_TEMP/opencode-session.json" >/dev/null 2>&1; then
+            echo "::warning::OpenCode did not export the session, so the turn count, cost and tokens below are missing"
+            echo '{"messages": []}' > "$RUNNER_TEMP/opencode-session.json"
+          fi
+          # The answer in the shape of Claude Code's result, which the
+          # steps after this one read: structured_output is the answer that
+          # fits, and a run without one is an error. An answer that is not a
+          # message (the server's own error) is the error.
+          jq -n --argjson status "$status" --slurpfile structured "$RUNNER_TEMP/opencode-structured.json" \
+            --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
+            ($answer[0] // {}) as $a | [$session[0].messages[] | select(.info.role == "assistant")] as $m
+            | ($structured[0] // null) as $structured
+            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end)
+               else $a.info.error // (if $structured == null then {name: "no JSON answer that fits the schema"} else null end) end) as $error
+            | {type: "result",
+               subtype: (if $status == 0 and $error == null then "success" else "error" end),
+               is_error: ($status != 0 or $error != null),
+               num_turns: ([$m[] | .parts[]? | select(.type == "step-start")] | length),
+               total_cost_usd: ([$m[] | .info.cost // 0] | add // 0),
+               usage: {
+                 input_tokens: ([$m[] | .info.tokens.input // 0] | add // 0),
+                 cache_read_input_tokens: ([$m[] | .info.tokens.cache.read // 0] | add // 0),
+                 cache_creation_input_tokens: ([$m[] | .info.tokens.cache.write // 0] | add // 0),
+                 output_tokens: ([$m[] | .info.tokens.output // 0] | add // 0),
+                 reasoning_tokens: ([$m[] | .info.tokens.reasoning // 0] | add // 0)},
+               errors: (if $error == null then [] else [$error.data.message // $error.message // $error.name // "error"] end),
+               result: ([$m[] | .parts[]? | select(.type == "text") | .text] | last // ""),
+               structured_output: $structured}' > "$RESULT"
+          result=$(cat "$RESULT")
+          # The model's last message, with workflow commands stopped: text the
+          # pull request steered could otherwise annotate or mask the log.
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
+          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
+          echo "::$stop::"
+          if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
+            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
+            exit 1
+          fi
+          # The step limit is the run's, so the steps after a second prompt,
+          # which asked for the answer again, do not count.
+          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
+            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
+            | length' "$RUNNER_TEMP/opencode-session.json")
+          if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
+            echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
+            exit 1
+          fi
+      # Back for the record step and the checkout action's cleanup, whether
+      # or not the runs succeeded.
+      - name: Put .git back in the checkout
+        if: always() && env.KIT_SECURITY_RUNNER == 'opencode'
+        run: |
+          if [ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]; then
+            mv -- "$RUNNER_TEMP/checkout-git" .git
           fi
       # The candidates the verification kept, as the scan's results. A
       # candidate is dropped only when it has a verdict and none keeps it; one
@@ -953,7 +1468,7 @@ jobs:
       # model wrote in a code span with backticks and line breaks taken
       # out, so a finding cannot mention anyone, link, or add markup.
       - name: Summarise the scan's findings
-        if: ${{ always() && env.RUN != 'false' && steps.scan.outcome != 'skipped' }}
+        if: ${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' || steps.scan_opencode.outcome != 'skipped') }}
         env:
           RESULTS: ${{ runner.temp }}/scan-results.json
           BASE: ${{ github.event.pull_request.base.ref }}
