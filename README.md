@@ -109,15 +109,19 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
 
 ## How it runs
 
-Three of the workflows use a model, through one of two programs and on one
-of two hosts:
+Three of the workflows use a model, run by one of two programs (the
+runner) on one of two hosts (the provider):
 
-| Workflow | Program | Model host | Default model |
-| --- | --- | --- | --- |
-| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go |
-| `security-scan` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5` at effort `xhigh`; `deepseek-v4.1-flash` on Go |
-| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go |
-| `kit-update-check` | none: `git` and `gh` only | none | none |
+| Workflow | Runner (program) | Provider (model host) | Default model | Default effort |
+| --- | --- | --- | --- | --- |
+| `pr-review` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
+| `security-scan` | Claude Code CLI | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `xhigh` |
+| `issue-triage` | Claude Code CLI, or OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
+| `kit-update-check` | none: `git` and `gh` only | none | none | none |
+
+The effort column is for the Anthropic API. On Go the kit sets no default
+level, so Claude Code sends its own: `high` for DeepSeek V4.1 Flash
+([OpenCode Go](docs/setup.md#opencode-go)).
 
 - **OpenCode Go** is OpenCode's monthly model subscription. Claude Code
   reaches the Go models served on Go's Anthropic-style endpoint. With

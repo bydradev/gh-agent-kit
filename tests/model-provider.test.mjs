@@ -31,8 +31,8 @@ const JOBS = [
     effort: "KIT_SECURITY_EFFORT",
     claudeDefault: "claude-opus-5-5",
     goDefault: "deepseek-v4.1-flash",
-    // The scan defaults to xhigh on the Anthropic API only: effort on Go
-    // is untested, so there it passes none.
+    // The scan defaults to xhigh on the Anthropic API only: on Go no level
+    // had a reliable effect on the default model, so there it passes none.
     claudeEffort: "xhigh",
   },
   {

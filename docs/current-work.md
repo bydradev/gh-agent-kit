@@ -77,8 +77,10 @@ candidates cost $0.36 (on the pull request that made this change). Not yet
 measured: the verification's cost, and how often it drops a real finding. On
 the operator's ask (2026-10-23) the scan now defaults to effort `xhigh` on
 the Anthropic API, for the scan and the verification; on OpenCode Go it
-still passes no effort, since effort there is untested. The cost of an
-`xhigh` scan is not measured yet either.
+still passes no effort. Tested on 2026-10-27: the pinned CLI then sends
+its own default, `high` for Go's DeepSeek V4.1 Flash, and no level had a
+consistent effect on that model (`docs/setup.md`, *OpenCode Go*). The
+cost of an `xhigh` scan is not measured yet either.
 
 ### OpenCode Go provider (2026-10-23, updated 2026-10-26)
 
