@@ -117,8 +117,9 @@ for (const job of JOBS) {
 
   for (const name of job.runs) {
     // The run step with the CLI replaced by a stub that writes the
-    // variables it was started with and answers like a successful run.
-    const run = (t, provider, keys) => {
+    // variables it was started with and answers like a successful run,
+    // whose last message is text.
+    const run = (t, provider, keys, text = "done") => {
       const dir = tempDir(t);
       const temp = path.join(dir, "runner-temp");
       fs.mkdirSync(path.join(temp, "scan-input"), { recursive: true });
@@ -128,12 +129,25 @@ for (const job of JOBS) {
       const stub = path.join(dir, "claude");
       const seen = path.join(dir, "seen-env");
       const argv = path.join(dir, "seen-args");
+      const answer = path.join(dir, "answer.json");
+      fs.writeFileSync(
+        answer,
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          num_turns: 2,
+          total_cost_usd: 0.5,
+          usage: { input_tokens: 11, cache_read_input_tokens: 22, cache_creation_input_tokens: 33, output_tokens: 44 },
+          result: text,
+        }),
+      );
       fs.writeFileSync(
         stub,
         `#!/bin/bash
 env > "${seen}"
 printf '%s\\n' "$@" > "${argv}"
-echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total_cost_usd":0.5,"usage":{"input_tokens":11,"cache_read_input_tokens":22,"cache_creation_input_tokens":33,"output_tokens":44},"result":"done"}'
+cat "${answer}"
 `,
         { mode: 0o755 },
       );
@@ -170,6 +184,23 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total
       const unset = run(t, "anthropic", { ANTHROPIC_API_KEY: "ak" });
       assert.equal(unset.status, 0, unset.stdout + unset.stderr);
       assert.ok(!unset.args.includes("--effort"));
+    });
+
+    // The run summary carries the model's last message, which the pull
+    // request or issue may have steered, so it is printed with workflow
+    // commands stopped.
+    test(`${job.file}, ${name}: the model's text cannot run workflow commands`, (t) => {
+      const r = run(t, "anthropic", { ANTHROPIC_API_KEY: "ak" }, "Done.\n::error::steered\n::add-mask::x");
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      const lines = r.stdout.split("\n");
+      const begin = lines.findIndex((l) => /^::stop-commands::[0-9a-f]{32}$/.test(l));
+      assert.notEqual(begin, -1, r.stdout);
+      const token = lines[begin].slice("::stop-commands::".length);
+      const end = lines.indexOf(`::${token}::`);
+      for (const steered of ["::error::steered", "::add-mask::x"]) {
+        const at = lines.indexOf(steered);
+        assert.ok(begin < at && at < end, `${steered}: ${r.stdout}`);
+      }
     });
 
     test(`${job.file}, ${name}: the Anthropic provider passes the Anthropic key only`, (t) => {

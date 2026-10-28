@@ -1004,7 +1004,12 @@ jobs:
           # model's prices on opencode.ai/docs/go.
           cost=cost_usd
           [ "$KIT_REVIEW_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
+          # The model's last message, with workflow commands stopped: text the
+          # pull request steered could otherwise annotate or mask the log.
+          stop=$(openssl rand -hex 16)
+          echo "::stop-commands::$stop"
           jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
+          echo "::$stop::"
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
