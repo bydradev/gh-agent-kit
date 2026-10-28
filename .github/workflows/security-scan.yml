@@ -729,8 +729,8 @@ jobs:
             unset ANTHROPIC_API_KEY
           elif [ -z "$ANTHROPIC_API_KEY" ]; then
             hint=""
-            [ -z "$OPENCODE_API_KEY" ] || hint="; to run on OPENCODE_API_KEY instead, set KIT_SECURITY_PROVIDER to opencode-go"
-            echo "::error::KIT_SECURITY_PROVIDER is anthropic (the default) but the ANTHROPIC_API_KEY secret is not set$hint"
+            [ -z "$OPENCODE_API_KEY" ] || hint=", or set KIT_SECURITY_PROVIDER to opencode-go to use the OPENCODE_API_KEY secret instead"
+            echo "::error::KIT_SECURITY_PROVIDER is anthropic (the default) but the ANTHROPIC_API_KEY secret is not set; add that secret$hint"
             exit 1
           fi
           unset OPENCODE_API_KEY
@@ -837,8 +837,8 @@ jobs:
             unset ANTHROPIC_API_KEY
           elif [ -z "$ANTHROPIC_API_KEY" ]; then
             hint=""
-            [ -z "$OPENCODE_API_KEY" ] || hint="; to run on OPENCODE_API_KEY instead, set KIT_SECURITY_PROVIDER to opencode-go"
-            echo "::error::KIT_SECURITY_PROVIDER is anthropic (the default) but the ANTHROPIC_API_KEY secret is not set$hint"
+            [ -z "$OPENCODE_API_KEY" ] || hint=", or set KIT_SECURITY_PROVIDER to opencode-go to use the OPENCODE_API_KEY secret instead"
+            echo "::error::KIT_SECURITY_PROVIDER is anthropic (the default) but the ANTHROPIC_API_KEY secret is not set; add that secret$hint"
             exit 1
           fi
           unset OPENCODE_API_KEY
