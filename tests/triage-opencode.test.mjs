@@ -1,13 +1,15 @@
-// issue-triage's OpenCode runner (KIT_TRIAGE_RUNNER=opencode): the settings
-// step's runner checks, which steps run on each runner, and "Run the triage
-// on OpenCode" read from the workflow and run with bash against a stub
-// OpenCode CLI that records its environment, its arguments and the
-// configuration it was given, and answers with the events of a run.
+// issue-triage's OpenCode runner (KIT_TRIAGE_RUNNER=opencode, the default
+// on OpenCode Go): the settings step's runner checks, which steps run on
+// each runner, and "Run the triage on OpenCode" read from the workflow and
+// run with bash against a stub OpenCode CLI that lists its models, records
+// its environment, its arguments and the configuration it was given, and
+// answers with the events of a run.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import { opencodeStub, recorded } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -31,15 +33,32 @@ function settings(t, env) {
   return { ...r, env: written };
 }
 
-test("issue-triage.yml: the runner is claude-code unless set, and opencode needs the Go provider", (t) => {
+test("issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider", (t) => {
   const unset = settings(t, {});
   assert.equal(unset.status, 0, unset.stdout);
   assert.equal(unset.env.KIT_TRIAGE_RUNNER, "claude-code");
+  assert.doesNotMatch(unset.stdout, /::warning::/);
 
-  const go = settings(t, { PROVIDER: "opencode-go", RUNNER: "opencode" });
+  // On Go triage runs in OpenCode's CLI unless the setting says not.
+  const go = settings(t, { PROVIDER: "opencode-go" });
   assert.equal(go.status, 0, go.stdout);
   assert.equal(go.env.KIT_TRIAGE_RUNNER, "opencode");
   assert.equal(go.env.KIT_TRIAGE_MODEL, "deepseek-v4.1-flash");
+  assert.doesNotMatch(go.stdout, /::warning::/);
+
+  // An effort level goes on to the run step, which passes it as a variant.
+  const named = settings(t, { PROVIDER: "opencode-go", RUNNER: "opencode", EFFORT: "high" });
+  assert.equal(named.status, 0, named.stdout);
+  assert.equal(named.env.KIT_TRIAGE_EFFORT, "high");
+
+  // Claude Code on Go runs when the setting asks for it, with a warning.
+  const claudeOnGo = settings(t, { PROVIDER: "opencode-go", RUNNER: "claude-code" });
+  assert.equal(claudeOnGo.status, 0, claudeOnGo.stdout);
+  assert.equal(claudeOnGo.env.KIT_TRIAGE_RUNNER, "claude-code");
+  assert.match(
+    claudeOnGo.stdout,
+    /^::warning::the setting KIT_TRIAGE_RUNNER is claude-code on OpenCode Go, where Claude Code runs Go's models slower than OpenCode's CLI; the kit recommends leaving it unset \(unset\)$/m,
+  );
 
   // A model Go serves only on its Chat Completions endpoint is a Go model
   // id like any other.
@@ -59,12 +78,13 @@ test("issue-triage.yml: the runner is claude-code unless set, and opencode needs
     // The runner is checked first, so a Go model id does not read as a
     // bad Claude model name.
     [{ RUNNER: "opencode", MODEL: "glm-5.3-flash" }, /KIT_TRIAGE_RUNNER is opencode, which needs KIT_TRIAGE_PROVIDER set to opencode-go/],
-    [{ PROVIDER: "opencode-go", RUNNER: "opencode", EFFORT: "high" }, /KIT_TRIAGE_EFFORT is not used by the opencode runner/],
     [{ PROVIDER: "opencode-go", RUNNER: "opencode", MODEL: "muse-spark-1.3-contributor" }, /Contributor model/],
   ]) {
     const bad = settings(t, env);
     assert.equal(bad.status, 1, JSON.stringify(env));
     assert.match(bad.stdout, message);
+    // A refused runner is never passed on.
+    if (message.source.includes("KIT_TRIAGE_RUNNER")) assert.equal(bad.env.KIT_TRIAGE_RUNNER, undefined, JSON.stringify(env));
   }
 });
 
@@ -112,27 +132,27 @@ const SUCCESS = [
   },
 ];
 
-// The run step with the CLI replaced by a stub that writes what it was
-// started with and prints `events` (one JSON object a line) with `exit`.
-function run(t, { events = SUCCESS, exit = 0, key = "ok", allowed = TRIAGE_ALLOWED, maxTurns = "40", serverArgs } = {}) {
+// The run step with the CLI replaced by a stub that lists `models`, writes
+// what the run was started with and prints `events` (one JSON object a
+// line) with `exit`.
+function run(
+  t,
+  {
+    events = SUCCESS,
+    exit = 0,
+    key = "ok",
+    allowed = TRIAGE_ALLOWED,
+    maxTurns = "40",
+    effort = "",
+    serverArgs,
+    models,
+    modelsExit,
+  } = {},
+) {
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   fs.mkdirSync(temp);
-  const stub = path.join(dir, "opencode");
-  const seen = path.join(dir, "seen-env");
-  const argv = path.join(dir, "seen-args");
-  const out = path.join(dir, "events.jsonl");
-  fs.writeFileSync(out, events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))).join("\n") + "\n");
-  fs.writeFileSync(
-    stub,
-    `#!/bin/bash
-env > "${seen}"
-printf '%s\\n' "$@" > "${argv}"
-cat "${out}"
-exit ${exit}
-`,
-    { mode: 0o755 },
-  );
+  const files = opencodeStub(dir, { events, exit, models, modelsExit });
   const mcp = {
     mcpServers: {
       "agent-kit": {
@@ -142,7 +162,7 @@ exit ${exit}
       },
     },
   };
-  const script = stepScript(FILE, "Run the triage on OpenCode").replaceAll("/opt/agent-kit/opencode", stub);
+  const script = stepScript(FILE, "Run the triage on OpenCode").replaceAll("/opt/agent-kit/opencode", files.stub);
   const r = runStep(dir, script, {
     RUNNER_TEMP: temp,
     RESULT: path.join(temp, "opencode-events.jsonl"),
@@ -151,22 +171,12 @@ exit ${exit}
     ALLOWED: allowed,
     MCP_CONFIG: JSON.stringify(mcp),
     KIT_TRIAGE_MODEL: "glm-5.3-flash",
+    KIT_TRIAGE_EFFORT: effort,
     KIT_TRIAGE_MAX_TURNS: maxTurns,
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
   });
-  const env = fs.existsSync(seen)
-    ? Object.fromEntries(
-        fs
-          .readFileSync(seen, "utf8")
-          .split("\n")
-          .filter(Boolean)
-          .map((l) => l.split(/=(.*)/s).slice(0, 2)),
-      )
-    : null;
-  const args = fs.existsSync(argv) ? fs.readFileSync(argv, "utf8").split("\n").filter(Boolean) : null;
-  const config = env ? JSON.parse(env.OPENCODE_CONFIG_CONTENT) : null;
-  return { ...r, env, args, config, temp, dir };
+  return { ...r, ...recorded(files), temp, dir };
 }
 
 test("issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
@@ -204,6 +214,27 @@ test("issue-triage.yml, Run the triage on OpenCode: the run gets the Go model an
   assert.match(r.stdout, /^cost_usd \(Go prices\): 0\.75$/m);
   assert.match(r.stdout, /^tokens: input 11, cache read 12, cache write 2, output 5, reasoning 1$/m);
   assert.match(r.stdout, /^result: Triaged\.$/m);
+  assert.deepEqual(r.modelsArgs, ["models", "opencode-go", "--verbose"]);
+  assert.equal(r.modelsEnv.HOME, home);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants", (t) => {
+  // glm-5.3-flash has no variants in the stub's list.
+  const r = run(t, { effort: "high" });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^::error::the setting KIT_TRIAGE_EFFORT is 'high', which OpenCode does not offer for glm-5\.3-flash; it offers none, or leave it unset$/m);
+  assert.equal(r.env, null);
+  const script = stepScript(FILE, "Run the triage on OpenCode");
+  assert.match(script, /--variant "\$KIT_TRIAGE_EFFORT"/);
+  const unlisted = run(t, { models: "" });
+  assert.equal(unlisted.status, 1, unlisted.stdout + unlisted.stderr);
+  assert.match(unlisted.stdout, /^::error::the setting KIT_TRIAGE_MODEL is 'glm-5\.3-flash', which the pinned OpenCode does not list for OpenCode Go$/m);
+  assert.equal(unlisted.env, null);
+  const failed = run(t, { modelsExit: 1, models: "Error: no provider\n" });
+  assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+  assert.match(failed.stdout, /^::error::OpenCode could not list its models \(exit status 1\), so KIT_TRIAGE_MODEL could not be checked$/m);
+  assert.match(failed.stderr, /Error: no provider/);
+  assert.equal(failed.env, null);
 });
 
 test("issue-triage.yml, Run the triage on OpenCode: everything is denied but reads and the run's server tools", (t) => {
@@ -295,6 +326,20 @@ test("issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exha
   assert.equal(noisy.status, 0, noisy.stdout + noisy.stderr);
 });
 
+test("issue-triage.yml, Run the triage on OpenCode: the model's text cannot run workflow commands", (t) => {
+  const text = "Triaged.\n::error::steered\n::add-mask::x";
+  const events = SUCCESS.map((e) => (e.type === "text" ? { ...e, part: { ...e.part, text } } : e));
+  const r = run(t, { events });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const lines = r.stdout.split("\n");
+  const begin = lines.findIndex((l) => /^::stop-commands::[0-9a-f]{32}$/.test(l));
+  assert.notEqual(begin, -1, r.stdout);
+  const end = lines.indexOf(`::${lines[begin].slice("::stop-commands::".length)}::`);
+  const steered = lines.indexOf("::error::steered");
+  assert.ok(begin < steered && steered < end, r.stdout);
+  assert.ok(lines.indexOf("::add-mask::x") < end, r.stdout);
+});
+
 test("issue-triage.yml, Run the triage on OpenCode: no key fails before the CLI starts", (t) => {
   const r = run(t, { key: "" });
   assert.equal(r.status, 1);
@@ -302,9 +347,48 @@ test("issue-triage.yml, Run the triage on OpenCode: no key fails before the CLI 
   assert.equal(r.env, null);
 });
 
-test("issue-triage.yml: before OpenCode runs, .git leaves the checkout and its symlinks are removed", (t) => {
+test("issue-triage.yml: the checkout's OpenCode configuration goes before OpenCode first runs", (t) => {
+  const NAME = "Remove the checkout's OpenCode configuration";
   assert.equal(
-    stepIf("Hide .git and the checkout's symlinks from OpenCode"),
+    stepIf(NAME),
+    "env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'",
+  );
+  const text = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
+  const at = (name) => {
+    const i = text.indexOf(`- name: ${name}\n`);
+    assert.notEqual(i, -1, name);
+    return i;
+  };
+  assert.ok(at(NAME) < at("Install OpenCode"));
+  assert.ok(at("Install OpenCode") < at("Run the triage on OpenCode"));
+
+  // The plugins 1.19.3 imports even with the project's configuration
+  // turned off go; the rest of the checkout stays.
+  const dir = tempDir(t);
+  for (const file of [".opencode/plugin/a.js", ".opencode/plugins/b.ts", "opencode.json", "opencode.jsonc", "src/opencode.json", "README.md"]) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), "x\n");
+  }
+  const script = path.join(dir, "step.sh");
+  fs.writeFileSync(script, stepScript(FILE, NAME));
+  const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", script], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: dir },
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  for (const gone of [".opencode", "opencode.json", "opencode.jsonc"]) {
+    assert.ok(!fs.existsSync(path.join(dir, gone)), gone);
+  }
+  for (const kept of ["src/opencode.json", "README.md", "step.sh"]) {
+    assert.ok(fs.existsSync(path.join(dir, kept)), kept);
+  }
+});
+
+test("issue-triage.yml: before OpenCode runs, .git and the symlinks leave the checkout", (t) => {
+  const NAME = "Hide .git and the checkout's symlinks from OpenCode";
+  assert.equal(
+    stepIf(NAME),
     "env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'",
   );
   const dir = tempDir(t);
@@ -319,7 +403,7 @@ test("issue-triage.yml: before OpenCode runs, .git leaves the checkout and its s
   fs.symlinkSync("../../.agents/skills/triage", path.join(work, ".claude", "skills", "triage"));
   fs.symlinkSync("/proc/self/environ", path.join(work, "environ"));
   const script = path.join(dir, "step.sh");
-  fs.writeFileSync(script, stepScript(FILE, "Hide .git and the checkout's symlinks from OpenCode"));
+  fs.writeFileSync(script, stepScript(FILE, NAME));
   const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", script], {
     cwd: work,
     encoding: "utf8",
@@ -333,4 +417,7 @@ test("issue-triage.yml: before OpenCode runs, .git leaves the checkout and its s
   }
   assert.equal(fs.readFileSync(path.join(work, ".agents", "skills", "triage", "SKILL.md"), "utf8"), "skill\n");
   assert.match(r.stdout, /^removed a symlink: \.\/environ$/m);
+  // It comes before OpenCode first runs.
+  const text = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
+  assert.ok(text.indexOf(`- name: ${NAME}\n`) < text.indexOf("- name: Run the triage on OpenCode\n"));
 });

@@ -69,6 +69,39 @@ Go, on its default model `deepseek-v4.1-flash`: `KIT_REVIEW_PROVIDER`,
 added the `OPENCODE_API_KEY` secret that day; `ANTHROPIC_API_KEY` stays
 set, unused while the providers are `opencode-go`.
 
+The same day every review on Go reached the 30-minute job limit with no
+verdict, in this repository and the target repositories, while scans
+passed. Replayed locally, DeepSeek V4.1 Flash under Claude Code thought
+10,000 to 34,000 tokens a turn, and lower effort or thinking switched off
+did not bring it under the limit; in OpenCode's CLI the same review took
+about 7 minutes, and the scan 87 seconds against Claude Code's 3 minutes 41
+seconds. On the operator's decision (2026-10-28) the review, the scan and
+triage now run in OpenCode's CLI whenever their provider is `opencode-go`,
+unless `KIT_REVIEW_RUNNER`, `KIT_SECURITY_RUNNER` or `KIT_TRIAGE_RUNNER`
+says `claude-code`, and the docs recommend against running Go models in
+Claude Code (`docs/setup.md`, *OpenCode Go* and *OpenCode CLI*). This
+repository's settings name only the providers, so its own review, scan and
+triage move to OpenCode's CLI once that change is on `main`. The same work
+found that OpenCode 1.19.3 imports a checkout's plugins even with the
+project's configuration turned off, so each OpenCode run now removes the
+checkout's OpenCode configuration first. A repository that set an effort
+level on Go for Claude Code may need to change it when it updates: on
+OpenCode's runner it must be one of the model's variants, and DeepSeek V4.1
+Flash has no `medium` or `xhigh` (`docs/setup.md`, *OpenCode CLI*); no
+target repository's settings file set one on 2026-10-28. The first two
+scans on OpenCode on GitHub's runners (2026-10-28, on the pull request that
+made this change) failed: one ended after 25 steps and 8 minutes without
+the structured answer, and Go refused the next one's first request, which
+forced a tool call. The scan and the verification now ask OpenCode for no
+structured output: the model answers in JSON text, which the workflow
+checks against the schema and asks for again when it does not fit
+(`docs/setup.md`, *OpenCode CLI*). After that change the scan there
+completed in 8 minutes 44 seconds and 25 steps, with no answer asked for
+again. The first review on OpenCode there, on the same pull request, took
+9 minutes 28 seconds and 39 steps. Not yet seen there: a verification of
+candidate findings on OpenCode (that scan found none), and triage since
+this change.
+
 ### Security scan on the pinned CLI (2026-10-23)
 
 The operator chose to replace `anthropics/claude-code-security-review` with
@@ -86,8 +119,10 @@ the operator's ask (2026-10-23) the scan now defaults to effort `xhigh` on
 the Anthropic API, for the scan and the verification; on OpenCode Go it
 still passes no effort. Tested on 2026-10-27: the pinned CLI then sends
 its own default, `high` for Go's DeepSeek V4.1 Flash, and no level had a
-consistent effect on that model (`docs/setup.md`, *OpenCode Go*). The
-cost of an `xhigh` scan is not measured yet either.
+consistent effect on that model (`docs/setup.md`, *OpenCode Go*). In
+OpenCode's CLI, the default on Go since 2026-10-28, no level is sent, so
+DeepSeek runs at its own default, `high`. The cost of an
+`xhigh` scan is not measured yet either.
 
 ### OpenCode Go provider (2026-10-23, updated 2026-10-26)
 
@@ -104,20 +139,19 @@ operator's call; and Go's endpoint table lists DeepSeek V4.1 Flash only on
 the OpenAI-style endpoint, though it answers on the Anthropic one.
 
 On the operator's ask (2026-10-26) `KIT_TRIAGE_PROVIDER` does the same for
-triage, defaulting to `deepseek-v4.1-flash` on Go. It is the closest of
-the three Go models backtested for triage, short only on priority: one
-level high in 17 of 63 runs
-(`docs/reports/2026-10-25-triage-deepseek.md`). Qwen3.8 Flash and MiniMax
-M3.1 Flash also missed the type bar and left issues untriaged
-(`docs/reports/2026-10-26-triage-go-models.md`).
-`KIT_TRIAGE_RUNNER=opencode` runs triage in OpenCode's own CLI
-(1.19.3), for Go models Claude Code cannot reach (`docs/setup.md`,
-*OpenCode CLI for triage*). Tried once (2026-10-26): a sweep on DeepSeek
-V4.1 Flash through the workflow's run step, the kit's MCP server and a stub
-`gh` read the skill, listed the eligible issue and dispatched it, in 4 steps
-for $0.001. Not yet run: a single-issue triage on OpenCode, and the triage
-backtest on it. The next step for triage on Go is a priority note in the
-skill, re-tested on DeepSeek.
+triage, defaulting to `deepseek-v4.1-flash` on Go. It is the closest of the
+three Go models backtested for triage, short only on priority: one level
+high in 17 of 63 runs (`docs/reports/2026-10-25-triage-deepseek.md`).
+Qwen3.8 Flash and MiniMax M3.1 Flash also missed the type bar and left
+issues untriaged (`docs/reports/2026-10-26-triage-go-models.md`).
+`KIT_TRIAGE_RUNNER=opencode` (the default on Go since 2026-10-28) runs
+triage in OpenCode's own CLI (1.19.3), which also reaches Go models Claude
+Code cannot (`docs/setup.md`, *OpenCode CLI*). Tried once (2026-10-26): a
+sweep on DeepSeek V4.1 Flash through the workflow's run step, the kit's MCP
+server and a stub `gh` read the skill, listed the eligible issue and
+dispatched it, in 4 steps for $0.001. Not yet run: a single-issue triage on
+OpenCode, and the triage backtest on it. The next step for triage on Go is
+a priority note in the skill, re-tested on DeepSeek.
 
 ### Documentation and reports (2026-10-23)
 
