@@ -88,12 +88,16 @@ checkout's OpenCode configuration first. A repository that set an effort
 level on Go for Claude Code may need to change it when it updates: on
 OpenCode's runner it must be one of the model's variants, and DeepSeek V4.1
 Flash has no `medium` or `xhigh` (`docs/setup.md`, *OpenCode CLI*); no
-target repository's settings file set one on 2026-10-28. The first scan on
-OpenCode on GitHub's runners (2026-10-28, on the pull request that made
-this change) ended after 25 steps and 8 minutes without the structured
-answer; the scan and the verification now ask once more in the same session
-when that happens (`docs/setup.md`, *OpenCode CLI*). Not yet seen there: a
-completed scan on OpenCode, and the review and triage since this change.
+target repository's settings file set one on 2026-10-28. The first two
+scans on OpenCode on GitHub's runners (2026-10-28, on the pull request that
+made this change) failed: one ended after 25 steps and 8 minutes without
+the structured answer, and Go refused the next one's first request, which
+forced a tool call. The scan and the verification now ask OpenCode for no
+structured output: the model answers in JSON text, which the workflow
+checks against the schema and asks for again when it does not fit
+(`docs/setup.md`, *OpenCode CLI*). The first review on OpenCode there, on
+the same pull request, took 9 minutes 28 seconds and 39 steps. Not yet seen
+there: a completed scan on OpenCode, and triage since this change.
 
 ### Security scan on the pinned CLI (2026-10-23)
 

@@ -853,21 +853,24 @@ jobs:
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
           fi
-      # The same scan on OpenCode's CLI (the opencode runner), held to what
-      # the Claude Code run allows as pr-review.yml's "Run the review on
-      # OpenCode" sets out: an inline configuration, an empty home, every
-      # permission denied but read, grep and glob in the checkout and the
-      # input directory, and the step limit. The answer must follow the
-      # schema, which `opencode run` cannot ask for, so the run goes through
-      # OpenCode's own server, on loopback (port 4096 when free, otherwise
-      # one it picks), behind a password made here: a json_schema format
-      # makes OpenCode require a tool call on every step and take the
-      # answer from its structured-output tool, retrying a malformed one
-      # twice (1.19.3's prompt loop, read 2026-10-28). The answer is
-      # written in the shape of Claude Code's result, so the checks below
-      # read either. Cost and tokens are OpenCode's own, at Go's prices. On
-      # kit pull request 23 this took 87 seconds and 8 steps, against 3
-      # minutes 41 seconds and 22 turns in Claude Code on Go (2026-10-28).
+      # The same scan on OpenCode's CLI (the opencode runner), held to
+      # what the Claude Code run allows as pr-review.yml's "Run the
+      # review on OpenCode" sets out: an inline configuration, an empty
+      # home, every permission denied but read, grep and glob in the
+      # checkout and the input directory, and the step limit. The run
+      # goes through OpenCode's own server rather than `opencode run`,
+      # so that each message comes back with its parts and any error and
+      # the answer can be asked for again, on loopback behind a password
+      # made here; with --port 0, 1.19.3 takes port 4096 when it is free
+      # and otherwise one the system picks (its server code, read
+      # 2026-10-28). The prompt carries the schema, and the answer,
+      # taken from the model's last message and checked here, is written
+      # in the shape of Claude Code's result, so the checks below read
+      # either. Cost and tokens are OpenCode's own, at Go's prices.
+      # Through these steps from outside GitHub, the scan of kit pull
+      # request 23 took 36 and 96 seconds (5 and 6 steps) in two runs,
+      # against 3 minutes 41 seconds and 22 turns in Claude Code on Go
+      # (2026-10-28).
       - id: scan_opencode
         name: Run the scan on OpenCode
         if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
@@ -887,7 +890,7 @@ jobs:
             {"*": "deny",
              external_directory: {"*": "deny", ($input): "allow", ($input + "/*"): "allow"},
              read: {"*": "allow", ".git": "deny", ".git/*": "deny"},
-             grep: "allow", glob: "allow", StructuredOutput: "allow"}')
+             grep: "allow", glob: "allow"}')
           config=$(jq -cn --arg model "opencode-go/$KIT_SECURITY_MODEL" --argjson steps "$KIT_SECURITY_MAX_TURNS" \
             --argjson permission "$permission" '{
               "$schema": "https://opencode.ai/config.json",
@@ -957,35 +960,67 @@ jobs:
           fi
           api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
           session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
-          # A message with the text in $1 that asks for the schema's answer.
+          # A message with the text in $1.
           ask() {
-            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
-              --slurpfile schema "$SCHEMA" '{
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" '{
                 model: {providerID: "opencode-go", modelID: $model},
-                format: {type: "json_schema", schema: $schema[0]},
                 parts: [{type: "text", text: $text}]
               } + (if $variant == "" then {} else {variant: $variant} end)'
           }
+          # The answer: the last message's last text when it is one JSON
+          # object, alone or as the whole of one code fence, that fits the
+          # schema; otherwise nothing. Nothing is taken from among other
+          # text, where a quoted object (from the pull request, say) could
+          # pass for the answer. fits checks the keywords the workflow's
+          # schemas use.
+          read_answer() {
+            jq -c --slurpfile schema "$SCHEMA" '
+              def fits($s):
+                . as $v
+                | ($s.type // null) as $t
+                | ($t == null or $t == type or ($t == "integer" and type == "number" and . == floor))
+                  and ($s.enum == null or any($s.enum[]; . == $v))
+                  and ($s.minimum == null or . >= $s.minimum)
+                  and ($s.maximum == null or . <= $s.maximum)
+                  and ($s.maxItems == null or length <= $s.maxItems)
+                  and (type != "object"
+                    or ((($s.required // []) | all(. as $k | $v | has($k)))
+                      and ($s.additionalProperties != false or ((keys - (($s.properties // {}) | keys)) | length) == 0)
+                      and all(to_entries[]; ($s.properties[.key] // null) as $p | $p == null or (.value | fits($p)))))
+                  and (type != "array" or $s.items == null or all(.[]; fits($s.items)));
+              [.parts[]? | select(.type == "text") | .text] | last // ""
+              | (try fromjson catch null) // (capture("^\\s*```(?:json)?\\s*(?<j>[\\s\\S]*?)\\s*```\\s*$").j | try fromjson catch null)
+              | select(. != null and fits($schema[0]))' "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The model answers in text, as JSON, and the workflow checks it
+          # against the schema; an answer that does not fit is asked for
+          # again in the same session, twice at most. OpenCode's json_schema
+          # format is not used: it makes 1.19.3 force a tool call on every
+          # step (tool_choice "required", its prompt loop, read 2026-10-28),
+          # which some of Go's DeepSeek V4.1 Flash servers refuse in
+          # thinking mode. On 2026-10-28 one refused a scan's first request
+          # on GitHub's runner; test requests sent over the next half hour
+          # were refused at times one in four and at worst five in eight,
+          # and a local scan that asked again after each refusal, with
+          # pauses of up to a minute, was refused four times running.
           status=0
-          api -X POST -d "$(ask "$prompt")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          # DeepSeek V4.1 Flash on Go can end a step without the tool call
-          # OpenCode requires (once on GitHub's runner, after 25 steps,
-          # 2026-10-28), and 1.19.3 then ends the message with a
-          # StructuredOutputError instead of asking again (its prompt loop,
-          # read 2026-10-28). The session keeps the work done so far, so it
-          # is asked once more, for the answer alone.
-          if [ "$status" -eq 0 ] && jq -e '.info.error.name == "StructuredOutputError"' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1; then
-            echo "::warning::OpenCode's run ended without the structured answer, so the same session is asked once more"
-            again="That ended without a call to the StructuredOutput tool, so the workflow has no answer. Call StructuredOutput now with your answer to the task above, in the skill's output format. The work you have done is in this session: do not start again."
-            api -X POST -d "$(ask "$again")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          fi
+          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
+            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # Through a file: an argument has a size limit.
+          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          for _ in 1 2; do
+            [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
+              && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
+            echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
+            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
+              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          done
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
           jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"
-          # Every step's message, for the turn count, cost and tokens. The
-          # 1.19.3 server cannot list a session whose prompt set a format
-          # (encoding the prompt's format fails), so the session is exported
-          # from OpenCode's store once the server has stopped.
+          # Every step's message, for the turn count, cost and tokens,
+          # exported from OpenCode's store once the server has stopped.
           kill "$server" 2>/dev/null || true
           wait "$server" 2>/dev/null || true
           if ! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/null \
@@ -994,16 +1029,18 @@ jobs:
             echo '{"messages": []}' > "$RUNNER_TEMP/opencode-session.json"
           fi
           # The answer in the shape of Claude Code's result, which the
-          # steps after this one read: structured_output is the tool call's
-          # input, and a run without one is an error. An answer that is not
-          # a message (the server's own error) is the error.
-          jq -n --argjson status "$status" --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" \
-            --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
+          # steps after this one read: structured_output is the answer that
+          # fits, and a run without one is an error. An answer that is not a
+          # message (the server's own error) is the error.
+          jq -n --argjson status "$status" --slurpfile structured "$RUNNER_TEMP/opencode-structured.json" \
+            --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
             ($answer[0] // {}) as $a | [$session[0].messages[] | select(.info.role == "assistant")] as $m
-            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end) else $a.info.error end) as $error
+            | ($structured[0] // null) as $structured
+            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end)
+               else $a.info.error // (if $structured == null then {name: "no JSON answer that fits the schema"} else null end) end) as $error
             | {type: "result",
-               subtype: (if $status == 0 and $error == null and $a.info.structured != null then "success" else "error" end),
-               is_error: ($status != 0 or $error != null or $a.info.structured == null),
+               subtype: (if $status == 0 and $error == null then "success" else "error" end),
+               is_error: ($status != 0 or $error != null),
                num_turns: ([$m[] | .parts[]? | select(.type == "step-start")] | length),
                total_cost_usd: ([$m[] | .info.cost // 0] | add // 0),
                usage: {
@@ -1014,7 +1051,7 @@ jobs:
                  reasoning_tokens: ([$m[] | .info.tokens.reasoning // 0] | add // 0)},
                errors: (if $error == null then [] else [$error.data.message // $error.message // $error.name // "error"] end),
                result: ([$m[] | .parts[]? | select(.type == "text") | .text] | last // ""),
-               structured_output: $a.info.structured}' > "$RESULT"
+               structured_output: $structured}' > "$RESULT"
           result=$(cat "$RESULT")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
@@ -1024,19 +1061,25 @@ jobs:
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
-            echo "::error::OpenCode's run ended in error or without the structured answer (curl status $status)"
+            echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
-          if [ "$(jq -r '.num_turns' <<<"$result")" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
+          # The step limit is the run's, so the steps after a second prompt,
+          # which asked for the answer again, do not count.
+          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
+            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
+            | length' "$RUNNER_TEMP/opencode-session.json")
+          if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi
-      # The scan's structured output, checked field by field (the CLI
-      # validates it against the schema; this does not rely on that), with
-      # an id for each candidate (F1, F2, ...), written where the
-      # verification run reads it. A run with no structured output (the
-      # model declined, or its answer did not fit the schema) did not
-      # complete a scan.
+      # The scan's structured output, checked field by field (Claude
+      # Code's CLI, or on OpenCode the step that ran the scan, checks it
+      # against the schema; this does not rely on either), with an id
+      # for each candidate (F1, F2, ...), written where the verification
+      # run reads it. A run with no structured output (the model
+      # declined, or its answer did not fit the schema) did not complete
+      # a scan.
       - name: Collect the scan's candidate findings
         if: env.RUN != 'false'
         env:
@@ -1157,7 +1200,7 @@ jobs:
             {"*": "deny",
              external_directory: {"*": "deny", ($input): "allow", ($input + "/*"): "allow"},
              read: {"*": "allow", ".git": "deny", ".git/*": "deny"},
-             grep: "allow", glob: "allow", StructuredOutput: "allow"}')
+             grep: "allow", glob: "allow"}')
           config=$(jq -cn --arg model "opencode-go/$KIT_SECURITY_MODEL" --argjson steps "$KIT_SECURITY_MAX_TURNS" \
             --argjson permission "$permission" '{
               "$schema": "https://opencode.ai/config.json",
@@ -1227,35 +1270,67 @@ jobs:
           fi
           api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
           session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
-          # A message with the text in $1 that asks for the schema's answer.
+          # A message with the text in $1.
           ask() {
-            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
-              --slurpfile schema "$SCHEMA" '{
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" '{
                 model: {providerID: "opencode-go", modelID: $model},
-                format: {type: "json_schema", schema: $schema[0]},
                 parts: [{type: "text", text: $text}]
               } + (if $variant == "" then {} else {variant: $variant} end)'
           }
+          # The answer: the last message's last text when it is one JSON
+          # object, alone or as the whole of one code fence, that fits the
+          # schema; otherwise nothing. Nothing is taken from among other
+          # text, where a quoted object (from the pull request, say) could
+          # pass for the answer. fits checks the keywords the workflow's
+          # schemas use.
+          read_answer() {
+            jq -c --slurpfile schema "$SCHEMA" '
+              def fits($s):
+                . as $v
+                | ($s.type // null) as $t
+                | ($t == null or $t == type or ($t == "integer" and type == "number" and . == floor))
+                  and ($s.enum == null or any($s.enum[]; . == $v))
+                  and ($s.minimum == null or . >= $s.minimum)
+                  and ($s.maximum == null or . <= $s.maximum)
+                  and ($s.maxItems == null or length <= $s.maxItems)
+                  and (type != "object"
+                    or ((($s.required // []) | all(. as $k | $v | has($k)))
+                      and ($s.additionalProperties != false or ((keys - (($s.properties // {}) | keys)) | length) == 0)
+                      and all(to_entries[]; ($s.properties[.key] // null) as $p | $p == null or (.value | fits($p)))))
+                  and (type != "array" or $s.items == null or all(.[]; fits($s.items)));
+              [.parts[]? | select(.type == "text") | .text] | last // ""
+              | (try fromjson catch null) // (capture("^\\s*```(?:json)?\\s*(?<j>[\\s\\S]*?)\\s*```\\s*$").j | try fromjson catch null)
+              | select(. != null and fits($schema[0]))' "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The model answers in text, as JSON, and the workflow checks it
+          # against the schema; an answer that does not fit is asked for
+          # again in the same session, twice at most. OpenCode's json_schema
+          # format is not used: it makes 1.19.3 force a tool call on every
+          # step (tool_choice "required", its prompt loop, read 2026-10-28),
+          # which some of Go's DeepSeek V4.1 Flash servers refuse in
+          # thinking mode. On 2026-10-28 one refused a scan's first request
+          # on GitHub's runner; test requests sent over the next half hour
+          # were refused at times one in four and at worst five in eight,
+          # and a local scan that asked again after each refusal, with
+          # pauses of up to a minute, was refused four times running.
           status=0
-          api -X POST -d "$(ask "$prompt")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          # DeepSeek V4.1 Flash on Go can end a step without the tool call
-          # OpenCode requires (once on GitHub's runner, after 25 steps,
-          # 2026-10-28), and 1.19.3 then ends the message with a
-          # StructuredOutputError instead of asking again (its prompt loop,
-          # read 2026-10-28). The session keeps the work done so far, so it
-          # is asked once more, for the answer alone.
-          if [ "$status" -eq 0 ] && jq -e '.info.error.name == "StructuredOutputError"' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1; then
-            echo "::warning::OpenCode's run ended without the structured answer, so the same session is asked once more"
-            again="That ended without a call to the StructuredOutput tool, so the workflow has no answer. Call StructuredOutput now with your answer to the task above, in the skill's output format. The work you have done is in this session: do not start again."
-            api -X POST -d "$(ask "$again")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          fi
+          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
+            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # Through a file: an argument has a size limit.
+          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          for _ in 1 2; do
+            [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
+              && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
+            echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
+            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
+              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          done
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
           jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"
-          # Every step's message, for the turn count, cost and tokens. The
-          # 1.19.3 server cannot list a session whose prompt set a format
-          # (encoding the prompt's format fails), so the session is exported
-          # from OpenCode's store once the server has stopped.
+          # Every step's message, for the turn count, cost and tokens,
+          # exported from OpenCode's store once the server has stopped.
           kill "$server" 2>/dev/null || true
           wait "$server" 2>/dev/null || true
           if ! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/null \
@@ -1264,16 +1339,18 @@ jobs:
             echo '{"messages": []}' > "$RUNNER_TEMP/opencode-session.json"
           fi
           # The answer in the shape of Claude Code's result, which the
-          # steps after this one read: structured_output is the tool call's
-          # input, and a run without one is an error. An answer that is not
-          # a message (the server's own error) is the error.
-          jq -n --argjson status "$status" --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" \
-            --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
+          # steps after this one read: structured_output is the answer that
+          # fits, and a run without one is an error. An answer that is not a
+          # message (the server's own error) is the error.
+          jq -n --argjson status "$status" --slurpfile structured "$RUNNER_TEMP/opencode-structured.json" \
+            --slurpfile answer "$RUNNER_TEMP/opencode-answer.json" --slurpfile session "$RUNNER_TEMP/opencode-session.json" '
             ($answer[0] // {}) as $a | [$session[0].messages[] | select(.info.role == "assistant")] as $m
-            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end) else $a.info.error end) as $error
+            | ($structured[0] // null) as $structured
+            | (if $a.info == null then (if $a == {} then {name: "no answer"} else $a end)
+               else $a.info.error // (if $structured == null then {name: "no JSON answer that fits the schema"} else null end) end) as $error
             | {type: "result",
-               subtype: (if $status == 0 and $error == null and $a.info.structured != null then "success" else "error" end),
-               is_error: ($status != 0 or $error != null or $a.info.structured == null),
+               subtype: (if $status == 0 and $error == null then "success" else "error" end),
+               is_error: ($status != 0 or $error != null),
                num_turns: ([$m[] | .parts[]? | select(.type == "step-start")] | length),
                total_cost_usd: ([$m[] | .info.cost // 0] | add // 0),
                usage: {
@@ -1284,7 +1361,7 @@ jobs:
                  reasoning_tokens: ([$m[] | .info.tokens.reasoning // 0] | add // 0)},
                errors: (if $error == null then [] else [$error.data.message // $error.message // $error.name // "error"] end),
                result: ([$m[] | .parts[]? | select(.type == "text") | .text] | last // ""),
-               structured_output: $a.info.structured}' > "$RESULT"
+               structured_output: $structured}' > "$RESULT"
           result=$(cat "$RESULT")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
@@ -1294,10 +1371,15 @@ jobs:
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
-            echo "::error::OpenCode's run ended in error or without the structured answer (curl status $status)"
+            echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
-          if [ "$(jq -r '.num_turns' <<<"$result")" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
+          # The step limit is the run's, so the steps after a second prompt,
+          # which asked for the answer again, do not count.
+          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
+            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
+            | length' "$RUNNER_TEMP/opencode-session.json")
+          if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi

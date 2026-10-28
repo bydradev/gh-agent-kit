@@ -147,6 +147,8 @@ test("security-scan.yml: the OpenCode install is the release the review and tria
 
 const SCAN_SCHEMA = { type: "object", required: ["files_reviewed", "findings"] };
 const FINDINGS = { files_reviewed: 2, findings: [] };
+// What the prompt adds, for an answer the workflow can check.
+const FINISH = ` Your answer is your last message: one JSON object that fits this JSON schema, with no other text. ${JSON.stringify(SCAN_SCHEMA)}`;
 
 // An assistant message as OpenCode stores it: one step, its cost and
 // tokens, and the parts given.
@@ -158,15 +160,20 @@ const message = (parts, { cost = 0.01, tokens = {} } = {}) => ({
   },
   parts: [{ type: "step-start" }, ...parts],
 });
+// The run's two steps, the last one the answer.
 const SESSION = {
   info: { id: "ses_1" },
   messages: [
     { info: { role: "user" }, parts: [{ type: "text", text: "Read the skill." }] },
     message([{ type: "tool", tool: "read" }]),
-    message([{ type: "text", text: "No findings." }, { type: "tool", tool: "StructuredOutput" }], { cost: 0.02 }),
+    message([{ type: "text", text: JSON.stringify(FINDINGS) }], { cost: 0.02 }),
   ],
 };
-const ANSWER = { info: { role: "assistant", finish: "tool-calls", structured: FINDINGS }, parts: [] };
+// What the message route returns: the run's last message, with the given
+// text.
+const reply = (text) => ({ status: 200, body: { info: { role: "assistant", finish: "stop" }, parts: [{ type: "text", text }] } });
+const ANSWER = reply(JSON.stringify(FINDINGS));
+const PROSE = reply("No findings.");
 
 // The step with the CLI replaced by a stub server. `answer` is what the
 // message route returns (`status`, JSON `body`), or a list of them served
@@ -177,7 +184,7 @@ function scan(
   t,
   {
     step = "Run the scan on OpenCode",
-    answer = { status: 200, body: ANSWER },
+    answer = ANSWER,
     session = SESSION,
     key = "ok",
     model = "deepseek-v4.1-flash",
@@ -275,6 +282,7 @@ if (command === "models") {
     serve,
     alive,
     requests: calls.filter((c) => c.request),
+    messages: calls.filter((c) => c.request === "POST /session/ses_1/message").map((c) => c.body),
     result: fs.existsSync(result) ? JSON.parse(fs.readFileSync(result, "utf8")) : null,
     input,
     temp,
@@ -298,7 +306,7 @@ test("security-scan.yml, Run the scan on OpenCode: the answer comes back in Clau
       reasoning_tokens: 6,
     },
     errors: [],
-    result: "No findings.",
+    result: JSON.stringify(FINDINGS),
     structured_output: FINDINGS,
   });
   assert.match(r.stdout, /^turns: 2$/m);
@@ -306,7 +314,7 @@ test("security-scan.yml, Run the scan on OpenCode: the answer comes back in Clau
   assert.match(r.stdout, /^tokens: input 20, cache read 200, cache write 2, output 4, reasoning 6$/m);
   assert.match(r.stdout, /^variant: none, so the model default applies$/m);
   // The model's text is printed with workflow commands stopped.
-  assert.match(r.stdout, /^::stop-commands::[0-9a-f]{32}\n[\s\S]*^result: No findings\.\n::[0-9a-f]{32}::$/m);
+  assert.match(r.stdout, /^::stop-commands::[0-9a-f]{32}\n[\s\S]*^result: \{"files_reviewed":2,"findings":\[\]\}\n::[0-9a-f]{32}::$/m);
   // The server is stopped before the export, and gone afterwards.
   assert.equal(r.alive, false);
   const commands = r.calls.filter((c) => c.command).map((c) => c.command);
@@ -314,7 +322,7 @@ test("security-scan.yml, Run the scan on OpenCode: the answer comes back in Clau
   assert.deepEqual(r.calls.find((c) => c.command === "export").args, ["ses_1"]);
 });
 
-test("security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and gets the schema", (t) => {
+test("security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema", (t) => {
   const r = scan(t, { effort: "high" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(r.serve.args, ["--hostname", "127.0.0.1", "--port", "0"]);
@@ -327,17 +335,20 @@ test("security-scan.yml, Run the scan on OpenCode: the server is local, behind a
       ["POST /session/ses_1/message", true],
     ],
   );
-  const body = r.requests[1].body;
-  assert.deepEqual(body.model, { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" });
-  assert.deepEqual(body.format, { type: "json_schema", schema: SCAN_SCHEMA });
-  assert.equal(body.variant, "high");
-  assert.equal(body.parts.length, 1);
+  // No json_schema format, so OpenCode forces no tool call; the schema is
+  // in the prompt instead.
+  const [run] = r.messages;
+  assert.deepEqual(Object.keys(run).sort(), ["model", "parts", "variant"]);
+  assert.deepEqual(run.model, { providerID: "opencode-go", modelID: "deepseek-v4.1-flash" });
+  assert.equal(run.variant, "high");
+  assert.equal(run.parts.length, 1);
   assert.equal(
-    body.parts[0].text,
-    `Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the scan of acme/widgets pull request 7. The input directory is ${r.input}: files.txt lists the changed files and diff.patch is the diff. The scan runs in OpenCode's CLI.`,
+    run.parts[0].text,
+    `Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the scan of acme/widgets pull request 7. The input directory is ${r.input}: files.txt lists the changed files and diff.patch is the diff. The scan runs in OpenCode's CLI.` +
+      FINISH,
   );
   // Unset, no variant is sent at all.
-  assert.equal(scan(t).requests[1].body.variant, undefined);
+  assert.equal(scan(t).messages[0].variant, undefined);
 });
 
 test("security-scan.yml, Run the scan on OpenCode: the CLI is isolated and may only read", (t) => {
@@ -379,63 +390,212 @@ test("security-scan.yml, Run the scan on OpenCode: the CLI is isolated and may o
   assert.deepEqual(permission.read, { "*": "allow", ".git": "deny", ".git/*": "deny" });
   assert.equal(permission.grep, "allow");
   assert.equal(permission.glob, "allow");
-  assert.equal(permission.StructuredOutput, "allow");
-  assert.deepEqual(Object.keys(permission).sort(), ["*", "StructuredOutput", "external_directory", "glob", "grep", "read"]);
+  assert.deepEqual(Object.keys(permission).sort(), ["*", "external_directory", "glob", "grep", "read"]);
 });
 
-const NO_STRUCTURED = {
-  status: 200,
-  body: { info: { role: "assistant", error: { name: "StructuredOutputError", data: { message: "Model did not produce structured output" } } } },
-};
-
-test("security-scan.yml, Run the scan on OpenCode: a run that ends without the structured answer is asked once more", (t) => {
-  const r = scan(t, { answer: [NO_STRUCTURED, { status: 200, body: ANSWER }], effort: "high" });
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.result.structured_output, FINDINGS);
-  assert.equal(r.result.subtype, "success");
-  assert.match(r.stdout, /^::warning::OpenCode's run ended without the structured answer, so the same session is asked once more$/m);
-  const messages = r.requests.filter((q) => q.request === "POST /session/ses_1/message");
-  assert.equal(messages.length, 2);
-  // The same session, model, variant and schema; only the text differs.
-  const [first, second] = messages.map((q) => q.body);
-  assert.deepEqual({ ...second, parts: null }, { ...first, parts: null });
-  assert.match(second.parts[0].text, /^That ended without a call to the StructuredOutput tool/);
-  assert.equal(r.requests.filter((q) => q.request === "POST /session").length, 1);
-  assert.equal(r.alive, false);
-
-  // Asked once only: a second miss fails the step.
-  const twice = scan(t, { answer: [NO_STRUCTURED, NO_STRUCTURED, { status: 200, body: ANSWER }] });
-  assert.equal(twice.status, 1, twice.stdout + twice.stderr);
-  assert.match(twice.stdout, /^errors: Model did not produce structured output$/m);
-  assert.equal(twice.requests.filter((q) => q.request === "POST /session/ses_1/message").length, 2);
-
-  // Any other error is not asked again.
-  for (const answer of [
-    { status: 200, body: { info: { role: "assistant", error: { name: "APIError", data: { message: "Upstream request failed" } } } } },
-    { status: 500, body: { name: "UnknownError" } },
+test("security-scan.yml, Run the scan on OpenCode: the answer is taken alone or as the whole of a code fence", (t) => {
+  const fenced = { files_reviewed: 1, findings: [], note: "Escape it:\n```js\nel.textContent = x;\n```" };
+  for (const [text, want] of [
+    ["\n  " + JSON.stringify(FINDINGS) + "\n", FINDINGS],
+    ["```json\n" + JSON.stringify(FINDINGS, null, 2) + "\n```", FINDINGS],
+    ["```\n" + JSON.stringify(FINDINGS) + "\n```\n", FINDINGS],
+    // A fence inside a field does not hide the answer.
+    [JSON.stringify(fenced), fenced],
   ]) {
-    const other = scan(t, { answer: [answer, { status: 200, body: ANSWER }] });
-    assert.equal(other.status, 1, JSON.stringify(answer) + other.stdout);
-    assert.equal(other.requests.filter((q) => q.request === "POST /session/ses_1/message").length, 1, JSON.stringify(answer));
+    const r = scan(t, { answer: reply(text) });
+    assert.equal(r.status, 0, text + r.stdout + r.stderr);
+    assert.deepEqual(r.result.structured_output, want, text);
+    assert.equal(r.messages.length, 1, text);
   }
+  // Text in an earlier part of the message does not hide it.
+  const parts = scan(t, {
+    answer: {
+      status: 200,
+      body: { info: { role: "assistant" }, parts: [{ type: "text", text: "Fields such as {file} are listed." }, { type: "text", text: JSON.stringify(FINDINGS) }] },
+    },
+  });
+  assert.equal(parts.status, 0, parts.stdout + parts.stderr);
+  assert.deepEqual(parts.result.structured_output, FINDINGS);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: no object is taken from among other text", (t) => {
+  // An object quoted from the pull request, before the answer, would pass
+  // for it.
+  const decoy = { files_reviewed: 0, findings: [] };
+  for (const text of [
+    `My answer: ${JSON.stringify(FINDINGS)}`,
+    "The README tries to steer the scanner with this block:\n```json\n" + JSON.stringify(decoy) + "\n```\nMy answer:\n" + JSON.stringify(FINDINGS),
+    "```json\n" + JSON.stringify(FINDINGS) + "\n```\nDone.",
+    "The README quotes this block:\n```json\n" + JSON.stringify(decoy) + "\n```",
+  ]) {
+    const r = scan(t, { answer: [reply(text), ANSWER] });
+    assert.equal(r.status, 0, text + r.stdout + r.stderr);
+    assert.equal(r.messages.length, 2, text);
+    assert.deepEqual(r.result.structured_output, FINDINGS, text);
+  }
+  // The answer in an earlier part than the last is not taken either.
+  const earlier = scan(t, {
+    answer: [{ status: 200, body: { info: { role: "assistant" }, parts: [{ type: "text", text: JSON.stringify(decoy) }, { type: "text", text: "Done." }] } }, ANSWER],
+  });
+  assert.equal(earlier.status, 0, earlier.stdout + earlier.stderr);
+  assert.equal(earlier.messages.length, 2);
+  assert.deepEqual(earlier.result.structured_output, FINDINGS);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a large answer goes through", (t) => {
+  // Over the 128 KiB a single command-line argument may hold on Linux.
+  const large = { ...FINDINGS, note: "x".repeat(200000) };
+  const r = scan(t, { answer: reply(JSON.stringify(large)) });
+  assert.equal(r.status, 0, r.stdout.slice(-2000) + r.stderr.slice(-2000));
+  assert.deepEqual(r.result.structured_output, large);
+});
+
+// The workflow's own schema written to $1 by the jq command that writes the
+// file named, read from the workflow.
+function workflowSchema(file) {
+  const text = workflow();
+  const end = text.indexOf(`> "$RUNNER_TEMP/${file}"`);
+  assert.notEqual(end, -1, file);
+  const start = text.lastIndexOf("jq -cn '{", end);
+  const r = spawnSync("bash", ["-c", text.slice(start, end)], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+test("security-scan.yml, Run the scan on OpenCode: the answer is checked against every keyword of the scan's and the verification's schemas", (t) => {
+  const script = stepScript(FILE, "Run the scan on OpenCode");
+  const fn = script.slice(script.indexOf("read_answer() {"), script.indexOf("\n}\n", script.indexOf("read_answer() {")) + 3);
+  const dir = tempDir(t);
+  // The function's output for an answer whose text is each of texts.
+  const read = (schema, texts) => {
+    fs.writeFileSync(path.join(dir, "schema.json"), JSON.stringify(schema));
+    return texts.map((text) => {
+      fs.writeFileSync(path.join(dir, "opencode-answer.json"), JSON.stringify({ parts: [{ type: "text", text: JSON.stringify(text) }] }));
+      const r = spawnSync("bash", ["-c", `${fn}\nread_answer`], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, SCHEMA: path.join(dir, "schema.json"), RUNNER_TEMP: dir },
+      });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout === "" ? null : JSON.parse(r.stdout);
+    });
+  };
+  const finding = {
+    file: "a.yml",
+    line: 3,
+    severity: "HIGH",
+    category: "injection",
+    description: "d",
+    exploit_scenario: "e",
+    recommendation: "r",
+    confidence: 0.8,
+  };
+  const with_ = (change) => ({ files_reviewed: 1, findings: [{ ...finding, ...change }] });
+  const without = (key) => ({ files_reviewed: 1, findings: [Object.fromEntries(Object.entries(finding).filter(([k]) => k !== key))] });
+  const fits = [{ files_reviewed: 0, findings: [] }, with_({}), with_({ line: 3.0, confidence: 0 }), with_({ confidence: 1 })];
+  const misfits = [
+    {},
+    { files_reviewed: 1 },
+    { files_reviewed: -1, findings: [] },
+    { files_reviewed: 1.5, findings: [] },
+    { files_reviewed: "1", findings: [] },
+    { files_reviewed: 1, findings: [], note: "extra" },
+    { files_reviewed: 1, findings: Array(51).fill(finding) },
+    with_({ severity: "CRITICAL" }),
+    with_({ line: 0 }),
+    with_({ line: 2.5 }),
+    with_({ confidence: 1.5 }),
+    with_({ description: 7 }),
+    with_({ extra: true }),
+    without("recommendation"),
+    [],
+    "text",
+  ];
+  const scanSchema = workflowSchema("scan-schema.json");
+  assert.deepEqual(read(scanSchema, fits), fits);
+  assert.deepEqual(read(scanSchema, misfits), misfits.map(() => null));
+
+  const verdict = { id: "F1", keep: true, confidence: 8, reason: "r" };
+  const verdicts = (change) => ({ verdicts: [{ ...verdict, ...change }] });
+  const verifySchema = workflowSchema("verify-schema.json");
+  assert.deepEqual(read(verifySchema, [verdicts({}), { verdicts: [] }, verdicts({ confidence: 1 })]), [verdicts({}), { verdicts: [] }, verdicts({ confidence: 1 })]);
+  assert.deepEqual(
+    read(verifySchema, [verdicts({ keep: "yes" }), verdicts({ confidence: 0 }), verdicts({ confidence: 11 }), verdicts({ confidence: 7.5 }), { verdicts: [{ id: "F1" }] }]),
+    [null, null, null, null, null],
+  );
+});
+
+test("security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again", (t) => {
+  for (const miss of [PROSE, reply(JSON.stringify({ files_reviewed: 2 })), reply("[]")]) {
+    const r = scan(t, { answer: [miss, ANSWER], effort: "high" });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(r.result.structured_output, FINDINGS);
+    assert.equal(r.result.subtype, "success");
+    assert.match(r.stdout, /^::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again$/m);
+    assert.equal(r.messages.length, 2);
+    // The same session, model and variant; only the text differs.
+    const [first, second] = r.messages;
+    assert.deepEqual({ ...second, parts: null }, { ...first, parts: null });
+    assert.match(second.parts[0].text, /^That last message was not one JSON object that fits the schema, so the workflow has no answer\. Reply now with only that JSON object/);
+    assert.equal(r.requests.filter((q) => q.request === "POST /session").length, 1);
+    assert.equal(r.alive, false);
+  }
+
+  // Twice at most.
+  const misses = scan(t, { answer: [PROSE, PROSE, PROSE, ANSWER] });
+  assert.equal(misses.status, 1, misses.stdout + misses.stderr);
+  assert.match(misses.stdout, /^errors: no JSON answer that fits the schema$/m);
+  assert.match(misses.stdout, /^::error::OpenCode's run ended in error or without an answer that fits the schema \(curl status 0\)$/m);
+  assert.equal(misses.result.structured_output, null);
+  assert.equal(misses.messages.length, 3);
+  assert.equal(misses.alive, false);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: errors are not asked again", (t) => {
+  for (const answer of [
+    { status: 200, body: { info: { role: "assistant", error: { name: "APIError", data: { message: "Upstream request failed" } } }, parts: [] } },
+    { status: 500, body: { name: "UnknownError" } },
+    { status: 200, body: {} },
+  ]) {
+    const r = scan(t, { answer: [answer, ANSWER] });
+    assert.equal(r.status, 1, JSON.stringify(answer) + r.stdout);
+    assert.equal(r.messages.length, 1, JSON.stringify(answer));
+    assert.equal(r.result.structured_output, null, JSON.stringify(answer));
+    assert.equal(r.alive, false, JSON.stringify(answer));
+  }
+  // An error after a miss ends the asking too.
+  const after = scan(t, { answer: [PROSE, { status: 500, body: { name: "UnknownError" } }, ANSWER] });
+  assert.equal(after.status, 1, after.stdout);
+  assert.equal(after.messages.length, 2);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again", (t) => {
+  const session = {
+    ...SESSION,
+    messages: [
+      ...SESSION.messages.slice(0, 2),
+      message([{ type: "text", text: "No findings." }]),
+      { info: { role: "user" }, parts: [{ type: "text", text: "That last message was not one JSON object." }] },
+      message([{ type: "text", text: JSON.stringify(FINDINGS) }]),
+    ],
+  };
+  const r = scan(t, { answer: [PROSE, ANSWER], session, maxTurns: "3" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.result.num_turns, 3);
+  const limit = scan(t, { answer: [PROSE, ANSWER], session, maxTurns: "2" });
+  assert.equal(limit.status, 1, limit.stdout + limit.stderr);
+  assert.match(limit.stdout, /^::error::OpenCode's run reached the turn limit \(KIT_SECURITY_MAX_TURNS=2\)$/m);
 });
 
 test("security-scan.yml, Run the scan on OpenCode: no answer, an error or the turn limit fails the step", (t) => {
   for (const [opts, message] of [
-    // The model never gave the structured answer.
+    [{ answer: { status: 200, body: { info: { role: "assistant", finish: "stop" } } } }, /^errors: no JSON answer that fits the schema$/m],
     [
-      {
-        answer: {
-          status: 200,
-          body: { info: { role: "assistant", error: { name: "StructuredOutputError", data: { message: "Model did not produce structured output" } } } },
-        },
-      },
-      /^errors: Model did not produce structured output$/m,
+      { answer: { status: 200, body: { info: { role: "assistant", error: { name: "APIError", data: { message: "Upstream request failed" } } } } } },
+      /^errors: Upstream request failed$/m,
     ],
-    [{ answer: { status: 200, body: { info: { role: "assistant", finish: "stop" } } } }, /^subtype: error$/m],
     // The server's own error, with curl's status.
-    [{ answer: { status: 400, body: { name: "BadRequest", data: { message: "Expected OutputFormatJsonSchema" } } } }, /^errors: Expected OutputFormatJsonSchema$/m],
-    [{ answer: { status: 500, body: { name: "UnknownError" } } }, /without the structured answer \(curl status 22\)/],
+    [{ answer: { status: 400, body: { name: "BadRequest", data: { message: "Expected model" } } } }, /^errors: Expected model$/m],
+    [{ answer: { status: 500, body: { name: "UnknownError" } } }, /without an answer that fits the schema \(curl status 22\)/],
     [{ maxTurns: "2" }, /reached the turn limit \(KIT_SECURITY_MAX_TURNS=2\)/],
   ]) {
     const r = scan(t, opts);
@@ -472,8 +632,9 @@ test("security-scan.yml, Verify the candidate findings on OpenCode: the same run
   const r = scan(t, { step: "Verify the candidate findings on OpenCode", candidates: "3" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(
-    r.requests[1].body.parts[0].text,
-    `Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the verification of the scan of acme/widgets pull request 7. The input directory is ${r.input}: candidates.json holds the 3 candidate findings, files.txt lists the changed files and diff.patch is the diff. The verification runs in OpenCode's CLI.`,
+    r.messages[0].parts[0].text,
+    `Read .agents/skills/github-security-scan/SKILL.md and follow it. This is the verification of the scan of acme/widgets pull request 7. The input directory is ${r.input}: candidates.json holds the 3 candidate findings, files.txt lists the changed files and diff.patch is the diff. The verification runs in OpenCode's CLI.` +
+      FINISH,
   );
   assert.equal(r.result.subtype, "success");
   assert.equal(r.alive, false);

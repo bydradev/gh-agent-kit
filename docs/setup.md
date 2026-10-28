@@ -473,19 +473,29 @@ allows (all read 2026-10-26 unless a date is given):
   Change it to one of the model's variants, unset it, or set the runner to
   `claude-code` to keep the old run.
 - The scan and its verification answer in a structure the workflow checks.
-  `opencode run` has no way to ask for one, so these two runs use
-  OpenCode's local server instead, on the runner's loopback address (port
-  4096 when it is free, otherwise one the server picks), behind a password
-  made for the run, and ask for the answer as a JSON schema; OpenCode then
-  requires a tool call on every step and takes the answer from its own
-  structured-output tool. A step can still end without that call: DeepSeek
-  V4.1 Flash did once on GitHub's runner, after 25 steps (2026-10-28), and
-  1.19.3 then stops with "Model did not produce structured output" instead
-  of asking again. The run then asks once more in the same session, which
-  keeps the work done so far, for the answer alone; a second miss fails the
-  run. Its answer goes through the same checks as Claude Code's. The 1.19.3
-  server cannot list such a session's messages, so the turn count, cost and
-  tokens come from exporting the session once the server has stopped.
+  These two runs go through OpenCode's local server rather than
+  `opencode run`, so that each message comes back with its parts and any
+  error and the answer can be asked for again in the same session. The
+  server listens on the runner's loopback address behind a password made
+  for the run; with `--port 0`, 1.19.3 takes port 4096 when it is free and
+  otherwise one the system picks (its server code, read 2026-10-28). The
+  prompt carries the schema, and the answer is the model's last text: one
+  JSON object, alone or as the whole of one code fence, which the workflow
+  checks against the schema and then runs through the same checks as
+  Claude Code's answer. Nothing is taken from among other text, where an
+  object quoted from the pull request could pass for the answer. An answer
+  that does not fit is asked for again in the same session, twice at most.
+  In 1.19.3 each prompt has its own step budget, so asking again can add
+  up to `KIT_SECURITY_MAX_TURNS` steps each time, within the job's time
+  limit; the step limit check counts the run's steps only. OpenCode's own
+  `json_schema` format is not used. It makes 1.19.3 force a tool call on
+  every step, and on 2026-10-28 some of Go's DeepSeek V4.1 Flash servers
+  refused that in thinking mode ("Thinking mode does not support this
+  tool_choice"), at times five test requests in eight: a scan on GitHub's
+  runner failed at its first request, and a local one that asked again
+  after each refusal, with pauses of up to a minute, was refused four
+  times running. The turn count, cost and tokens come from exporting the
+  session once the server has stopped.
 - The review's prompt says it runs in OpenCode's CLI, so the report's
   *Reviewer* line names OpenCode; a later round finds earlier reports by
   either runner.
