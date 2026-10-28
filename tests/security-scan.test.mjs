@@ -2,7 +2,8 @@
 // run with bash as the job runs them: the settings, the scan's inputs, the
 // checks on each run's structured output, the verification's verdicts, the
 // summary, and the inline comments against the stub gh. The two Claude Code
-// runs themselves are not run here.
+// runs themselves are not run here; the OpenCode runs are in
+// scan-opencode.test.mjs.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -80,6 +81,7 @@ test("the settings step applies the defaults and refuses values out of range", (
   const ok = r.run(settingsScript, {});
   assert.equal(ok.status, 0, ok.stderr);
   assert.deepEqual(ok.env, {
+    KIT_SECURITY_RUNNER: "claude-code",
     KIT_SECURITY_PROVIDER: "anthropic",
     KIT_SECURITY_MODEL: "claude-opus-5-5",
     KIT_SECURITY_EFFORT: "xhigh",

@@ -126,23 +126,25 @@ its workflow off unnoticed. Values are matched exactly: `Push` fails too.
 | Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `KIT_REVIEW_PROVIDER` | `anthropic` | `anthropic` or `opencode-go` | Where the reviewer's model runs: the Anthropic API on `ANTHROPIC_API_KEY`, or [OpenCode Go](#opencode-go) on `OPENCODE_API_KEY` |
+| `KIT_REVIEW_RUNNER` | `opencode` on `opencode-go`, else `claude-code` | `claude-code`, or `opencode` with `KIT_REVIEW_PROVIDER=opencode-go` | The program that runs the review: [OpenCode's CLI](#opencode-cli) or Claude Code. `claude-code` on `opencode-go` works but is not recommended ([OpenCode Go](#opencode-go)), and the run warns |
 | `KIT_REVIEW_MODEL` | `claude-opus-5-5`, or `deepseek-v4.1-flash` on `opencode-go` | a `claude-` model name, or on `opencode-go` a Go model id | The reviewer's model |
-| `KIT_REVIEW_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max` | The reviewer's effort level, passed as `--effort`; unset passes none, so the CLI's default for the model applies; on `opencode-go`, see [OpenCode Go](#opencode-go) |
+| `KIT_REVIEW_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max`; on the `opencode` runner, one the model offers as a variant | The reviewer's effort level, passed as `--effort` to Claude Code or `--variant` to OpenCode's CLI; unset passes none, so the CLI's default for the model applies ([OpenCode CLI](#opencode-cli)) |
 | `KIT_REVIEW_MAX_TURNS` | `80` | 1 to 500 | The reviewer's turn limit; a run that reaches it fails |
 | `KIT_REVIEW_TIMEOUT_MINUTES` | `30` | 1 to 360 | The review job's time limit (GitHub-hosted jobs stop at 6 hours) |
 | `KIT_REVIEW_MAX_FILES` | `300` | 1 to 300 | A larger pull request is refused, not reviewed |
 | `KIT_REVIEW_MAX_LINES` | `20000` | 1 to 20,000 | The same for changed lines |
 | `KIT_SECURITY_PROVIDER` | `anthropic` | `anthropic` or `opencode-go` | Where the scanner's model runs, the same way as `KIT_REVIEW_PROVIDER` |
+| `KIT_SECURITY_RUNNER` | `opencode` on `opencode-go`, else `claude-code` | `claude-code`, or `opencode` with `KIT_SECURITY_PROVIDER=opencode-go` | The program that runs the scan and its verification, the same way as `KIT_REVIEW_RUNNER` |
 | `KIT_SECURITY_MODEL` | `claude-opus-5-5`, or `deepseek-v4.1-flash` on `opencode-go` | a `claude-` model name, or on `opencode-go` a Go model id | The scanner's model, for the scan and its verification |
-| `KIT_SECURITY_EFFORT` | `xhigh`, or unset on `opencode-go` | `low`, `medium`, `high`, `xhigh` or `max` | The scanner's effort level, for the scan and its verification, passed as `--effort`; on `opencode-go` unset passes none, as for the reviewer |
+| `KIT_SECURITY_EFFORT` | `xhigh`, or unset on `opencode-go` | `low`, `medium`, `high`, `xhigh` or `max`; on the `opencode` runner, one the model offers as a variant | The scanner's effort level, for the scan and its verification, passed on as for the reviewer; on `opencode-go` unset passes none |
 | `KIT_SECURITY_MAX_TURNS` | `80` | 1 to 500 | The turn limit of each of the two runs; a run that reaches it fails |
 | `KIT_SECURITY_TIMEOUT_MINUTES` | `30` | 1 to 360 | The scan job's time limit, both runs included; a scan that reaches it fails the run |
 | `KIT_SECURITY_MAX_FILES` | `300` | 1 to 300 | A larger pull request is refused, not scanned |
 | `KIT_SECURITY_MAX_LINES` | `20000` | 1 to 20,000 | The same for changed lines |
 | `KIT_TRIAGE_PROVIDER` | `anthropic` | `anthropic` or `opencode-go` | Where the triage model runs, the same way as `KIT_REVIEW_PROVIDER` |
-| `KIT_TRIAGE_RUNNER` | `claude-code` | `claude-code`, or `opencode` with `KIT_TRIAGE_PROVIDER=opencode-go` | The program that runs triage: Claude Code, or [OpenCode's CLI](#opencode-cli-for-triage), which reaches every Go model its pinned release lists |
+| `KIT_TRIAGE_RUNNER` | `opencode` on `opencode-go`, else `claude-code` | `claude-code`, or `opencode` with `KIT_TRIAGE_PROVIDER=opencode-go` | The program that runs triage, the same way as `KIT_REVIEW_RUNNER` |
 | `KIT_TRIAGE_MODEL` | `claude-sonnet-5-5`, or `deepseek-v4.1-flash` on `opencode-go` | a `claude-` model name, or on `opencode-go` a Go model id | The triage model, for single issues and the sweep |
-| `KIT_TRIAGE_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max`; unset with the `opencode` runner | The triage effort level, the same way |
+| `KIT_TRIAGE_EFFORT` | unset | `low`, `medium`, `high`, `xhigh` or `max`; on the `opencode` runner, one the model offers as a variant | The triage effort level, the same way |
 | `KIT_TRIAGE_MAX_TURNS` | `40` | 1 to 500 | The triage turn limit |
 | `KIT_TRIAGE_TIMEOUT_MINUTES` | `15` | 1 to 360 | The triage job's time limit |
 
@@ -156,10 +158,12 @@ could be read in part.
 The review, the scan and triage each have their own provider setting,
 which says where the model runs: `anthropic` (the default) on the
 `ANTHROPIC_API_KEY` secret, or `opencode-go` on the `OPENCODE_API_KEY`
-secret. Triage alone also has a runner setting, the program that runs its
-model: Claude Code (the default) or OpenCode's CLI. The review and the
-scan always run in Claude Code. Each workflow uses only the secret its
-provider names, so both secrets can be set at once. The rows assume the
+secret. Each also has a runner setting, the program that runs the model,
+which follows the provider unless it is set: OpenCode's CLI on
+`opencode-go` and Claude Code on `anthropic`, the only provider Claude Code
+runs here. The secrets never choose: each workflow uses only the secret its
+provider names, so both secrets can be set at once, and with both set and
+no settings everything runs on the Anthropic API. The rows assume the
 workflow is turned on (`KIT_REVIEW_MODE`, `KIT_SECURITY_SCAN` or
 `KIT_ISSUE_TRIAGE`).
 
@@ -167,8 +171,9 @@ workflow is turned on (`KIT_REVIEW_MODE`, `KIT_SECURITY_SCAN` or
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY`, with or without `OPENCODE_API_KEY` | unset (the defaults) | Claude Code on the Anthropic API: the review on `claude-opus-5-5` and triage on `claude-sonnet-5-5`, both at Claude Code's default effort, `medium`, and the scan on `claude-opus-5-5` at `xhigh` |
 | `OPENCODE_API_KEY` only | unset (the defaults) | Nothing: the provider is still `anthropic`, so each run fails for want of `ANTHROPIC_API_KEY` |
-| `OPENCODE_API_KEY` | the workflow's provider (`KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go` | Claude Code on [OpenCode Go](#opencode-go)'s Anthropic-style endpoint, on `deepseek-v4.1-flash` unless the workflow's model setting names another Go model; the scan's `xhigh` default does not apply, and effort works as that section says |
-| `OPENCODE_API_KEY` | `KIT_TRIAGE_PROVIDER=opencode-go` and `KIT_TRIAGE_RUNNER=opencode` | Triage in [OpenCode's CLI](#opencode-cli-for-triage), on any Go model its pinned release lists; `KIT_TRIAGE_EFFORT` must stay unset. With `KIT_TRIAGE_PROVIDER` unset or `anthropic`, the settings step refuses this runner and names both settings |
+| `OPENCODE_API_KEY` | the workflow's provider (`KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go`, its runner unset | The workflow in [OpenCode's CLI](#opencode-cli) on [OpenCode Go](#opencode-go), on `deepseek-v4.1-flash` unless the workflow's model setting names another Go model the pinned release lists; the scan's `xhigh` default does not apply, and an effort setting must be one of the model's variants |
+| `OPENCODE_API_KEY` | the provider set to `opencode-go` and the runner (`KIT_REVIEW_RUNNER`, `KIT_SECURITY_RUNNER` or `KIT_TRIAGE_RUNNER`) to `claude-code` | Claude Code on Go's Anthropic-style endpoint, which the kit does not recommend ([OpenCode Go](#opencode-go)); the settings step warns. Only Go models served on that endpoint work, and effort works as that section says |
+| either | the runner set to `opencode` with the provider unset or `anthropic` | Nothing: the settings step refuses it and names both settings |
 
 Create the Anthropic key in the Anthropic Console under the organisation
 whose credit should pay for the runs, with one key per repository, so
@@ -305,28 +310,54 @@ each workflow's *Run the …* step.
 
 [OpenCode Go](https://opencode.ai/v2/docs/console/go/) is a monthly
 subscription ($10 Go, $40 Go Plus) to open models, each with its own dollar
-allowance: 20% of the month's per 5 hours, 50% per week. `KIT_REVIEW_PROVIDER=opencode-go`
-runs the review on it, `KIT_SECURITY_PROVIDER=opencode-go` the scan and
-its verification, and `KIT_TRIAGE_PROVIDER=opencode-go` triage, through
-the same pinned Claude Code CLI and the same tool restrictions; only the
-model endpoint and key change. Set the `OPENCODE_API_KEY` secret to a key
-from the workspace with the subscription, and `KIT_REVIEW_MODEL`,
+allowance: 20% of the month's per 5 hours, 50% per week.
+`KIT_REVIEW_PROVIDER=opencode-go` runs the review on it,
+`KIT_SECURITY_PROVIDER=opencode-go` the scan and its verification, and
+`KIT_TRIAGE_PROVIDER=opencode-go` triage, in [OpenCode's
+CLI](#opencode-cli) with the same skills, MCP server and tool restrictions
+as the Claude Code runs. Set the `OPENCODE_API_KEY` secret to a key from
+the workspace with the subscription, and `KIT_REVIEW_MODEL`,
 `KIT_SECURITY_MODEL` or `KIT_TRIAGE_MODEL` to a Go model id. All three
 default to `deepseek-v4.1-flash`. For the review and the scan it is the
-only model tested that reviews close to Opus and fits Go Plus at the
-volume measured, 644 pushes a month
-([the 2026-10-25 report](reports/2026-10-25-review-models.md)). For triage
-it is the closest of the three Go models backtested (63 runs on 21 issues
-each). It matched Sonnet 5.5 on issue type and on whether to ask questions
-or plan, but set priority one level high in 17 runs
-([the 2026-10-25 triage report](reports/2026-10-25-triage-deepseek.md)).
-Qwen3.8 Flash and MiniMax M3.1 Flash did worse: both raised priority in
-28 runs and left an issue untriaged in 2
-([the 2026-10-26 triage report](reports/2026-10-26-triage-go-models.md)). Jobs on the same model share its allowance.
+only model tested that reviews close to Opus and fits Go Plus at the volume
+measured, 644 pushes a month ([the 2026-10-25
+report](reports/2026-10-25-review-models.md)). For triage it is the closest
+of the three Go models backtested (63 runs on 21 issues each). It matched
+Sonnet 5.5 on issue type and on whether to ask questions or plan, but set
+priority one level high in 17 runs ([the 2026-10-25 triage
+report](reports/2026-10-25-triage-deepseek.md)). Qwen3.8 Flash and MiniMax
+M3.1 Flash did worse: both raised priority in 28 runs and left an issue
+untriaged in 2 ([the 2026-10-26 triage
+report](reports/2026-10-26-triage-go-models.md)). Jobs on the same model
+share its allowance.
+
+**Run Go's models in OpenCode's CLI, not Claude Code.** Each workflow's
+runner setting (`KIT_REVIEW_RUNNER`, `KIT_SECURITY_RUNNER`,
+`KIT_TRIAGE_RUNNER`) can still put a Go model in Claude Code, but the kit
+does not recommend it, and the run warns when it does. On 2026-10-28, in
+Go's peak hours, every review DeepSeek V4.1 Flash ran in Claude Code on
+GitHub's runners reached the 30-minute limit with no verdict, a two-file
+documentation change among them. Run locally on one of those pull requests,
+it thought 10,000 to 34,000 tokens a turn and was still going at 30
+minutes; `--effort low` and `CLAUDE_CODE_DISABLE_THINKING` each cut that to
+about 6,000 and did not finish in 15 and 20 minutes. The same review in
+OpenCode's CLI, on the same key and model, finished in about 7 minutes
+(twice) at under 2,000 reasoning tokens a step on average, and OpenCode's
+CLI scanned the pull request in 87 seconds where Claude Code took 3 minutes
+41 seconds ([OpenCode CLI](#opencode-cli)). Both ran at effort `high`:
+Claude Code sends it, and OpenCode's CLI sends none, which DeepSeek runs as
+`high` ([DeepSeek's thinking
+mode](https://api-docs.deepseek.com/guides/thinking_mode), read
+2026-10-28). So the effort level does not explain it: Claude Code reaches
+Go through Go's Anthropic-style endpoint, which Go translates for this
+model ([Go's endpoint table](https://opencode.ai/v2/docs/console/go/) lists
+it on the OpenAI-style one, read 2026-10-28), and sends a much larger
+prompt. Which of the two matters was not tested.
 
 What to know first (read 2026-10-23 unless a date is given):
 
-- Claude Code speaks only the Anthropic Messages API, so the model must
+- In Claude Code (the `claude-code` runner), which speaks only the
+  Anthropic Messages API, the model must
   answer on Go's Anthropic endpoint. On 2026-10-25 14 did, among them
   `deepseek-v4.1-flash`, `minimax-m3`, `qwen3.8-flash` and `qwen3.7-plus`;
   the GLM models did not. [Go's endpoint table](https://opencode.ai/v2/docs/console/go/)
@@ -341,10 +372,12 @@ What to know first (read 2026-10-23 unless a date is given):
   80 turns, so raise `KIT_REVIEW_MAX_TURNS` for larger pull requests.
 - The scan's answer comes back through a tool the CLI adds to the session
   ([structured outputs](https://code.claude.com/docs/en/agent-sdk/structured-outputs)),
-  so the scan model needs tool use. On Go nothing constrains the model to
-  the schema while it writes (the API's schema constraint is one of the
-  experimental features turned off); the CLI checks the answer and asks
-  again, and a model that never gets it right fails the run.
+  so the scan model needs tool use. In Claude Code on Go nothing
+  constrains the model to the schema while it writes (the API's schema
+  constraint is one of the experimental features turned off); the CLI
+  checks the answer and asks again, and a model that never gets it right
+  fails the run. OpenCode's CLI does the same with its own tool
+  ([OpenCode CLI](#opencode-cli)).
 - The run sends the pull request's files and diffs (for triage, the
   issue and the files it reads) to OpenCode and the model's host. Go's page gives each model's retention: most are 0 days
   and not used for training, Claude Haiku 5.5 is kept 30 days, and the
@@ -354,9 +387,9 @@ What to know first (read 2026-10-23 unless a date is given):
   [terms](https://opencode.ai/legal/terms-of-service) bar "processes
   that run or are activated while you are not logged into the Services".
   Settle that with OpenCode before relying on it.
-- The run log's `cost_usd` is Claude Code's figure at Claude prices, not
-  what Go charges; the `tokens` line after it, at the model's prices on
-  Go's page, is.
+- In Claude Code the run log's `cost_usd` is Claude Code's figure at
+  Claude prices, not what Go charges; the `tokens` line after it, at the
+  model's prices on Go's page, is. OpenCode's CLI logs Go's prices.
 - Claude Code sends an effort level to Go with every request, whatever the
   model: the level `KIT_REVIEW_EFFORT`, `KIT_SECURITY_EFFORT` or
   `KIT_TRIAGE_EFFORT` sets, or with none set its own default, `medium` for
@@ -380,49 +413,96 @@ What to know first (read 2026-10-23 unless a date is given):
   turn and no tools, on a counting problem that needs reasoning.)
 - The scan's `xhigh` default applies only on the Anthropic API: on Go the
   scan runs at the CLI's default unless `KIT_SECURITY_EFFORT` is set.
+  OpenCode's CLI sends no effort level unless one is set, so DeepSeek's
+  own default, `high`, applies ([OpenCode CLI](#opencode-cli)).
 
-### OpenCode CLI for triage
+### OpenCode CLI
 
-Claude Code reaches only the Go models served on Go's Anthropic endpoint.
-`KIT_TRIAGE_RUNNER=opencode`, with `KIT_TRIAGE_PROVIDER=opencode-go`, runs
-triage in [OpenCode's CLI](https://opencode.ai/docs/cli/) instead, which
-takes any Go model its pinned release lists, including the ones Go serves
-only on its OpenAI-style endpoints (GLM, Kimi, MiMo and others in
-[Go's endpoint table](https://opencode.ai/v2/docs/console/go/)).
+On `opencode-go` the review, the scan and triage run in
+[OpenCode's CLI](https://opencode.ai/docs/cli/) unless their runner setting
+says `claude-code` (see [OpenCode Go](#opencode-go) for why). The CLI takes
+any Go model its pinned release lists, including the ones Go serves only on
+its OpenAI-style endpoints (GLM, Kimi, MiMo, DeepSeek and others in
+[Go's endpoint table](https://opencode.ai/v2/docs/console/go/)); it sends
+DeepSeek V4.1 Flash to `https://opencode.ai/inference/go/openai/v1/chat/completions`
+(the pinned release's requests, recorded on 2026-10-28).
 `opencode models opencode-go` prints that list. The run does not fetch a
 newer list, so a model Go added after the pinned release (1.19.3 lacks
-`minimax-m3.1-flash`, for one) fails the run until the pin moves. The
-skill, the MCP server, its tools and the checks after the run are the
-same; the workflow holds OpenCode to what the Claude Code run allows (all
-read 2026-10-26):
+`minimax-m3.1-flash`, for one) fails the run, naming the setting, until the
+pin moves. The skills, the MCP server, its tools and the checks after the
+run are the same; the workflow holds OpenCode to what the Claude Code run
+allows (all read 2026-10-26 unless a date is given):
 
 - Its configuration is given inline, which outranks a project's own
-  ([config](https://opencode.ai/docs/config/)), and the checkout's
-  `opencode.json`, `.opencode` directory, plugins, `.claude` directory and
-  instruction files are not loaded; its home and data directories are an
-  empty directory under the runner's temp directory.
+  ([config](https://opencode.ai/docs/config/)); the checkout's settings,
+  `.claude` directory and instruction files are not loaded; its home and
+  data directories are an empty directory under the runner's temp
+  directory. The checkout's `.opencode` directory, `opencode.json` and
+  `opencode.jsonc` are removed before the CLI runs: 1.19.3 imports the
+  plugins they name even when told to ignore the project's configuration,
+  which would run the checkout's code beside the Go key (tried on
+  2026-10-28). The diff still shows a change to them. A checkout's `.env`
+  and `bunfig.toml`, which a Bun program can load as it starts, stay:
+  traced on 2026-10-28 in a directory holding both, the pinned OpenCode
+  (`--version`, `models`) and Claude Code (`--version`) never opened them.
+  Trace again when a pin moves.
 - Every [permission](https://opencode.ai/docs/permissions/) is denied but
-  reads, searches and file listing inside the checkout and the run's MCP
-  tools. A denied tool is not offered to the model at all, so it has no
-  shell, no file-writing tool and no network tool. OpenCode's search
-  tools take a path and are checked only against their pattern, so before
-  the run `.git` moves out of the checkout and every symlink in it is
-  removed, as for the security scan.
+  reads, searches and file listing inside the checkout (and, for the scan,
+  its input directory) and the run's MCP tools. A denied tool is not
+  offered to the model at all, so it has no shell, no file-writing tool and
+  no network tool. OpenCode's search tools take a path and are checked only
+  against their pattern, so before the run `.git` moves out of the checkout
+  and every symlink in it is removed, as for the security scan. The
+  review's server reads `.git` for its diffs, so it is told where `.git`
+  went, and the review and the scan put `.git` back after the run.
 - The MCP server starts with only its own variables, so it never sees the
   Go key.
-- `KIT_TRIAGE_MAX_TURNS` is OpenCode's step limit; a run that uses every
-  step fails, as on Claude Code. `KIT_TRIAGE_EFFORT` must stay unset:
-  OpenCode's own effort names differ per model, so it is not passed on.
+- `KIT_REVIEW_MAX_TURNS`, `KIT_SECURITY_MAX_TURNS` or
+  `KIT_TRIAGE_MAX_TURNS` is OpenCode's step limit; a run that uses every
+  step fails, as on Claude Code.
+- An effort setting is passed as `--variant`, OpenCode's name for a model's
+  effort levels, which differ per model: DeepSeek V4.1 Flash offers `low`,
+  `high` and `max`. OpenCode runs a variant the model lacks with none,
+  without a word, so the run checks the setting against the pinned
+  release's list first and fails, naming the variants there are. Unset, it
+  sends no effort level and the model's own default applies (`high` for
+  DeepSeek V4.1 Flash). OpenCode's session title, a short extra request,
+  goes to the same model at its lowest variant (recorded on 2026-10-28). An
+  effort setting made for Claude Code on Go can fail once the runner
+  follows the provider: DeepSeek V4.1 Flash has no `medium` or `xhigh`.
+  Change it to one of the model's variants, unset it, or set the runner to
+  `claude-code` to keep the old run.
+- The scan and its verification answer in a structure the workflow checks.
+  `opencode run` has no way to ask for one, so these two runs use
+  OpenCode's local server instead, on the runner's loopback address (port
+  4096 when it is free, otherwise one the server picks), behind a password
+  made for the run, and ask for the answer as a JSON schema; OpenCode then
+  requires a tool call on every step and takes the answer from its own
+  structured-output tool. Its answer goes through the same checks as Claude
+  Code's. The 1.19.3 server cannot list such a session's messages, so the
+  turn count, cost and tokens come from exporting the session once the
+  server has stopped.
+- The review's prompt says it runs in OpenCode's CLI, so the report's
+  *Reviewer* line names OpenCode; a later round finds earlier reports by
+  either runner.
 - The run log's `cost_usd (Go prices)` and `tokens` lines are OpenCode's
   own figures at Go's prices.
 - OpenCode installs its plugin package from npm into its own config
   directory in the background on each run; no setting was found to turn
-  that off. No plugin is loaded, so none of it runs.
+  that off. It loads no plugin from there, so none of it runs.
 
-Not yet measured in OpenCode's CLI: how well any model triages there (only
-a sweep on DeepSeek V4.1 Flash has run), and how its runs compare with
-Claude Code's on the same model. The terms question above applies here
-too.
+Measured on 2026-10-28, in Go's peak hours, on DeepSeek V4.1 Flash with no
+effort setting and the pinned releases, for kit pull request 23 (two
+changed files):
+
+| Run | Claude Code on Go | OpenCode's CLI on Go |
+| --- | --- | --- |
+| Review | No verdict at the 30-minute limit, on GitHub's runner and locally | 7 minutes 10 seconds, 27 steps, 47,607 reasoning tokens (median 790 a step), $0.054, run locally through the workflow's own step |
+| Scan | 3 minutes 41 seconds, 22 turns, 30,546 output tokens, on GitHub's runner | 87 seconds, 8 steps, 2,975 reasoning tokens, $0.007, run locally the way the workflow's step runs it |
+
+A scan of a larger change (nine files, 58 KB of diff) took 11 minutes in
+OpenCode's CLI (23 steps, $0.053), 3.7 minutes of it one step that Go was
+slow to answer.
 
 ## What each run may do
 
@@ -471,7 +551,9 @@ request's diff (`git diff` with the base's `.gitattributes`, so a head that
 marks its own files `-diff` cannot hide their content) and changed-file list
 to a directory outside the checkout, and the model reads those and the
 checkout with `Read`, `Grep` and `Glob` only, with reads outside the two
-places, and in `.git`, `/proc` and `/dev`, denied. It never sees a GitHub
+places, and in `.git`, `/proc` and `/dev`, denied (in OpenCode's CLI, by
+its permissions and by moving `.git` out of the checkout for the two
+runs: [OpenCode CLI](#opencode-cli)). It never sees a GitHub
 token, the pull request's conversation or its title and body. Its answer is
 structured output against a schema the workflow wrote; a second run in a
 fresh session judges each candidate against the code, and only the
@@ -551,8 +633,10 @@ The workflows also:
   from the head; every symlink is removed too, so a link the head commits
   cannot lead the reviewer's reads to a runner file;
 - remove `.claude`, `.mcp.json` and similar executable configuration from
-  the checkout, and run the CLI with `--restricted` and
-  `--strict-mcp-config`;
+  the checkout, and run Claude Code with `--restricted` and
+  `--strict-mcp-config`; on the `opencode` runner, remove the checkout's
+  `.opencode`, `opencode.json` and `opencode.jsonc` too and give OpenCode's
+  CLI its whole configuration inline ([OpenCode CLI](#opencode-cli));
 - refuse pull requests a run could not read whole: at GitHub's diff limits
   (300 files or 20,000 lines), or lower limits the repository set, and when
   GitHub cut the diff or the checkout shows fewer changed files than the
@@ -742,9 +826,9 @@ jq -r '.platforms["linux-x64"].checksum' manifest.json
 Then change `VERSION` and `SHA256` in the three workflows in one pull
 request.
 
-The *Install OpenCode* step in the triage workflow, used only with
-`KIT_TRIAGE_RUNNER=opencode`, downloads one release of OpenCode's
-`opencode-linux-x64.tar.gz` from
+The *Install OpenCode* step in the review, scan and triage workflows, used
+only on the `opencode` runner (the default on `opencode-go`), downloads one
+release of OpenCode's `opencode-linux-x64.tar.gz` from
 [its GitHub releases](https://github.com/anomalyco/opencode/releases) and
 checks the binary's SHA-256 against the value in the step. OpenCode
 publishes no signed checksum, so the value was taken from the release
@@ -760,4 +844,5 @@ npm pack "opencode-linux-x64@$v" && tar -xzf "opencode-linux-x64-$v.tgz" package
 # Stop unless both print the same checksum.
 ```
 
-Then change `VERSION` and `SHA256` in *Install OpenCode*.
+Then change `VERSION` and `SHA256` in the three *Install OpenCode* steps in
+one pull request.
