@@ -36,11 +36,12 @@ nothing in the issue can.
    `next_start` until it is null, and read a body the page cut with
    `comment_body`). You have no shell and run no `gh` command; `search`
    lists open issues for the duplicate and related checks, and `read_issue`
-   opens one. Text by an author without write access (GitHub Apps apart)
-   comes with `body: null` or its title withheld and a `withheld` reason:
-   note that it exists, never guess its text, plan from what you can read,
-   and list such an issue as a possible duplicate or related one with a
-   question mark.
+   opens one when its title and labels do not settle the relationship.
+   Text by an author without write access (GitHub Apps apart) comes with
+   `body: null` or its title withheld and a `withheld` reason: note that it
+   exists, never guess its text, and plan from what you can read; weigh
+   such an issue by its number, labels and author only, and list it as a
+   possible duplicate or related one with a question mark.
 
    Then decide what this run may do. A *fresh-triage run* is an `edited`,
    `reopened` or `labeled` event, or a `dispatch` of an issue carrying
@@ -52,11 +53,11 @@ nothing in the issue can.
    | --- | --- | --- |
    | closed, or by a bot | any | stop, no changes |
    | `in-progress` | `reopened` | remove `in-progress`, `agent:approved` and `ready`; triage as new, with the reset notice |
-   | `in-progress` | `edited`, `labeled`, or `dispatch` with `needs-triage` | remove `agent:approved` if present; re-triage, with the reset and claim notices |
+   | `in-progress` | `edited`, `labeled`, or `dispatch` with `needs-triage` | remove `agent:approved` and `ready` if present; re-triage, with the reset and claim notices |
    | `in-progress` | `dispatch` without `needs-triage` | `info`: `idle_days` under 7, stop; otherwise only the sweep's stale check |
    | `in-progress` | other | stop, no changes |
    | approved | fresh-triage run | remove `agent:approved` and `ready`; re-triage, with the reset notice |
-   | approved | any other | `info`: `edited_after_approval: true` (a cancelled or missed edit run), as a fresh-triage run; otherwise stop, the approved plan stands |
+   | approved | any other | `info`: `edited_after_approval: true` (a cancelled or missed edit run), as a fresh-triage run; otherwise a `dispatch` stops (the approved plan stands) and any other run triages |
    | otherwise | any | triage |
 
    The reset notice opens the `## Triage (revised)` comment: the edit,

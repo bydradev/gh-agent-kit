@@ -96,8 +96,8 @@ for a change of base branch, `edited-title` for a change of title alone, or
      to see it). Call `range_diff` with the last reviewed head as
      `old_head` and the current head as `new_head` (the same commit twice
      when only the base moved) and, when the base moved, the *Base
-     reviewed* commit as `old_base`; `diff` alone shows only the diff
-     against the current base. Its answer decides the round:
+     reviewed* commit (its full sha) as `old_base`; `diff` alone shows
+     only the diff against the current base. Its answer decides the round:
      - *... so only which commits the base holds changed*: the
        rebase-only addendum.
      - *... but commit messages changed*: the code is the same, so review
@@ -112,9 +112,10 @@ for a change of base branch, `edited-title` for a change of title alone, or
        follow-up.
      - Otherwise the `git range-diff` output, read as usual: a series
        with no content change (a rebase) gets the rebase-only addendum; a
-       content change, or a diff the base change altered (a retarget, or
-       a base that now holds part of the head), gets the full follow-up
-       against the current base, even with the head unchanged.
+       content change gets the full follow-up, diffing the last reviewed
+       head against the current one; a diff the base change altered (a
+       retarget, or a base that now holds part of the head) gets the full
+       follow-up against the current base, even with the head unchanged.
    - **An edit** (`edited`, `edited-title`, or a title unlike *Title
      reviewed*; a later edit can displace a queued one, so the event's
      own change is not the whole story): compare the current closing
