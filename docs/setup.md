@@ -478,10 +478,14 @@ allows (all read 2026-10-26 unless a date is given):
   4096 when it is free, otherwise one the server picks), behind a password
   made for the run, and ask for the answer as a JSON schema; OpenCode then
   requires a tool call on every step and takes the answer from its own
-  structured-output tool. Its answer goes through the same checks as Claude
-  Code's. The 1.19.3 server cannot list such a session's messages, so the
-  turn count, cost and tokens come from exporting the session once the
-  server has stopped.
+  structured-output tool. A step can still end without that call: DeepSeek
+  V4.1 Flash did once on GitHub's runner, after 25 steps (2026-10-28), and
+  1.19.3 then stops with "Model did not produce structured output" instead
+  of asking again. The run then asks once more in the same session, which
+  keeps the work done so far, for the answer alone; a second miss fails the
+  run. Its answer goes through the same checks as Claude Code's. The 1.19.3
+  server cannot list such a session's messages, so the turn count, cost and
+  tokens come from exporting the session once the server has stopped.
 - The review's prompt says it runs in OpenCode's CLI, so the report's
   *Reviewer* line names OpenCode; a later round finds earlier reports by
   either runner.

@@ -957,14 +957,28 @@ jobs:
           fi
           api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
           session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
-          body=$(jq -cn --arg text "$prompt" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
-            --slurpfile schema "$SCHEMA" '{
-              model: {providerID: "opencode-go", modelID: $model},
-              format: {type: "json_schema", schema: $schema[0]},
-              parts: [{type: "text", text: $text}]
-            } + (if $variant == "" then {} else {variant: $variant} end)')
+          # A message with the text in $1 that asks for the schema's answer.
+          ask() {
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
+              --slurpfile schema "$SCHEMA" '{
+                model: {providerID: "opencode-go", modelID: $model},
+                format: {type: "json_schema", schema: $schema[0]},
+                parts: [{type: "text", text: $text}]
+              } + (if $variant == "" then {} else {variant: $variant} end)'
+          }
           status=0
-          api -X POST -d "$body" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          api -X POST -d "$(ask "$prompt")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # DeepSeek V4.1 Flash on Go can end a step without the tool call
+          # OpenCode requires (once on GitHub's runner, after 25 steps,
+          # 2026-10-28), and 1.19.3 then ends the message with a
+          # StructuredOutputError instead of asking again (its prompt loop,
+          # read 2026-10-28). The session keeps the work done so far, so it
+          # is asked once more, for the answer alone.
+          if [ "$status" -eq 0 ] && jq -e '.info.error.name == "StructuredOutputError"' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1; then
+            echo "::warning::OpenCode's run ended without the structured answer, so the same session is asked once more"
+            again="That ended without a call to the StructuredOutput tool, so the workflow has no answer. Call StructuredOutput now with your answer to the task above, in the skill's output format. The work you have done is in this session: do not start again."
+            api -X POST -d "$(ask "$again")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          fi
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
           jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"
@@ -1213,14 +1227,28 @@ jobs:
           fi
           api() { curl -sS --noproxy '*' --fail-with-body -u "opencode:$password" -H 'content-type: application/json' "$@"; }
           session=$(api -X POST -d '{}' "$url/session" | jq -r '.id')
-          body=$(jq -cn --arg text "$prompt" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
-            --slurpfile schema "$SCHEMA" '{
-              model: {providerID: "opencode-go", modelID: $model},
-              format: {type: "json_schema", schema: $schema[0]},
-              parts: [{type: "text", text: $text}]
-            } + (if $variant == "" then {} else {variant: $variant} end)')
+          # A message with the text in $1 that asks for the schema's answer.
+          ask() {
+            jq -cn --arg text "$1" --arg model "$KIT_SECURITY_MODEL" --arg variant "$KIT_SECURITY_EFFORT" \
+              --slurpfile schema "$SCHEMA" '{
+                model: {providerID: "opencode-go", modelID: $model},
+                format: {type: "json_schema", schema: $schema[0]},
+                parts: [{type: "text", text: $text}]
+              } + (if $variant == "" then {} else {variant: $variant} end)'
+          }
           status=0
-          api -X POST -d "$body" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          api -X POST -d "$(ask "$prompt")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          # DeepSeek V4.1 Flash on Go can end a step without the tool call
+          # OpenCode requires (once on GitHub's runner, after 25 steps,
+          # 2026-10-28), and 1.19.3 then ends the message with a
+          # StructuredOutputError instead of asking again (its prompt loop,
+          # read 2026-10-28). The session keeps the work done so far, so it
+          # is asked once more, for the answer alone.
+          if [ "$status" -eq 0 ] && jq -e '.info.error.name == "StructuredOutputError"' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1; then
+            echo "::warning::OpenCode's run ended without the structured answer, so the same session is asked once more"
+            again="That ended without a call to the StructuredOutput tool, so the workflow has no answer. Call StructuredOutput now with your answer to the task above, in the skill's output format. The work you have done is in this session: do not start again."
+            api -X POST -d "$(ask "$again")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+          fi
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
           jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || echo '{}' > "$RUNNER_TEMP/opencode-answer.json"

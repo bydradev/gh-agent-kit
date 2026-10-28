@@ -169,7 +169,8 @@ const SESSION = {
 const ANSWER = { info: { role: "assistant", finish: "tool-calls", structured: FINDINGS }, parts: [] };
 
 // The step with the CLI replaced by a stub server. `answer` is what the
-// message route returns (`status`, JSON `body`); `session` is what export
+// message route returns (`status`, JSON `body`), or a list of them served
+// in turn (the last one again once they run out); `session` is what export
 // prints (null fails the export); `models` is the model list (null fails
 // the listing).
 function scan(
@@ -203,6 +204,8 @@ const fs = require("node:fs");
 const http = require("node:http");
 const spec = JSON.parse(fs.readFileSync(${JSON.stringify(spec)}, "utf8"));
 const record = (entry) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(entry) + "\\n");
+const answers = [spec.answer].flat();
+let asked = 0;
 const [command, ...rest] = process.argv.slice(2);
 record({ command, args: rest, env: process.env, pid: process.pid });
 if (command === "models") {
@@ -227,7 +230,10 @@ if (command === "models") {
       };
       if (req.headers.authorization !== auth) return send(401, { name: "Unauthorized" });
       if (req.method === "POST" && req.url === "/session") return send(200, { id: "ses_1" });
-      if (req.method === "POST" && req.url === "/session/ses_1/message") return send(spec.answer.status, spec.answer.body);
+      if (req.method === "POST" && req.url === "/session/ses_1/message") {
+        const answer = answers[Math.min(asked++, answers.length - 1)];
+        return send(answer.status, answer.body);
+      }
       send(404, { name: "NotFound" });
     });
   });
@@ -375,6 +381,43 @@ test("security-scan.yml, Run the scan on OpenCode: the CLI is isolated and may o
   assert.equal(permission.glob, "allow");
   assert.equal(permission.StructuredOutput, "allow");
   assert.deepEqual(Object.keys(permission).sort(), ["*", "StructuredOutput", "external_directory", "glob", "grep", "read"]);
+});
+
+const NO_STRUCTURED = {
+  status: 200,
+  body: { info: { role: "assistant", error: { name: "StructuredOutputError", data: { message: "Model did not produce structured output" } } } },
+};
+
+test("security-scan.yml, Run the scan on OpenCode: a run that ends without the structured answer is asked once more", (t) => {
+  const r = scan(t, { answer: [NO_STRUCTURED, { status: 200, body: ANSWER }], effort: "high" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.result.structured_output, FINDINGS);
+  assert.equal(r.result.subtype, "success");
+  assert.match(r.stdout, /^::warning::OpenCode's run ended without the structured answer, so the same session is asked once more$/m);
+  const messages = r.requests.filter((q) => q.request === "POST /session/ses_1/message");
+  assert.equal(messages.length, 2);
+  // The same session, model, variant and schema; only the text differs.
+  const [first, second] = messages.map((q) => q.body);
+  assert.deepEqual({ ...second, parts: null }, { ...first, parts: null });
+  assert.match(second.parts[0].text, /^That ended without a call to the StructuredOutput tool/);
+  assert.equal(r.requests.filter((q) => q.request === "POST /session").length, 1);
+  assert.equal(r.alive, false);
+
+  // Asked once only: a second miss fails the step.
+  const twice = scan(t, { answer: [NO_STRUCTURED, NO_STRUCTURED, { status: 200, body: ANSWER }] });
+  assert.equal(twice.status, 1, twice.stdout + twice.stderr);
+  assert.match(twice.stdout, /^errors: Model did not produce structured output$/m);
+  assert.equal(twice.requests.filter((q) => q.request === "POST /session/ses_1/message").length, 2);
+
+  // Any other error is not asked again.
+  for (const answer of [
+    { status: 200, body: { info: { role: "assistant", error: { name: "APIError", data: { message: "Upstream request failed" } } } } },
+    { status: 500, body: { name: "UnknownError" } },
+  ]) {
+    const other = scan(t, { answer: [answer, { status: 200, body: ANSWER }] });
+    assert.equal(other.status, 1, JSON.stringify(answer) + other.stdout);
+    assert.equal(other.requests.filter((q) => q.request === "POST /session/ses_1/message").length, 1, JSON.stringify(answer));
+  }
 });
 
 test("security-scan.yml, Run the scan on OpenCode: no answer, an error or the turn limit fails the step", (t) => {
