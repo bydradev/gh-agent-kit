@@ -139,7 +139,8 @@ level, so Claude Code sends its own: `high` for DeepSeek V4.1 Flash
 Every model, effort level, turn and time limit and size limit is a setting
 ([`docs/setup.md`](docs/setup.md#3-add-the-secret-and-the-settings) lists
 them). Each default was backtested against cheaper models on the same past
-work ([reports](docs/reports/)):
+work. [The backtests page](docs/reports/README.md) puts every model tested
+side by side, with what it found and what it cost:
 
 - **Reviews and scans.** Opus 5.5 was the better reviewer and stays the
   default. On Go, DeepSeek V4.1 Flash found 10 of Opus's 14 findings (one
@@ -191,7 +192,8 @@ the workflow posts what it found.
 - [`docs/agents-md-block.md`](docs/agents-md-block.md): the *Work tracking*
   rules to add to your `AGENTS.md`.
 - [`docs/reports/`](docs/reports/): the dated tests behind the default
-  models (see [How it runs](#how-it-runs)).
+  models, and one page comparing every model tested with its cost (see
+  [How it runs](#how-it-runs)).
 - `.agents/skills/github-pr-review`, `github-security-scan`,
   `github-issue-triage` and `github-issue-e2e`: what the reviewer, the
   scanner, the triage bot and an implementing agent follow.

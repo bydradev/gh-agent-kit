@@ -31,12 +31,13 @@ The harness, the 21 frozen cases, the stub `gh` and the production (S0)
 and Sonnet replay (S) results are the Haiku backtest's. 19 cases are the kit's own
 issues (kit A to kit Q) and 2 are from a private repository (pilot A and
 pilot B), named as in that report. The new arm, D, ran each case three times
-with `--model deepseek-v4.1-flash` and no `--effort`, through the pinned
-Claude Code CLI (2.1.306) with the environment `pr-review.yml` used for
-`KIT_REVIEW_PROVIDER=opencode-go` at the time: Go's Anthropic Messages
-endpoint, the key as `ANTHROPIC_AUTH_TOKEN`, every model alias on
-DeepSeek, experimental betas and tool search off. Its value per case is
-the majority of its three trials.
+with `--model deepseek-v4.1-flash` and no `--effort` (so the CLI sent
+its own default for a model it does not know, `high`; found 2026-10-27),
+through the pinned Claude Code CLI (2.1.306) with the environment
+`pr-review.yml` used for `KIT_REVIEW_PROVIDER=opencode-go` at the time:
+Go's Anthropic Messages endpoint, the key as `ANTHROPIC_AUTH_TOKEN`,
+every model alias on DeepSeek, experimental betas and tool search off.
+Its value per case is the majority of its three trials.
 
 Go's endpoint table lists DeepSeek V4.1 Flash on the OpenAI-style endpoint
 only (opencode.ai/docs/go, read 2026-10-25), but it answered on the

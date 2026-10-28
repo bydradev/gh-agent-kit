@@ -128,8 +128,12 @@ it:
 - One run per model and pull request, so one review can move a count.
 - The scan sample has no known vulnerability, so it measures false
   positives, cost and the answer's format, not recall.
-- The models ran without effort settings: the CLI sends effort only to
-  models it knows.
+- The models were given no effort setting, so the CLI sent its own
+  default for a model it does not know, `high`. (Corrected 2026-10-28:
+  this said the CLI sends effort only to models it knows. The pinned
+  CLI's code, and a recording of its requests on 2026-10-27, show it
+  sends effort to every model on Go; a test that day found no consistent
+  difference between levels on DeepSeek V4.1 Flash in 11 runs.)
 
 ## Every case
 

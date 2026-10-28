@@ -110,7 +110,8 @@ The Sonnet replay took a median of 16 turns and 31 s per run.
   named as in the Haiku backtest. Each model was
   its own arm on Go's Anthropic Messages endpoint. The arm used the
   environment that `KIT_REVIEW_PROVIDER=opencode-go` sets and passed no
-  `--effort`.
+  `--effort`, so the CLI sent its own default for a model it does not
+  know, `high` (found 2026-10-27).
 - **Runs:** 63 per model, at most 3 at a time, with no stub misses and no
   live GitHub calls or writes.
 - **Cost cap:** the CLI does not know these models, so it prices them at
