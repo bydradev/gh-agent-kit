@@ -95,9 +95,12 @@ the structured answer, and Go refused the next one's first request, which
 forced a tool call. The scan and the verification now ask OpenCode for no
 structured output: the model answers in JSON text, which the workflow
 checks against the schema and asks for again when it does not fit
-(`docs/setup.md`, *OpenCode CLI*). The first review on OpenCode there, on
-the same pull request, took 9 minutes 28 seconds and 39 steps. Not yet seen
-there: a completed scan on OpenCode, and triage since this change.
+(`docs/setup.md`, *OpenCode CLI*). After that change the scan there
+completed in 8 minutes 44 seconds and 25 steps, with no answer asked for
+again. The first review on OpenCode there, on the same pull request, took
+9 minutes 28 seconds and 39 steps. Not yet seen there: a verification of
+candidate findings on OpenCode (that scan found none), and triage since
+this change.
 
 ### Security scan on the pinned CLI (2026-10-23)
 
