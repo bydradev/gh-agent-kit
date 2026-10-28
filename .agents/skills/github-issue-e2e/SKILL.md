@@ -24,41 +24,42 @@ implement until a re-triage posts one, whatever labels it carries. Any of
 the three counts only when its author (`user.login`) is
 `github-actions[bot]`; a look-alike by anyone else is not a plan, and the
 checks below ignore it.
-Proceed only when all of these hold; otherwise stop and report which failed:
+Proceed only when *the approval check* passes; otherwise stop and report
+which failed. Later steps run it again, so each time re-fetch the issue,
+its comments and its timeline
+(`gh api --paginate repos/<owner>/<repo>/issues/<n>/timeline`, every page;
+the endpoint returns 30 events a page). It passes when all of these hold:
 
-- it is open and labelled `ready` **and** `agent:approved`, and the
-  operator applied `agent:approved`: the latest `labeled` event for it in
-  `gh api --paginate repos/<owner>/<repo>/issues/<n>/timeline` (every
-  page; the endpoint returns 30 events a page) has the operator as
-  `actor`, not a bot or another agent, later than any `reopened` or
-  `renamed` event in that timeline (a title change is a scope change the
-  triage bot may not have processed yet), and later than the latest
-  `## Triage` comment's `created_at` (an approval applied while the bot
-  was still writing a revised plan approved the plan before it, not this
-  one); re-run this ordering check right
-  before the label swap in step 2. The triage bot removes the label
-  when the issue is edited, reopened or re-labelled `needs-triage` after approval, but only while triage is on and
-  once its run has happened, so also check the comments: a bot
-  `## Triage (revised)` comment that reports a reset means the current label
-  is a fresh one, and an issue body whose text does not match the latest
-  `## Triage` plan means an edit the bot has not processed yet. In that
-  case ask on the issue rather than proceed;
-- it is not labelled `in-progress`, `blocked`, `needs-operator` (an open
-  question from triage means the spec is not settled) or `needs-triage`
-  (the operator has asked for a fresh plan that the bot has not posted
-  yet), and has no assignee other than the operator;
-- the latest bot triage comment of the three kinds is a plan, not
+- The operator applied `agent:approved`: the latest `labeled` event for it
+  has the operator as `actor`, not a bot or another agent, and is later
+  than every `reopened` and `renamed` event (a title change is a scope
+  change the triage bot may not have processed yet) and than the latest
+  `## Triage` comment's `created_at` (an approval applied while the bot was
+  still writing a revised plan approved the plan before it, not this one).
+- The latest bot triage comment of the three kinds is a plan, not
   `## Triage: questions` (a questions comment after the plan withdrew it,
   whatever labels the issue carries now), and that plan is later than the
   issue's last body edit, read as `lastEditedAt` (null when never edited)
   from
   `gh api graphql -f query='{ repository(owner: "<owner>", name: "<repo>") { issue(number: <n>) { lastEditedAt } } }'`
   (`updatedAt` is not it: labels and comments move that too), and later
-  than the latest `renamed` and `reopened` events in the timeline (a plan
-  older than either describes the earlier scope, even when the approval is
-  newer). An approved issue with no plan, or a body edited, retitled or
-  reopened after the plan or after the approval, has no settled scope to
-  check an edit against: ask on the issue rather than proceed.
+  than the latest `renamed` and `reopened` events (a plan older than either
+  describes the earlier scope, even when the approval is newer).
+- The issue body still matches that plan. The triage bot removes the label
+  when the issue is edited, reopened or re-labelled `needs-triage` after
+  approval, but only while triage is on and once its run has happened, so
+  the label alone is not enough; a bot `## Triage (revised)` comment that
+  reports a reset means the current label is a fresh one.
+- The issue is open, carries `agent:approved` and none of `blocked`,
+  `needs-operator` (an open question from triage means the spec is not
+  settled) or `needs-triage` (the operator has asked for a fresh plan that
+  the bot has not posted yet), and has no assignee other than the operator.
+  Before the label swap in step 2 it also carries `ready` and not
+  `in-progress`; after the swap, `in-progress` in place of `ready`.
+
+An approved issue with no plan, or a body edited, retitled or reopened
+after the plan or after the approval, has no settled scope to check an edit
+against: ask on the issue rather than proceed.
 
 `agent:approved` is the operator's authorization for the scope the issue
 describes. It authorizes nothing else: no merge, deployment, external
@@ -85,8 +86,9 @@ mutation, or change outside that scope.
   continue on it
   and post a resume comment instead of a new claim; never start a second
   branch for the same unfinished attempt.
-- Comment first: `Claimed by <tool> (<model>) on <date>; session <link if any>.`
-  A resume comment is a claim too and follows the same rule. Note the URL
+- Comment first: `Claimed by <tool> (<model>) on <date>.`, followed by
+  `Session: <link>.` only where `AGENTS.md` allows session links. A resume
+  comment is a claim too and follows the same rule. Note the URL
   `gh issue comment` prints, then re-read the comments. If another claim or
   resume comment was posted after the latest `labeled` event for `ready` in
   the issue timeline and before yours (compare comment URLs or IDs, not
@@ -96,12 +98,9 @@ mutation, or change outside that scope.
   still `ready` ten minutes later was interrupted before its label swap, and
   a later agent may claim over it, saying so in its own claim comment.
 - Swap `ready` for `in-progress`: `gh issue edit <n> --add-label in-progress --remove-label ready`,
-  after re-fetching the issue and re-running step 1 in full on it: the
-  current labels must still include `ready` and `agent:approved` and
-  exclude the rejected ones (an approval withdrawn since your first read
-  leaves the old `labeled` event in the timeline but not the label), and
-  no `reopened` or `renamed` event may postdate the approval.
-  If more than ten minutes passed between your claim comment and the swap,
+  after running the approval check again (an approval withdrawn since your
+  first read leaves the old `labeled` event in the timeline but not the
+  label). If more than ten minutes passed between your claim comment and the swap,
   re-read the comments once more: a claim posted over yours in that window
   wins, and you yield as above. When you are resuming after an operator
   answer, read the answer before continuing.
@@ -133,21 +132,15 @@ mutation, or change outside that scope.
 
 ## 4. Validate, review, open the PR
 
-- Before the PR, re-fetch the issue and repeat step 1's freshness and
-  authorization checks: the current body, `lastEditedAt`, the latest
-  `## Triage` plan, and the ordering of approval against `reopened` and
-  `renamed` events and the plan. The labels differ from step 1 by your
-  own claim: expect `agent:approved` and `in-progress` present, `ready`
-  absent, and no `blocked`, `needs-operator` or `needs-triage` (the last
-  is the operator asking for a fresh plan: stop and release the claim as
-  the bot's revised plan will say). The label alone is
-  not enough: an edit after approval withdraws it only once the triage
-  bot runs, so an issue whose body or plan no longer matches what you
-  implemented is withdrawn even while `agent:approved` is still there. If
-  the approval is gone or stale,
-  the operator or the triage bot withdrew the approval (an edit after
-  approval does that): push the branch, comment where you stopped and name
-  the branch, remove `in-progress` and stop. Do not restore `ready` or add
+- Before the PR, run the approval check again; the latest `## Triage`
+  plan must also be the one you implemented. `needs-triage` is the
+  operator asking for a fresh plan: stop and release the claim as the
+  bot's revised plan will say. If the approval is gone or stale, the
+  operator or the triage bot withdrew it (an edit after approval does
+  that, and an issue whose body or plan no longer matches what you
+  implemented is withdrawn even while `agent:approved` is still there):
+  push the branch, comment where you stopped and name the branch, remove
+  `in-progress` and stop. Do not restore `ready` or add
   `blocked`: the issue is back at `triaged` with a revised plan, and the
   operator re-approves it from there.
 
@@ -180,11 +173,9 @@ finding is a claim handled under `fresh-eyes-review` *Handling findings*:
 reproduce it, then fix with a commit or refute with evidence, replying on the
 thread with the finding's ID. A fix that changes a criterion's evidence
 updates its line in the PR body. Consolidate duplicates across reviewers in
-one reply that names each ID. Before pushing any fix, re-fetch the issue and
-repeat the step 4 check (with its claimed-state labels): `agent:approved`
-must still be present, no `reopened` or `renamed` event or body edit may
-postdate it, and the latest `## Triage`
-plan must be the one the PR implemented. An edit to the issue after the PR
+one reply that names each ID. Before pushing any fix, run the approval
+check again; the latest `## Triage` plan must also be the one the PR
+implemented. An edit to the issue after the PR
 opened withdraws the approval and revises the plan, and a fix pushed then
 would implement superseded acceptance criteria: stop as step 4 says,
 comment on the PR and the issue where you stopped, remove `in-progress`,
