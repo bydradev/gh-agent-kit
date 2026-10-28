@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/bydradev/gh-agent-kit/compare/v0.3.1...v0.3.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* fail before the model starts when the Anthropic key is missing ([#17](https://github.com/bydradev/gh-agent-kit/issues/17)) ([1528267](https://github.com/bydradev/gh-agent-kit/commit/1528267333ca47e9b77df0f7dba57d5fc18d5f17))
+
 ## [0.3.1](https://github.com/bydradev/gh-agent-kit/compare/v0.3.0...v0.3.1) (2026-10-27)
 
 
