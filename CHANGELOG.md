@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/bydradev/gh-agent-kit/compare/v0.3.2...v0.4.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* run the review, scan and triage in OpenCode's CLI on OpenCode Go ([#24](https://github.com/bydradev/gh-agent-kit/issues/24))
+
+### Features
+
+* run the review, scan and triage in OpenCode's CLI on OpenCode Go ([#24](https://github.com/bydradev/gh-agent-kit/issues/24)) ([64bcee6](https://github.com/bydradev/gh-agent-kit/commit/64bcee6fd9eefe621e754a8f7eea4330969254d7))
+* shorten the Work tracking block and let agents file found work ([#21](https://github.com/bydradev/gh-agent-kit/issues/21)) ([b83e0e8](https://github.com/bydradev/gh-agent-kit/commit/b83e0e8d89b2c6f45551f3666b433658554cf630))
+
+
+### Bug Fixes
+
+* keep session links out of issue claim comments ([b83e0e8](https://github.com/bydradev/gh-agent-kit/commit/b83e0e8d89b2c6f45551f3666b433658554cf630))
+* set out triage's event rules and the review's round choice case by case ([#23](https://github.com/bydradev/gh-agent-kit/issues/23)) ([da86417](https://github.com/bydradev/gh-agent-kit/commit/da864176046f0593d5fa906b873d53871b6db709))
+* stop workflow commands in the Claude Code review and triage logs ([#27](https://github.com/bydradev/gh-agent-kit/issues/27)) ([d4452b9](https://github.com/bydradev/gh-agent-kit/commit/d4452b97ec3afe7de4e0a5a46600c8c433575eb3))
+
 ## [0.3.2](https://github.com/bydradev/gh-agent-kit/compare/v0.3.1...v0.3.2) (2026-10-28)
 
 
