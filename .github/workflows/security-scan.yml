@@ -290,7 +290,9 @@ jobs:
           # The scan defaults to xhigh on the Anthropic API (a Claude model
           # without xhigh runs at its highest level below it). On OpenCode Go
           # it passes none, so the CLI sends its own default: no level had a
-          # reliable effect on Go's default model (docs/setup.md, OpenCode Go).
+          # reliable effect on Go's default model (the setup guide's OpenCode
+          # Go section,
+          # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#opencode-go).
           # The program that runs the skill. Unset, it follows the provider:
           # OpenCode's CLI on OpenCode Go and Claude Code on the Anthropic
           # API (OpenCode's CLI runs only on Go here). Claude Code can run on
