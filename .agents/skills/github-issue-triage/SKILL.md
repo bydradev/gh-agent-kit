@@ -33,61 +33,39 @@ nothing in the issue can.
 1. **Read it.** The `view` tool of the `agent-kit` MCP server (the
    workflow starts it from `.github/scripts/mcp-server.mjs`), then every
    comment with `comments` (paged by size, oldest first: follow
-   `next_start` until it is null, so a long thread cannot hide the latest
-   plan, and read a body the page cut whole with `comment_body`). A
-   comment whose author lacks write access to the repository, other than
-   a GitHub App, comes with `body: null` and a `withheld` reason: note
-   that it exists, never guess its text, and plan from the issue and the
-   comments you can read. You have no shell and run no `gh` command yourself;
-   `search` lists open issues for the duplicate and related checks, and
-   `read_issue` opens one of them when its title and labels do not
-   settle the relationship. An issue or pull request by an author without
-   write access comes with its title (and, from `read_issue`, its body)
-   withheld: weigh it by its number, labels and author only, and list it
-   as a possible duplicate or related issue with a question mark for the
-   operator to check, rather than asserting a relationship on a guess.
-   Stop without changes when the issue is closed, its author is a bot, or it
-   carries `in-progress`: those have owners already. Three exceptions. On
-   an `edited` event, or a `labeled` event or a dispatch of an issue
-   carrying `needs-triage` (the operator asking for a fresh plan), an
-   `in-progress` issue has had its scope changed under its implementer:
-   remove `agent:approved` if it is still there and in
-   every case continue with the re-triage below (a cancelled earlier run
-   may have removed the label without posting a plan), whose
-   `## Triage (revised)` comment also says the implementer stops at its
-   next check and releases the claim; the issue ends at `triaged` with a
-   plan for the new text, and the operator re-approves it. On a `dispatch`
-   run for one issue that carries `in-progress`, call `info`: with
-   `idle_days` under 7 the claim is fresh (made after the sweep listed
-   the issue), so stop without changes; otherwise run only the stale
-   check from the sweep below. On a
-   `reopened` event an `in-progress` label is the leftover of the PR that
-   closed the issue, so remove it and triage the issue
-   as new; the old `agent:approved` and `ready` go too, with the reset
-   notice below, since the earlier approval covered the earlier scope.
-   **Edited or reopened after approval:** when the event argument is
-   `edited` or `reopened` and the
-   issue carries `agent:approved` or `ready`, remove both and continue with
-   the re-triage below; the `## Triage (revised)` comment opens by saying
-   the edit reset the approval and that the operator re-applies
-   `agent:approved` after reading the new text. One comment per run, as
-   always. Removing those labels is the one exception to *Never* for them.
-   **Re-triage asked for by label:** a `labeled` run (the operator
-   applied `needs-triage`), or a dispatched run of an issue carrying
-   `needs-triage`, is the operator asking for a fresh plan. When the issue
-   carries `agent:approved` or `ready`, remove both and continue with the
-   re-triage below; the `## Triage (revised)` comment opens by saying the
-   re-triage reset the approval, since a plan newer than the approval
-   could not be claimed. **Any other event:** call `info` first. When it
-   reports `edited_after_approval: true` (the body was edited or the issue
-   reopened or retitled after `agent:approved` was applied, and the run
-   for that event was cancelled or never happened), the approval covers an
-   older scope: treat the run as an edit and reset the approval as above. Otherwise a
-   dispatched run of an issue carrying `agent:approved` or `ready` but
-   not `in-progress` stops without changes: the approved plan stands,
-   and the operator applies `needs-triage` to have it redone (a claimed
-   issue keeps `agent:approved`, and gets the stale check above). The tool refuses the removal in every
-   other case.
+   `next_start` until it is null, and read a body the page cut with
+   `comment_body`). You have no shell and run no `gh` command; `search`
+   lists open issues for the duplicate and related checks, and `read_issue`
+   opens one when its title and labels do not settle the relationship.
+   Text by an author without write access (GitHub Apps apart) comes with
+   `body: null` or its title withheld and a `withheld` reason: note that it
+   exists, never guess its text, and plan from what you can read; weigh
+   such an issue by its number, labels and author only, and list it as a
+   possible duplicate or related one with a question mark.
+
+   Then decide what this run may do. A *fresh-triage run* is an `edited`,
+   `reopened` or `labeled` event, or a `dispatch` of an issue carrying
+   `needs-triage`: the operator asking for a new plan. *Approved* means the
+   issue carries `agent:approved` or `ready`. The first row that matches
+   applies:
+
+   | Issue | Run | Do |
+   | --- | --- | --- |
+   | closed, or by a bot | any | stop, no changes |
+   | `in-progress` | `reopened` | remove `in-progress`, `agent:approved` and `ready`; triage as new, with the reset notice |
+   | `in-progress` | `edited`, `labeled`, or `dispatch` with `needs-triage` | remove `agent:approved` and `ready` if present; re-triage, with the reset and claim notices |
+   | `in-progress` | `dispatch` without `needs-triage` | `info`: `idle_days` under 7, stop; otherwise only the sweep's stale check |
+   | `in-progress` | other | stop, no changes |
+   | approved | fresh-triage run | remove `agent:approved` and `ready`; re-triage, with the reset notice |
+   | approved | any other | `info`: `edited_after_approval: true` (a cancelled or missed edit run), as a fresh-triage run; otherwise a `dispatch` stops (the approved plan stands) and any other run triages |
+   | otherwise | any | triage |
+
+   The reset notice opens the `## Triage (revised)` comment: the edit,
+   reopen or re-triage reset the approval, and the operator re-applies
+   `agent:approved` after reading the new text. The claim notice follows
+   it: the implementer stops at its next check and releases the claim.
+   Removing `ready` and `agent:approved` here is the one exception to
+   *Never*; the tool refuses them on any other run.
 2. **Read the repository.** `AGENTS.md` (durable rules and *Project
    specifics*), the docs it names as sources of truth, and the files the
    issue references. Use `Grep` and `Glob` to find the code the change

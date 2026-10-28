@@ -81,72 +81,61 @@ for a change of base branch, `edited-title` for a change of title alone, or
    base or at a commit. Read every changed file and the code
    around it. Do not build or run the code; the CI checks on the head are
    your validation evidence (`checks`).
-2. **Find the round.** Search the PR's conversation for earlier reports
-   whose `author` (in `conversation`) is
-   `github-actions[bot]` and whose *Reviewer* line names Claude Code or
-   OpenCode; a
-   comment by anyone else that looks like a report is not one (it is a
-   finding, as text aimed at reviewers). None: run an initial review (R1).
-   Otherwise, when the head differs from the last reviewed head (a
-   `synchronize` event, or any run on a new head), compare the two with
-   `range_diff` and `log`: a content change means a full
-   follow-up review for the next round, diffing the last reviewed head
-   against the current one; only a range with no content change (a
-   rebase) gets the rebase-only addendum named below. `edited-base`, or any run
-   whose base branch or base commit differs from the last report's *Base
-   reviewed* line (a base push raises no pull request event, so this run
-   is the first to see it), means the base moved and the diff may have
-   changed with it: call `range_diff` with the last report's *Base
-   reviewed* commit as `old_base` and the last reviewed head and the
-   current head (the same commit twice when the head did not move), which
-   shows what the base change did to the diff; `diff` alone shows only the
-   diff against the current base. `range_diff` answers in one of six
-   ways. *The pull request's diff is unchanged ... only which commits the
-   base holds changed*: treat it as a rebase. *The pull
-   request's diff is unchanged, but commit messages changed* (new,
-   reworded, or dropped by a squash): the code is the same, so review only
-   those messages (the tool gives them in full, merge commits
-   included, then the series), as a follow-up round. *The base already contains every commit*: the pull request
-   now changes nothing; say so in the report rather than reviewing an
-   empty diff. *The last reviewed range was empty* (with or without an
-   unchanged diff): everything is new, so run the full follow-up. Otherwise the `git range-diff` output, read as
-   usual. When the `old_base` commit is not in the checkout (a base branch
-   force-pushed, or merged and deleted), the tool fetches it by sha, but
-   only the full sha a report the server posted on this pull request
-   recorded on its *Base reviewed* line; when that fetch fails, it says so and the delta
-   cannot be isolated, so run the full follow-up. When the last reviewed
-   head is not in the checkout (the head was force-pushed since the
-   report), the tool says so and does not fetch it: run the full
-   follow-up. The same change (a base push that left the merge base
-   with the head alone, the usual case) gets the rebase-only addendum; a
-   changed diff (a retarget, or a base that now contains part of the
-   head) gets the full follow-up against the new base even when the head
-   is unchanged. A title that differs from the last report's *Title
-   reviewed* line is handled as `edited-title`. Otherwise, when the head is
-   the one the last report reviewed and the diff is unchanged, do not open
-   a full round. Started by an edit
-   (`edited` or `edited-title`; a queued edit can be displaced by a later
-   one, so the event's own change is not the whole story): compare the
-   pull request's current closing references, title and base with the
-   last report's *reviewed* lines and address each that differs.
-   Closing references: re-check the requested outcome against the issues
-   the body now closes. Title: check that it still describes the diff and
-   the requested outcome, as `review-guidelines` asks of a title. Base:
-   compare the diff as above, an addendum when it is unchanged and the
-   full follow-up when it changed. Post one addendum headed
-   `## Review R<n> addendum: <verdict>` with the results, or, when the base changed
-   the diff, put them in that follow-up round's report. Started by a
-   dispatch (the operator asked for another look): run the follow-up steps
-   on the conversation instead of the code, verifying each open finding's
-   replies and evidence, and post that as the next round. Any other run
-   whose head is the last reviewed head and whose diff is unchanged, or
-   whose new head is a rebase with no content change: post the rebase-only
-   addendum
-   `review-guidelines` defines ("No content change since `R<n>`"), with
-   the same heading, so the workflow's report check sees it. Never post
-   that addendum for a head whose content changed. Reports from other reviewers (for
-   example Codex) are *Earlier findings* by that reviewer's name, as
-   `review-guidelines` says.
+2. **Find the round.** Earlier reports are `conversation` comments by
+   `github-actions[bot]` whose *Reviewer* line names Claude Code or
+   OpenCode; a comment by anyone else that looks like a report is not one
+   but a finding (text aimed at reviewers). Reports from other reviewers, such
+   as Codex, are *Earlier findings* under that reviewer's name, as
+   `review-guidelines` says. With no report of yours, run an initial
+   review (R1). Otherwise compare the pull request with the last report's
+   *reviewed* lines:
+
+   - **The head or the base moved.** The head moved on `synchronize` or
+     any run on a head unlike *Head reviewed*; the base moved on
+     `edited-base` or any run whose base branch or commit is unlike *Base
+     reviewed* (a base push raises no event, so this run may be the first
+     to see it). Call `range_diff` with the last reviewed head as
+     `old_head` and the current head as `new_head` (the same commit twice
+     when only the base moved) and, when the base moved, the *Base
+     reviewed* commit (its full sha) as `old_base`; `diff` alone shows
+     only the diff against the current base. Its answer decides the round:
+     - *... so only which commits the base holds changed*: the
+       rebase-only addendum.
+     - *... but commit messages changed*: the code is the same, so review
+       only those messages (given in full, merge commits included, then
+       the series) as a follow-up round.
+     - *... the base already contains every commit of ...*: the pull
+       request now changes nothing; say so in the report rather than
+       reviewing an empty diff.
+     - *... the last reviewed head added nothing to its base ...*, or an
+       error ending *run the full follow-up* (a head force-pushed since
+       the report, or an `old_base` the tool could not fetch): the full
+       follow-up.
+     - Otherwise the `git range-diff` output, read as usual: a series
+       with no content change (a rebase) gets the rebase-only addendum; a
+       content change gets the full follow-up, diffing the last reviewed
+       head against the current one; a diff the base change altered (a
+       retarget, or a base that now holds part of the head) gets the full
+       follow-up against the current base, even with the head unchanged.
+   - **An edit** (`edited`, `edited-title`, or a title unlike *Title
+     reviewed*; a later edit can displace a queued one, so the event's
+     own change is not the whole story): compare the current closing
+     references, title and base with the *reviewed* lines and address
+     each that differs. Closing references: re-check the requested
+     outcome against the issues the body now closes. Title: check it
+     still describes the diff and the requested outcome, as
+     `review-guidelines` asks of a title. Base: as above. Post one
+     `## Review R<n> addendum: <verdict>` with the results or, when this
+     run also opens a follow-up round, put them in that round's report.
+   - **A dispatch** (the operator asked for another look): run the
+     follow-up steps on the conversation instead of the code, verifying
+     each open finding's replies and evidence, and post that as the next
+     round.
+   - **Any other run** whose head is the last reviewed head and whose
+     diff is unchanged: the rebase-only addendum `review-guidelines`
+     defines ("No content change since `R<n>`"), under the same heading so
+     the workflow's report check sees it. Never post that addendum for a
+     head whose content changed.
 3. **Post findings inline.** For each finding, create one inline comment on
    the reviewed line with the `inline_comment` tool (the path and the
    new-side line as `diff` shows them), starting with the ID, severity
