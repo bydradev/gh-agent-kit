@@ -158,18 +158,21 @@ which says where the model runs: `anthropic` (the default) on the
 `ANTHROPIC_API_KEY` secret, or `opencode-go` on the `OPENCODE_API_KEY`
 secret. Triage alone also has a runner setting, the program that runs its
 model: Claude Code (the default) or OpenCode's CLI. The review and the
-scan always run in Claude Code. Both secrets can be set at once: each
-workflow uses the one its provider names, and the other does nothing for
-it. The rows assume the workflow is turned on (`KIT_REVIEW_MODE`,
-`KIT_SECURITY_SCAN` or `KIT_ISSUE_TRIAGE`).
+scan always run in Claude Code. Each workflow uses only the secret its
+provider names, so both secrets can be set at once. The rows assume the
+workflow is turned on (`KIT_REVIEW_MODE`, `KIT_SECURITY_SCAN` or
+`KIT_ISSUE_TRIAGE`).
 
 | Secret | Provider and runner settings | What runs |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | none | Claude Code on the Anthropic API: the review on `claude-opus-5-5` and triage on `claude-sonnet-5-5`, both at the CLI's default effort, `medium`, and the scan on `claude-opus-5-5` at `xhigh` |
-| `OPENCODE_API_KEY` only | none | Nothing: the provider is still `anthropic`, so each run fails for want of `ANTHROPIC_API_KEY` |
+| `ANTHROPIC_API_KEY`, with or without `OPENCODE_API_KEY` | unset (the defaults) | Claude Code on the Anthropic API: the review on `claude-opus-5-5` and triage on `claude-sonnet-5-5`, both at Claude Code's default effort, `medium`, and the scan on `claude-opus-5-5` at `xhigh` |
+| `OPENCODE_API_KEY` only | unset (the defaults) | Nothing: the provider is still `anthropic`, so each run fails for want of `ANTHROPIC_API_KEY` |
 | `OPENCODE_API_KEY` | the workflow's provider (`KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER`) set to `opencode-go` | Claude Code on [OpenCode Go](#opencode-go)'s Anthropic-style endpoint, on `deepseek-v4.1-flash` unless the workflow's model setting names another Go model; the scan's `xhigh` default does not apply, and effort works as that section says |
-| `OPENCODE_API_KEY` | `KIT_TRIAGE_PROVIDER=opencode-go` and `KIT_TRIAGE_RUNNER=opencode` | Triage in [OpenCode's CLI](#opencode-cli-for-triage), on any Go model its pinned release lists; `KIT_TRIAGE_EFFORT` must stay unset |
-| any, or none | `KIT_TRIAGE_RUNNER=opencode` with `KIT_TRIAGE_PROVIDER` unset or `anthropic` | Nothing: the settings step refuses the runner, naming both settings |
+| `OPENCODE_API_KEY` | `KIT_TRIAGE_PROVIDER=opencode-go` and `KIT_TRIAGE_RUNNER=opencode` | Triage in [OpenCode's CLI](#opencode-cli-for-triage), on any Go model its pinned release lists; `KIT_TRIAGE_EFFORT` must stay unset. With `KIT_TRIAGE_PROVIDER` unset or `anthropic`, the settings step refuses this runner and names both settings |
+
+Create the Anthropic key in the Anthropic Console under the organisation
+whose credit should pay for the runs, with one key per repository, so
+spend shows per repository and a leaked key revokes one place.
 
 ### The settings file
 
@@ -220,10 +223,6 @@ each job's time to a whole minute
 (<https://docs.github.com/en/billing/reference/actions-runner-pricing>,
 read 2026-10-26), so with every workflow off a pull request event can
 still cost up to two billed minutes and an issue event one.
-
-Create the key in the Anthropic Console under the organisation whose credit
-should pay for the runs, with one key per repository, so spend shows per
-repository and a leaked key revokes one place.
 
 ## 4. Merge the install pull request
 
@@ -286,7 +285,8 @@ measured yet, so read each run's cost in its log, and set
 Models, effort and turn limits are the settings in step 3. Effort trades
 thoroughness for tokens within one model: a lower level costs less per run,
 a higher one reads and reasons more. With no effort set, Claude Code uses
-its default for the model, `medium` on Opus 5.5, Sonnet 5.5 and Haiku 5.5
+its default for the model: `medium` on Opus 5.5, Sonnet 5.5 and Haiku 5.5,
+`xhigh` on Opus 4.7 and `high` on the other Claude models that take effort
 (<https://code.claude.com/docs/en/model-config>, read 2026-10-27), and
 `high` on a Go model it does not know ([OpenCode Go](#opencode-go)). The
 pinned CLI (2.1.306) takes the five levels above and ignores any other
@@ -358,28 +358,28 @@ What to know first (read 2026-10-23 unless a date is given):
   what Go charges; the `tokens` line after it, at the model's prices on
   Go's page, is.
 - Claude Code sends an effort level to Go with every request, whatever the
-  model. Its docs imply it sends one only to model IDs it recognises, since
-  `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT` sends it "even when Claude Code does
-  not recognize the model ID" ([Claude Code's environment
-  variables](https://code.claude.com/docs/en/env-vars), read 2026-10-27),
-  but the pinned CLI, run with the Go environment the workflows give it,
-  sent the level `KIT_REVIEW_EFFORT`, `KIT_SECURITY_EFFORT` or
-  `KIT_TRIAGE_EFFORT` set for every model, and with none set its own
-  default: `medium` for `claude-haiku-5-5`, and `high` for a model it does
-  not know, such as `deepseek-v4.1-flash` (its requests recorded on
-  2026-10-27).
-- What the level does depends on the model. Tested on 2026-10-27 through
-  Go with the pinned CLI, one turn and no tools, on a counting problem
-  that needs reasoning: Claude Haiku 5.5 acts on it, `high` using about
-  1.5 times the output tokens of `low` (three runs each) and `max` about
-  6 times (one run). Go accepted `low`, `high`, `xhigh` and `max` for
-  DeepSeek V4.1 Flash without an error, but 11 runs showed no consistent
-  change in its token use, so expect no reliable effect there;
+  model: the level `KIT_REVIEW_EFFORT`, `KIT_SECURITY_EFFORT` or
+  `KIT_TRIAGE_EFFORT` sets, or with none set its own default, `medium` for
+  `claude-haiku-5-5` and `high` for a model it does not know, such as
+  `deepseek-v4.1-flash` (the pinned CLI's requests, recorded on 2026-10-27
+  with the environment the workflows give it). Its docs suggest it would
+  not: `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT`, which the workflows do not set,
+  sends effort "even when Claude Code does not recognize the model ID"
+  ([Claude Code's environment
+  variables](https://code.claude.com/docs/en/env-vars), read 2026-10-27).
+- What the level does depends on the model. Claude Haiku 5.5 acts on it:
+  `high` used about 1.5 times the output tokens of `low` (three runs
+  each), and `max` about 6 times (one run). Go accepted `low`, `high`,
+  `xhigh` and `max` for DeepSeek V4.1 Flash without an error, but 11 runs
+  showed no consistent change in its token use;
   [DeepSeek's own API](https://api-docs.deepseek.com/guides/thinking_mode)
   takes `low`, `high` and `max` and runs `medium` and `xhigh` as `high`
-  (read 2026-10-27). The scan's `xhigh` default applies only on the
-  Anthropic API: on Go the scan runs at the CLI's default unless
-  `KIT_SECURITY_EFFORT` is set.
+  (read 2026-10-27). So set a level for `claude-haiku-5-5` as you would on
+  the Anthropic API; for DeepSeek V4.1 Flash it makes no reliable
+  difference. (Tested on 2026-10-27 through Go with the pinned CLI, one
+  turn and no tools, on a counting problem that needs reasoning.)
+- The scan's `xhigh` default applies only on the Anthropic API: on Go the
+  scan runs at the CLI's default unless `KIT_SECURITY_EFFORT` is set.
 
 ### OpenCode CLI for triage
 
