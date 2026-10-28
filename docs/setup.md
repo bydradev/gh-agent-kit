@@ -108,12 +108,12 @@ secrets: the file holds settings only.
 
 | Name | Kind | Value | Effect |
 | --- | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Secret | An Anthropic Console API key | The review, scan and triage workflows need it once turned on (not when their provider is `opencode-go`); without it they fail at the model step |
+| `ANTHROPIC_API_KEY` | Secret | An Anthropic Console API key | The review, scan and triage workflows need it once turned on (not when their provider is `opencode-go`); without it a run fails before the model starts, naming the missing secret |
 | `KIT_REVIEW_MODE` | Setting | `push`, `open`, `off` or unset | `push`: review every push; `open`: review once when a pull request opens or leaves draft; `off` or unset: off |
 | `KIT_SECURITY_SCAN` | Setting | `push`, `open`, `off` or unset | Same modes for the security scan |
 | `KIT_ISSUE_TRIAGE` | Setting | `on`, `off` or unset | `on`: triage issues and run the weekly sweep; `off` or unset: off |
 | `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
-| `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails at the model step without it |
+| `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails before the model starts without it, naming the missing secret. It never stands in for `ANTHROPIC_API_KEY` while the provider is `anthropic` |
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
