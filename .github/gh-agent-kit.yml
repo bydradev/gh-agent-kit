@@ -2,3 +2,10 @@
 KIT_REVIEW_MODE: push
 KIT_SECURITY_SCAN: open
 KIT_ISSUE_TRIAGE: on
+# Review, scan and triage on OpenCode Go (the OPENCODE_API_KEY secret), on
+# its default model, deepseek-v4.1-flash, which can need more than the
+# review's default 80 turns.
+KIT_REVIEW_PROVIDER: opencode-go
+KIT_REVIEW_MAX_TURNS: 120
+KIT_SECURITY_PROVIDER: opencode-go
+KIT_TRIAGE_PROVIDER: opencode-go
