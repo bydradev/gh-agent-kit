@@ -172,8 +172,11 @@ test("every step after the gate honours its skip", () => {
   assert.notEqual(job, -1);
   const first = lines.findIndex((l, i) => i > job && /^ {6}- \w+:/.test(l));
   assert.equal(first, start, `the first step is ${lines[first]?.trim()}, not the gate`);
+  // The triage job's steps, up to the next job (the dispatch job, which
+  // runs only on a sweep's queue).
+  const end = lines.findIndex((l, i) => i > start && /^ {2}\w[\w-]*:$/.test(l));
   const steps = [];
-  for (let i = start + 1; i < lines.length; i++) {
+  for (let i = start + 1; i < (end === -1 ? lines.length : end); i++) {
     if (!/^ {6}- \w+:/.test(lines[i])) continue;
     let cond = null;
     for (let j = i + 1; j < lines.length && !/^ {6}(- |#)/.test(lines[j]); j++) {
@@ -185,7 +188,11 @@ test("every step after the gate honours its skip", () => {
   assert.ok(steps.length >= 10, `only ${steps.length} steps found after the gate`);
   for (const { step, cond } of steps) {
     assert.ok(
-      cond === "env.TRIAGE_ISSUE == ''" || cond === SKIP || (cond ?? "").endsWith(` && ${SKIP}`),
+      // A sweep step runs with no gate: the gate is for a single issue.
+      cond === "env.TRIAGE_ISSUE == ''" ||
+        cond === "${{ !cancelled() && env.TRIAGE_ISSUE == '' }}" ||
+        cond === SKIP ||
+        (cond ?? "").endsWith(` && ${SKIP}`),
       `${step} runs after a skip (if: ${cond})`,
     );
   }

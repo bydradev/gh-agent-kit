@@ -1021,18 +1021,25 @@ test("with STATE_FILE, a carried-on triage's new server does not comment again",
 
 // ---------- sweep mode ----------
 
-test("dispatch starts a run once per eligible issue still eligible now", async (t) => {
+test("dispatch queues a run once per eligible issue still eligible now, and starts none", async (t) => {
   const dir = fs.mkdtempSync(
     path.join(fs.realpathSync(process.env.TMPDIR || "/tmp"), "kit-sweep-"),
   );
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const eligible = path.join(dir, "eligible");
   const log = path.join(dir, "dispatched");
+  const queue = path.join(dir, "dispatch-queue");
   fs.writeFileSync(eligible, "8\n9\n");
   fs.writeFileSync(log, "");
+  fs.writeFileSync(queue, "");
   const sweep = {
     mode: "sweep",
-    env: { ELIGIBLE_ISSUES: eligible, DISPATCH_LOG: log, GITHUB_REF_NAME: "main" },
+    env: {
+      ELIGIBLE_ISSUES: eligible,
+      DISPATCH_LOG: log,
+      DISPATCH_QUEUE: queue,
+      GITHUB_REF_NAME: "main",
+    },
     rules: [
       {
         match: "issues/8$",
@@ -1050,10 +1057,6 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
           updated_at: "2026-10-01T00:00:00Z",
         },
       },
-      {
-        match: "^workflow run issue-triage.yml --repo acme/widgets --ref main -f issue=8$",
-        stdout: "",
-      },
     ],
   };
   const server = await startServer(t, sweep);
@@ -1063,7 +1066,7 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
   );
   assert.match(
     (await server.call("dispatch", { number: 8 })).text,
-    /^dispatched issue-triage.yml for #8 on main$/,
+    /^queued issue-triage.yml for #8 on main; the workflow starts it when this run ends$/,
   );
   assert.match((await server.call("dispatch", { number: 8 })).text, /already dispatched/);
   assert.match(
@@ -1071,7 +1074,13 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
     /^not dispatched: #9 now carries triaged/,
   );
   assert.equal(fs.readFileSync(log, "utf8"), "8\n9\n");
-  assert.equal(ghCalls(server).filter((c) => c.args[0] === "workflow").length, 1);
+  // Only the still-eligible issue is queued; the server starts no run (its
+  // job has no actions: write), the workflow's dispatch job does.
+  assert.equal(fs.readFileSync(queue, "utf8"), "8\n");
+  assert.deepEqual(
+    ghCalls(server).filter((c) => c.args[0] !== "api"),
+    [],
+  );
   // OpenCode carries a sweep on after a capacity refusal in a new process,
   // whose new server reads the log back.
   const next = await startServer(t, sweep);
@@ -1079,4 +1088,5 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
     assert.match((await next.call("dispatch", { number })).text, /already dispatched/);
   assert.equal(ghCalls(next).length, 0);
   assert.equal(fs.readFileSync(log, "utf8"), "8\n9\n");
+  assert.equal(fs.readFileSync(queue, "utf8"), "8\n");
 });

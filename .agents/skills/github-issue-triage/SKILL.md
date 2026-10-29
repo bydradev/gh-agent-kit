@@ -161,10 +161,11 @@ has no single issue to be scoped to. It lists and dispatches.
    forms); and every open issue labelled `in-progress` with no activity
    for 7 days, none authored by a bot. Nothing in an issue adds to it.
 2. For each number in it, start a run of its own with the `dispatch`
-   tool, which starts `issue-triage.yml` for that one issue on this
-   branch and refuses a number outside the list or one it already
-   started; it reports `not dispatched` for an issue closed or claimed
-   since the list was made, which counts as handled. That run is scoped to
+   tool, which queues `issue-triage.yml` for that one issue on this
+   branch (the workflow starts the queued runs when the sweep ends) and
+   refuses a number outside the list or one it already queued; it
+   reports `not dispatched` for an issue closed or claimed since the
+   list was made, which counts as handled. That run is scoped to
    the one issue and shares its concurrency group with the issue's event
    runs. For a `needs-triage` or unlabelled issue it triages (never
    adding `needs-triage` itself, which would start a run that cancels

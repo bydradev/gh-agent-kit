@@ -1378,7 +1378,8 @@ const sweepTools = {
     run: () => text(fs.readFileSync(env.ELIGIBLE_ISSUES, "utf8").split("\n").filter(Boolean)),
   },
   dispatch: {
-    description: "Start one issue-triage run for one eligible issue on this branch, once.",
+    description:
+      "Queue one issue-triage run for one eligible issue on this branch, once; the workflow starts the queued runs when this run ends.",
     schema: {
       type: "object",
       properties: { number: { type: "integer" } },
@@ -1418,21 +1419,16 @@ const sweepTools = {
         fs.appendFileSync(env.DISPATCH_LOG, `${number}\n`);
         return text(`not dispatched: ${skip}`);
       }
-      gh([
-        "workflow",
-        "run",
-        "issue-triage.yml",
-        "--repo",
-        repo,
-        "--ref",
-        env.GITHUB_REF_NAME,
-        "-f",
-        `issue=${number}`,
-      ]);
-      // Recorded only after gh succeeded, so a failed call can be retried.
+      // The token here cannot start a workflow run (the job has no
+      // actions: write): the workflow's dispatch job starts the queued
+      // ones once this run ends. Recorded as handled only after it is
+      // queued, so a failed write can be retried.
+      fs.appendFileSync(env.DISPATCH_QUEUE, `${number}\n`);
       dispatched.add(number);
       fs.appendFileSync(env.DISPATCH_LOG, `${number}\n`);
-      return text(`dispatched issue-triage.yml for #${number} on ${env.GITHUB_REF_NAME}`);
+      return text(
+        `queued issue-triage.yml for #${number} on ${env.GITHUB_REF_NAME}; the workflow starts it when this run ends`,
+      );
     },
   },
 };
@@ -1463,9 +1459,15 @@ if (mode === "review") {
     );
   tools = triageTools;
 } else if (mode === "sweep") {
-  if (!repoName(repo) || !env.ELIGIBLE_ISSUES || !env.DISPATCH_LOG || !env.GITHUB_REF_NAME)
+  if (
+    !repoName(repo) ||
+    !env.ELIGIBLE_ISSUES ||
+    !env.DISPATCH_LOG ||
+    !env.DISPATCH_QUEUE ||
+    !env.GITHUB_REF_NAME
+  )
     throw new Error(
-      "sweep mode needs GITHUB_REPOSITORY, ELIGIBLE_ISSUES, DISPATCH_LOG and GITHUB_REF_NAME",
+      "sweep mode needs GITHUB_REPOSITORY, ELIGIBLE_ISSUES, DISPATCH_LOG, DISPATCH_QUEUE and GITHUB_REF_NAME",
     );
   tools = sweepTools;
 } else {
