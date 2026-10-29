@@ -208,12 +208,12 @@ function fail(message) {
 // set (outside the checkout, where the model cannot write), the counts
 // outlive this process: OpenCode carries a run on after Go's capacity
 // refusal in a new CLI process, which starts a new server.
-const posted = { report: false, inline: 0, issues: 0, comment: false };
+const runState = { report: false, inline: 0, issues: 0, comment: false };
 if (env.STATE_FILE && fs.existsSync(env.STATE_FILE))
-  Object.assign(posted, JSON.parse(fs.readFileSync(env.STATE_FILE, "utf8")));
+  Object.assign(runState, JSON.parse(fs.readFileSync(env.STATE_FILE, "utf8")));
 function record(change) {
-  Object.assign(posted, change);
-  if (env.STATE_FILE) fs.writeFileSync(env.STATE_FILE, JSON.stringify(posted) + "\n");
+  Object.assign(runState, change);
+  if (env.STATE_FILE) fs.writeFileSync(env.STATE_FILE, JSON.stringify(runState) + "\n");
 }
 
 // ---------- review mode ----------
@@ -864,7 +864,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ path, line, body }) => {
-      if (posted.inline >= INLINE_LIMIT)
+      if (runState.inline >= INLINE_LIMIT)
         return fail(
           `this run has posted ${INLINE_LIMIT} inline comments; put the rest in the report`,
         );
@@ -887,7 +887,7 @@ const reviewTools = {
         ],
         JSON.stringify({ body, commit_id: env.HEAD_SHA, path, line, side: "RIGHT" }),
       );
-      record({ inline: posted.inline + 1 });
+      record({ inline: runState.inline + 1 });
       return text(`posted ${r}`);
     },
   },
@@ -945,7 +945,7 @@ const reviewTools = {
       }
       const earlier = filedByFinding.get(finding);
       if (earlier) return text(`already filed for ${finding}: ${earlier}`);
-      if (posted.issues >= ISSUE_LIMIT)
+      if (runState.issues >= ISSUE_LIMIT)
         return fail(`this run has filed ${ISSUE_LIMIT} issues; name the rest in the report`);
       const why = stale();
       if (why) return fail(why);
@@ -957,7 +957,7 @@ const reviewTools = {
           labels: ["needs-operator"],
         }),
       );
-      record({ issues: posted.issues + 1 });
+      record({ issues: runState.issues + 1 });
       filedByFinding.set(finding, `${r} (open, filed by this run)`);
       return text(`filed ${r}`);
     },
@@ -972,7 +972,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ body }) => {
-      if (posted.report) return fail("this run has already posted its report");
+      if (runState.report) return fail("this run has already posted its report");
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
       // Line endings as the workflow's grep reads them.
@@ -1348,7 +1348,7 @@ const triageTools = {
       additionalProperties: false,
     },
     run: ({ body }) => {
-      if (posted.comment) return fail("this run has already posted its one comment");
+      if (runState.comment) return fail("this run has already posted its one comment");
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
       ensureOpen();
