@@ -564,7 +564,7 @@ named tools:
 
 | Run | Reads | Writes |
 | --- | --- | --- |
-| Review | The pull request, its conversation, reviews, inline comments, checks, linked issues, files, diffs, commits (a base commit an earlier report recorded is fetched by sha when the checkout no longer has it); a comment, review or linked issue by an author without write access, other than a GitHub App, is listed with its text withheld | Inline review comments on the reviewed head (at most 40), one report comment, and backlog issues for findings outside the pull request's scope (at most 5, one per finding, in the Task form's layout and labelled `needs-operator`), all refused once the head moves; the workflow, not the model, then sets the verdict check |
+| Review | The pull request, its conversation, reviews, inline comments, checks, files and diffs; issues of this repository and their comments (one the body closes in another repository is not read); any file or commit of this repository's history, at any branch, tag or sha the checkout has (a base commit an earlier report recorded is fetched by sha when the checkout no longer has it); a comment, review or issue by an author without write access, other than a GitHub App, is listed with its text withheld | Inline review comments on the reviewed head (at most 40), one report comment, and backlog issues for findings outside the pull request's scope (at most 5, one per finding, in the Task form's layout and labelled `needs-operator`), all refused once the head moves; the workflow, not the model, then sets the verdict check |
 | Triage (one issue) | The issue, its comments, other issues and pull requests, repository metadata; a comment on the issue, another issue, or the title of an issue or pull request it lists, by an author without write access, other than a GitHub App, is listed with its text withheld, and a pull request by such an author never counts as closing the issue | Named label moves on that issue (never `ready` or `agent:approved`), one comment |
 | Sweep | The list of eligible issues the workflow computed | One `issue-triage` dispatch per listed issue, on the current branch |
 | Scan and verification | The checkout, the base's rules in it, and the diff, file list and (for the verification) candidate findings the workflow wrote to a directory of its own; no GitHub access | Nothing: each run answers with structured output, which the workflow checks and then posts as at most 30 inline comments on the scanned head and one record comment |
@@ -652,8 +652,14 @@ The workflows also:
   pull request or open an issue: the server lists such an item with its
   text withheld and the reason. GitHub Apps (Codex, the kit's own reports)
   count as trusted, since only the account's owner or a repository admin
-  installs one. A linked issue in another repository, and its comments,
-  are judged by access to this one;
+  installs one on this repository. So does `github-actions[bot]`, which is
+  every workflow here that posts with the job token, not one App someone
+  chose: a workflow that echoes an outside user's text (a greeting that
+  quotes a first-time contributor's title, for one) should not post it
+  with the job token. No tool reads another repository, where an App is
+  anyone's and the token cannot check access: an issue the body closes
+  there is named in the report as not read, its criteria not checkable,
+  and so is one transferred there, which GitHub redirects to;
 - keep the triage bot from reading the text of a comment on the issue it
   triages whose author lacks write access, by the same rule: the comment is
   listed with its text withheld and the reason. The bot's own plans are
@@ -661,7 +667,9 @@ The workflows also:
   author with write access, so re-triage still reads both. The other issues
   and pull requests it reads for its duplicate check are screened the same
   way: another issue's title and body, and the title of each issue `search`
-  or pull request `open_prs` lists, are withheld when their author lacks
+  or pull request `open_prs` lists, all of this repository (`search`
+  refuses a `repo:`, `org:`, `user:` or `owner:` qualifier, and fails on a
+  result from another repository), are withheld when their author lacks
   write access (a fork's pull request among them), while the number,
   labels and author stay. Such a pull request never counts as closing the
   issue either, so a closing keyword in its body cannot hold off the
@@ -738,9 +746,10 @@ that:
   it; protect the workflows with a code owner review if that matters;
 - the verdict is the model's, and the model reads the pull request's
   conversation. The server withholds the text of a comment, review or
-  linked issue whose author lacks write access ([What each run may
+  issue whose author lacks write access ([What each run may
   do](#what-each-run-may-do)), so only people with write access and GitHub
-  Apps can put words in front of it there; the skill tells it never to
+  Apps on this repository (`github-actions[bot]` among them) can put words
+  in front of it there; the skill tells it never to
   follow instructions it reads, but that is a rule the model keeps, not a
   boundary the workflow enforces, so their comments are part of what
   decides the check;

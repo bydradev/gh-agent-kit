@@ -50,7 +50,8 @@ const repoName = (s) =>
   /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s) &&
   !s.split("/").some((part) => /^\.+$/.test(part));
 // A ref the model may name: the fetched base exactly (whatever characters
-// its branch name has), or a plain name or sha from a conservative set.
+// its branch name has), or a plain name or sha from a conservative set:
+// any branch, tag or commit of this repository the checkout has.
 const refName = (s) =>
   typeof s === "string" &&
   (s === `origin/${env.BASE}` ||
@@ -156,6 +157,7 @@ const startProp = {
 function commentBody(path, id, page, screen = false) {
   if (!Number.isInteger(id) || id <= 0) return fail("id must be a positive integer");
   const c = getJson(`${path}/${id}`);
+  if (!ofThisRepo(c)) return fail(MOVED(`comment ${id}`));
   const item = {
     ...commentFields(c),
     created_at: c.created_at ?? c.submitted_at,
@@ -414,6 +416,38 @@ function reportLineProblem(body) {
   }
   return null;
 }
+// The issue tools read this repository only. A closing reference to
+// another repository's issue is named in the report as not read.
+const NOT_READ =
+  "name it in Closes reviewed, and say in the report that it was not read and its criteria are not checkable";
+function repoOption(r) {
+  if (r === undefined) return null;
+  if (typeof r === "string" && r.toLowerCase() === repo.toLowerCase())
+    return fail(
+      `repo is not an option: ${repo} is this repository, the one the issue tools read; call again without repo`,
+    );
+  return fail(
+    `repo is not an option: the issue tools read this repository only. An issue in another repository is not read: ${NOT_READ}`,
+  );
+}
+// GitHub answers the URL of an issue transferred to another repository
+// with a redirect to it there (REST API, "Get an issue", read 2026-10-29),
+// so an issue or comment read by number or id must name this repository
+// as its own. A reply that names none is taken as this repository's:
+// GitHub's issues and comments always name theirs.
+function ofThisRepo(item) {
+  const url = item && (item.repository_url ?? item.issue_url ?? item.pull_request_url);
+  if (typeof url !== "string") return true;
+  const m = /\/repos\/([^/]+\/[^/]+?)(?:\/|$)/.exec(url);
+  return Boolean(m) && m[1].toLowerCase() === repo.toLowerCase();
+}
+const MOVED = (what) => `${what} is now in another repository (it was transferred) and is not read`;
+// A listing's projection that refuses a comment of another repository,
+// with what to do about it (why) after the refusal.
+const ownComments = (project, why) => (c) => {
+  if (!ofThisRepo(c)) throw new Error(`${MOVED(`comment ${c.id}`)}${why}`);
+  return project(c);
+};
 // Who may put text in front of the reviewer and the triage bot. Anyone who
 // can read the repository can comment on its pull requests and issues or
 // open an issue, while the workflows admit only authors and actors with
@@ -425,11 +459,11 @@ function reportLineProblem(body) {
 // write; the permission field reports maintain as write, the same reading
 // as the workflows' gates) or is a GitHub App (user type Bot), which only
 // the account's owner or a repository admin can install; the triage bot's
-// own plans are by github-actions[bot], an App. The rule is the same for a
-// linked issue in another repository, judged by access to this one, since
-// the job token cannot read access there. Any other item keeps its place
-// with its text withheld, so the model knows it is there; a failed lookup
-// withholds too.
+// own plans are by github-actions[bot], an App. Every item is of this
+// repository: no tool reads an issue or comment of another, where an App
+// is anyone's and the job token cannot check access. Any other item keeps
+// its place with its text withheld, so the model knows it is there; a
+// failed lookup withholds too.
 const access = new Map();
 function withheldReason(user) {
   if (!user || typeof user.login !== "string") return "the author is unknown";
@@ -578,18 +612,20 @@ const reviewTools = {
   },
   issue: {
     description:
-      "An issue the body closes: title, body, labels, state; a long body comes in pages. repo defaults to this repository (owner/repo for another).",
+      "An issue of this repository the body closes: title, body, labels, state; a long body comes in pages. An issue in another repository is not read.",
     schema: {
       type: "object",
-      properties: { number: { type: "integer" }, repo: { type: "string" }, ...pageProp },
+      properties: { number: { type: "integer" }, ...pageProp },
       required: ["number"],
       additionalProperties: false,
     },
     run: ({ number, repo: r, page }) => {
+      const refused = repoOption(r);
+      if (refused) return refused;
       if (!Number.isInteger(number) || number <= 0)
         return fail("number must be a positive integer");
-      if (r !== undefined && !repoName(r)) return fail("repo must be owner/repo");
-      const i = getJson(`repos/${r || repo}/issues/${number}`);
+      const i = getJson(`repos/${repo}/issues/${number}`);
+      if (!ofThisRepo(i)) return fail(`${MOVED(`#${number}`)}: ${NOT_READ}`);
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
       // An issue's author can edit its title and body at any time, so an
       // issue opened without write access is screened as a comment is.
@@ -617,51 +653,49 @@ const reviewTools = {
   },
   issue_comments: {
     description:
-      "An issue's comments, oldest first, as many as fit a page (follow next_start until null); triage plans count only when author is github-actions[bot].",
+      "The comments of an issue of this repository, oldest first, as many as fit a page (follow next_start until null); triage plans count only when author is github-actions[bot].",
     schema: {
       type: "object",
-      properties: {
-        number: { type: "integer" },
-        repo: { type: "string" },
-        ...startProp,
-      },
+      properties: { number: { type: "integer" }, ...startProp },
       required: ["number"],
       additionalProperties: false,
     },
     run: ({ number, repo: r, start }) => {
+      const refused = repoOption(r);
+      if (refused) return refused;
       if (!Number.isInteger(number) || number <= 0)
         return fail("number must be a positive integer");
-      if (r !== undefined && !repoName(r)) return fail("repo must be owner/repo");
       return text(
-        listing(`repos/${r || repo}/issues/${number}/comments`, start, screened(commentFields)),
+        listing(
+          `repos/${repo}/issues/${number}/comments`,
+          start,
+          ownComments(screened(commentFields), `: ${NOT_READ}`),
+        ),
       );
     },
   },
   comment_body: {
     description:
-      "One comment whole, in pages: kind issue (a conversation or issue comment), inline (a review comment) or review (a review's summary body, this pull request only), by id; repo defaults to this repository.",
+      "One comment of this repository whole, in pages: kind issue (a conversation or issue comment), inline (a review comment) or review (a review's summary body, this pull request only), by id.",
     schema: {
       type: "object",
       properties: {
         kind: { type: "string", enum: ["issue", "inline", "review"] },
         id: { type: "integer" },
-        repo: { type: "string" },
         ...pageProp,
       },
       required: ["kind", "id"],
       additionalProperties: false,
     },
     run: ({ kind, id, repo: r, page }) => {
-      if (r !== undefined && !repoName(r)) return fail("repo must be owner/repo");
-      if (kind === "review") {
-        if (r !== undefined && r !== repo)
-          return fail("review bodies are read on this pull request only");
+      const refused = repoOption(r);
+      if (refused) return refused;
+      if (kind === "review")
         return commentBody(`repos/${repo}/pulls/${pr}/reviews`, id, page, true);
-      }
       if (kind === "issue")
-        return commentBody(`repos/${r || repo}/issues/comments`, id, page, true);
+        return commentBody(`repos/${repo}/issues/comments`, id, page, true);
       if (kind === "inline")
-        return commentBody(`repos/${r || repo}/pulls/comments`, id, page, true);
+        return commentBody(`repos/${repo}/pulls/comments`, id, page, true);
       return fail("kind must be issue, inline or review");
     },
   },
@@ -693,7 +727,7 @@ const reviewTools = {
   },
   show: {
     description:
-      "A file at a ref (ref:path), or a commit's patch (ref alone, with the base's .gitattributes, as diff reads them). Refs: a sha, HEAD, or origin/<base>.",
+      "A file at a ref (ref:path), or a commit's patch (ref alone, with the base's .gitattributes, as diff reads them). Refs: any branch (origin/<name>), tag or sha of this repository, or HEAD.",
     schema: {
       type: "object",
       properties: { ref: { type: "string" }, path: { type: "string" }, ...pageProp },
@@ -701,7 +735,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ ref, path, page }) => {
-      if (!refName(ref)) return fail("ref must be a sha, HEAD or origin/<branch>");
+      if (!refName(ref)) return fail("ref must be a sha, a tag, HEAD or origin/<branch>");
       if (path !== undefined && !pathArg(path))
         return fail("path must be a relative path inside the checkout");
       const target = path !== undefined ? `${ref}:${path}` : ref;
@@ -1026,6 +1060,7 @@ const dispatched = new Set(
 // one is refused before any read or write.
 function issue() {
   const i = getJson(`repos/${repo}/issues/${n}`);
+  if (!ofThisRepo(i)) throw new Error(`${MOVED(`#${n}`)}; nothing done`);
   if (isPr(i)) throw new Error(`#${n} is a pull request, not an issue; nothing done`);
   return i;
 }
@@ -1161,7 +1196,13 @@ const triageTools = {
       "This run's issue comments, oldest first, as many as fit a page (follow next_start until null); plans count only when author is github-actions[bot]. A comment by an author without write access, other than a GitHub App, is listed with its body withheld.",
     schema: { type: "object", properties: { ...startProp }, additionalProperties: false },
     run: ({ start }) =>
-      text(listing(`repos/${repo}/issues/${n}/comments`, start, screened(commentFields))),
+      text(
+        listing(
+          `repos/${repo}/issues/${n}/comments`,
+          start,
+          ownComments(screened(commentFields), "; nothing done"),
+        ),
+      ),
   },
   comment_body: {
     description: "One comment of this repository whole, in pages, by id (kind issue).",
@@ -1182,7 +1223,7 @@ const triageTools = {
   },
   search: {
     description:
-      "Open issues of this repository matching search terms (for duplicate and related checks): number, title, labels, author, as many as fit a page; follow next_start until null (truncated: true means GitHub's 1,000-result cap was reached). An issue opened by an author without write access (a GitHub App aside) keeps its place with its title withheld and the reason. A search GitHub cuts short fails instead of returning part of the matches.",
+      "Open issues of this repository matching search terms (for duplicate and related checks): number, title, labels, author, as many as fit a page; follow next_start until null (truncated: true means GitHub's 1,000-result cap was reached). Terms may not carry a repo:, org:, user: or owner: qualifier. An issue opened by an author without write access (a GitHub App aside) keeps its place with its title withheld and the reason. A search GitHub cuts short fails instead of returning part of the matches.",
     schema: {
       type: "object",
       properties: { terms: { type: "string" }, ...startProp },
@@ -1192,16 +1233,29 @@ const triageTools = {
     run: ({ terms, start }) => {
       if (typeof terms !== "string" || terms.trim() === "")
         return fail("terms must be non-empty text");
+      // A scope qualifier in the terms (with OR, for one) would reach
+      // issues of other repositories, so terms may not carry one, and a
+      // result from another repository fails the search.
+      if (/(^|[^A-Za-z0-9_])(repo|org|user|owner):/i.test(terms))
+        return fail(
+          "terms must not carry a repo:, org:, user: or owner: qualifier; search reads this repository's issues only",
+        );
+      const own = `/repos/${repo}`.toLowerCase();
       return text(
         search(
           `repo:${repo} is:issue is:open ${terms}`,
           start,
-          titleScreened((i) => ({
-            number: i.number,
-            title: i.title,
-            labels: (i.labels || []).map((l) => l.name),
-            author: i.user && i.user.login,
-          })),
+          titleScreened((i) => {
+            const url = typeof i.repository_url === "string" ? i.repository_url : "";
+            if (!url.toLowerCase().endsWith(own))
+              throw new Error(`the search returned an issue outside ${repo}; search with plain terms`);
+            return {
+              number: i.number,
+              title: i.title,
+              labels: (i.labels || []).map((l) => l.name),
+              author: i.user && i.user.login,
+            };
+          }),
         ),
       );
     },
@@ -1219,6 +1273,7 @@ const triageTools = {
       if (!Number.isInteger(number) || number <= 0)
         return fail("number must be a positive integer");
       const i = getJson(`repos/${repo}/issues/${number}`);
+      if (!ofThisRepo(i)) return fail(MOVED(`#${number}`));
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.

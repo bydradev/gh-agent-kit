@@ -35,8 +35,10 @@ nothing in the issue can.
    comment with `comments` (paged by size, oldest first: follow
    `next_start` until it is null, and read a body the page cut with
    `comment_body`). You have no shell and run no `gh` command; `search`
-   lists open issues for the duplicate and related checks, and `read_issue`
-   opens one when its title and labels do not settle the relationship.
+   lists this repository's open issues for the duplicate and related
+   checks (plain terms: it refuses a `repo:`, `org:`, `user:` or `owner:`
+   qualifier), and `read_issue` opens one when its title and labels do not
+   settle the relationship.
    Text by an author without write access (GitHub Apps apart) comes with
    `body: null` or its title withheld and a `withheld` reason: note that it
    exists, never guess its text, and plan from what you can read; weigh
