@@ -972,6 +972,44 @@ test("remove_label takes agent:approved off only on a fresh triage or a later ed
   assert.match(other.text, /may not remove 'wontfix'/);
 });
 
+test("remove_label takes in-progress off only after a reopen", async (t) => {
+  for (const event of ["issues", "edited", "labeled", "dispatch"]) {
+    const server = await startServer(t, {
+      mode: "triage",
+      env: triageEnv({ TRIAGE_EVENT: event }),
+      rules: [{ match: "^issue edit ", stdout: "" }, issueRule({ labels: [{ name: "in-progress" }] })],
+    });
+    const r = await server.call("remove_label", { label: "in-progress" });
+    assert.equal(r.isError, true, `${event}: ${r.text}`);
+    assert.match(r.text, new RegExp(`'in-progress' may only go after a reopen, not on '${event}'`));
+    assert.equal(ghCalls(server).filter((c) => c.args[0] === "issue").length, 0);
+  }
+});
+
+test("nothing is written on an issue closed since the run started", async (t) => {
+  const server = await startServer(t, {
+    mode: "triage",
+    env: triageEnv({ TRIAGE_EVENT: "reopened" }),
+    rules: [
+      { match: "^issue edit ", stdout: "" },
+      postRule("u"),
+      issueRule({ state: "closed", labels: [{ name: "needs-triage" }] }),
+    ],
+  });
+  for (const [tool, args] of [
+    ["add_label", { label: "P2" }],
+    ["remove_label", { label: "needs-triage" }],
+    ["remove_label", { label: "in-progress" }],
+    ["comment", { body: "## Triage\n" }],
+  ]) {
+    const r = await server.call(tool, args);
+    assert.equal(r.isError, true, `${tool}: ${r.text}`);
+    assert.match(r.text, /issue #8 is closed; nothing written/);
+  }
+  assert.equal(ghCalls(server).filter((c) => c.args[0] === "issue").length, 0);
+  assert.equal(posts(server).length, 0);
+});
+
 test("add_label adds only the bot's labels, never needs-triage", async (t) => {
   const server = await startServer(t, {
     mode: "triage",

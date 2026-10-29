@@ -22,6 +22,7 @@ const applyScript = stepScript(FILE, "Apply the verification");
 const summaryScript = stepScript(FILE, "Summarise the scan's findings");
 const commentScript = stepScript(FILE, "Comment on the findings' lines");
 const noticeScript = stepScript(FILE, "Record that the scan did not complete");
+const ranScript = stepScript(FILE, "Fail when the scan did not run");
 
 // A runner's directories: RUNNER_TEMP, the scan's input directory and the
 // GITHUB_ENV file, with what the step wrote to GITHUB_ENV read back.
@@ -757,4 +758,32 @@ test("a run that stopped in the verification lists the candidates as unverified"
     /found 1 unverified candidate finding, but the run stopped before the verification finished/,
   );
   assert.match(body, /- \*\*HIGH\*\* `x` in `a\.js:1` \(unverified\)/);
+});
+
+test("the run fails without a results file or a completed review in it", (t) => {
+  const r = runner(t);
+  const results = path.join(r.temp, "scan-results.json");
+  const check = () => r.run(ranScript, { RESULTS: results });
+  const completed = { findings: [], analysis_summary: { review_completed: true } };
+  r.write("scan-results.json", completed);
+  const ok = check();
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  fs.rmSync(results);
+  const missing = check();
+  assert.equal(missing.status, 1);
+  assert.match(missing.stdout, /::error::security scan produced no results file/);
+  r.write("scan-results.json", "");
+  assert.match(check().stdout, /::error::security scan produced no results file/);
+  for (const answer of [
+    { findings: [], analysis_summary: { review_completed: false } },
+    { findings: [], analysis_summary: {} },
+    { analysis_summary: { review_completed: true } },
+    [completed],
+    "not json",
+  ]) {
+    r.write("scan-results.json", answer);
+    const failed = check();
+    assert.equal(failed.status, 1, JSON.stringify(answer));
+    assert.match(failed.stdout, /::error::security scan did not report a completed review/);
+  }
 });

@@ -357,5 +357,31 @@ check contains "$work/out" "is not in the history of this clone's commit"
 check test -f "$t/.github/ISSUE_TEMPLATE/config.yml"
 git -C "$kit" checkout -q "$head"
 
+it "a manifest path outside the target, absolute or with a space is refused before anything is written"
+for bad in '../outside.txt' '/tmp/outside.txt' '.github/a b.txt' 'seed ../seeded.txt'; do
+  path=${bad#seed }
+  git -C "$kit" checkout -q -B unsafe "$head"
+  # The file each path names exists from the kit (committed, or beside
+  # the clone for one that climbs out of it), and the target sits a level
+  # deeper than the clone, so only the refusal keeps the installer from
+  # writing it.
+  mkdir -p "$(dirname "$kit/$path")"
+  echo planted > "$kit/$path"
+  printf '%s\n' "$bad" >> "$kit/kit-manifest.txt"
+  git -C "$kit" add -A
+  git -C "$kit" commit -q -m "plant an unsafe manifest path"
+  new_target
+  mkdir -p "$work/deeper$n"
+  mv "$t" "$work/deeper$n/"
+  t="$work/deeper$n/target$n"
+  snapshot "$t" > "$work/before"
+  check test "$(install "$t"; echo $?)" = 2
+  check contains "$work/out" "error: refusing manifest path $path"
+  snapshot "$t" > "$work/after"
+  check cmp -s "$work/before" "$work/after"
+  check test ! -e "$t/$path"
+done
+git -C "$kit" checkout -q "$head"
+
 echo "$passes passed, $failures failed"
 [ "$failures" -eq 0 ]

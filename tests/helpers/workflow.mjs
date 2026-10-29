@@ -7,7 +7,8 @@ import path from "node:path";
 import { root } from "./server.mjs";
 
 // The run: block of the step with this name in .github/workflows/<file>,
-// without its indentation. The name may follow the step's id.
+// without its indentation, or its one-line run: command. The name may
+// follow the step's id.
 export function stepScript(file, name) {
   const lines = fs.readFileSync(path.join(root, ".github/workflows", file), "utf8").split("\n");
   const start = lines.findIndex(
@@ -17,10 +18,12 @@ export function stepScript(file, name) {
   );
   assert.notEqual(start, -1, `no step named ${name}`);
   let i = start + 1;
-  while (i < lines.length && !/^\s+run: \|$/.test(lines[i])) {
+  while (i < lines.length && !/^\s+run: /.test(lines[i])) {
     assert.doesNotMatch(lines[i], /^\s+- (name|uses|id):/, `step ${name} has no run: block`);
     i++;
   }
+  const one = lines[i]?.match(/^\s+run: (?!\|$)(.+)$/);
+  if (one) return `${one[1]}\n`;
   const indent = lines[i].match(/^\s*/)[0].length + 2;
   const body = [];
   for (i++; i < lines.length; i++) {
