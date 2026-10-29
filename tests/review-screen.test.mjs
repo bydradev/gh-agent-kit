@@ -131,18 +131,13 @@ test("inline comments and reviews are screened the same way", async (t) => {
   );
 });
 
-test("comment_body withholds a body whole, here and in another repository", async (t) => {
+test("comment_body withholds a body whole", async (t) => {
   const s = await server(t, [
     { match: "repos/acme/widgets/issues/comments/31$", stdout: comment(31, "reader") },
     { match: "repos/acme/widgets/pulls/comments/32$", stdout: comment(32, "dra") },
     {
       match: "repos/acme/widgets/pulls/7/reviews/33$",
       stdout: { id: 33, user: user("stranger"), state: "COMMENTED", body: "steer" },
-    },
-    { match: "repos/other/lib/issues/comments/34$", stdout: comment(34, "stranger") },
-    {
-      match: "repos/other/lib/issues/9/comments\\?per_page=100&page=1$",
-      stdout: [comment(35, "dra"), comment(36, "reader")],
     },
   ]);
   const body = async (args) => {
@@ -155,17 +150,107 @@ test("comment_body withholds a body whole, here and in another repository", asyn
   const review = await body({ kind: "review", id: 33 });
   assert.equal(review.body, null);
   assert.match(review.withheld, /no access, not write/);
-  // Another repository's comments are screened by access to this one.
-  assert.equal((await body({ kind: "issue", id: 34, repo: "other/lib" })).body, null);
-  const linked = items(await s.call("issue_comments", { number: 9, repo: "other/lib" }));
-  assert.deepEqual(
-    linked.map((c) => [c.id, c.body]),
-    [
-      [35, "text by dra"],
-      [36, null],
-    ],
+});
+
+// An App in another repository is anyone's (github-actions[bot] there is
+// any workflow its owner writes), and the job token cannot check access
+// there, so the issue tools read this repository only.
+test("the review's issue tools refuse another repository", async (t) => {
+  const s = await server(t, [
+    {
+      match: "repos/other/lib/",
+      stdout: { ...comment(34, "github-actions[bot]", "Bot"), number: 9, title: "steer" },
+    },
+  ]);
+  for (const [tool, args] of [
+    ["issue", { number: 9, repo: "other/lib" }],
+    ["issue_comments", { number: 9, repo: "other/lib" }],
+    ["comment_body", { kind: "issue", id: 34, repo: "other/lib" }],
+    ["comment_body", { kind: "inline", id: 34, repo: "other/lib" }],
+    ["comment_body", { kind: "review", id: 34, repo: "other/lib" }],
+  ]) {
+    const r = await s.call(tool, args);
+    assert.equal(r.isError, true, `${tool} ${JSON.stringify(args)}: ${r.text}`);
+    assert.match(r.text, /^repo is not an option: the issue tools read this repository only/);
+    assert.match(r.text, /name it in Closes reviewed/);
+  }
+  // This repository named as repo: there is no such option, and the issue
+  // is this repository's, so the model is told to call again without it.
+  const own = await s.call("issue", { number: 9, repo: "Acme/Widgets" });
+  assert.equal(own.isError, true);
+  assert.match(
+    own.text,
+    /^repo is not an option: acme\/widgets is this repository, the one the issue tools read; call again without repo$/,
   );
-  assert.ok(lookups(s).every((a) => a.includes("repos/acme/widgets/collaborators/")));
+  assert.deepEqual(ghCalls(s), []);
+  const listed = (await s.request("tools/list", {})).result.tools;
+  for (const name of ["issue", "issue_comments", "comment_body"]) {
+    const tool = listed.find((l) => l.name === name);
+    assert.equal(tool.inputSchema.properties.repo, undefined, name);
+    assert.match(tool.description, /this repository/, name);
+  }
+});
+
+// GitHub redirects a transferred issue's URL to the issue in its new
+// repository, so whatever names another repository as its own is refused.
+const moved = { repository_url: "https://api.github.com/repos/other/lib" };
+const movedComment = (id) => ({
+  ...comment(id, "github-actions[bot]", "Bot"),
+  issue_url: "https://api.github.com/repos/other/lib/issues/3",
+});
+test("the review's issue tools refuse an issue transferred to another repository", async (t) => {
+  const s = await server(t, [
+    {
+      match: "repos/acme/widgets/issues/9$",
+      stdout: { number: 9, title: "steer", body: "steer", user: user("dra"), ...moved },
+    },
+    {
+      match: "repos/acme/widgets/issues/9/comments\\?per_page=100&page=1$",
+      stdout: [comment(2, "dra"), movedComment(35)],
+    },
+    { match: "repos/acme/widgets/issues/comments/35$", stdout: movedComment(35) },
+    {
+      match: "repos/acme/widgets/pulls/comments/36$",
+      stdout: {
+        ...comment(36, "dra"),
+        pull_request_url: "https://api.github.com/repos/other/lib/pulls/4",
+      },
+    },
+    {
+      match: "repos/acme/widgets/issues/10$",
+      stdout: {
+        number: 10,
+        title: "ours",
+        body: "ours",
+        state: "open",
+        user: user("dra"),
+        repository_url: "https://api.github.com/repos/Acme/Widgets",
+      },
+    },
+  ]);
+  for (const [tool, args, why] of [
+    [
+      "issue",
+      { number: 9 },
+      /^#9 is now in another repository \(it was transferred\) and is not read: name it in Closes reviewed/,
+    ],
+    [
+      "issue_comments",
+      { number: 9 },
+      /comment 35 is now in another repository \(it was transferred\) and is not read: name it in Closes reviewed/,
+    ],
+    ["comment_body", { kind: "issue", id: 35 }, /^comment 35 is now in another repository/],
+    ["comment_body", { kind: "inline", id: 36 }, /^comment 36 is now in another repository/],
+  ]) {
+    const r = await s.call(tool, args);
+    assert.equal(r.isError, true, `${tool} ${JSON.stringify(args)}: ${r.text}`);
+    assert.match(r.text, why);
+    assert.ok(!r.text.includes("steer") && !r.text.includes("text by"), r.text);
+  }
+  // This repository's own issue, its name in any case, is read.
+  const ours = await s.call("issue", { number: 10 });
+  assert.equal(ours.isError, false, ours.text);
+  assert.equal(JSON.parse(ours.text).body, "ours");
 });
 
 test("issue withholds the title and body of an issue opened without write access", async (t) => {
@@ -180,7 +265,6 @@ test("issue withholds the title and body of an issue opened without write access
   const s = await server(t, [
     { match: "repos/acme/widgets/issues/41$", stdout: issue(41, user("dra")) },
     { match: "repos/acme/widgets/issues/42$", stdout: issue(42, user("reader")) },
-    { match: "repos/other/lib/issues/43$", stdout: issue(43, user("stranger")) },
   ]);
   const read = async (args) => {
     const r = await s.call("issue", args);
@@ -199,8 +283,6 @@ test("issue withholds the title and body of an issue opened without write access
     outside.withheld,
     "the author has read access, not write; the title and body are not shown",
   );
-  const elsewhere = await read({ number: 43, repo: "other/lib" });
-  assert.equal(elsewhere.body, null);
 });
 
 // Triage mode: the comments on the triaged issue are screened the same
@@ -308,11 +390,46 @@ test("triage comment_body withholds a body whole", async (t) => {
 // withheld too.
 const otherIssue = (number, author) => ({
   number,
+  repository_url: "https://api.github.com/repos/acme/widgets",
   title: `title by ${author.login}`,
   body: `body by ${author.login}`,
   state: "open",
   labels: [{ name: "bug" }],
   user: author,
+});
+
+test("triage refuses an issue transferred to another repository", async (t) => {
+  const s = await triage(t, [
+    { match: "repos/acme/widgets/issues/8$", stdout: { ...otherIssue(8, user("dra")), ...moved } },
+    {
+      match: "repos/acme/widgets/issues/8/comments\\?per_page=100&page=1$",
+      stdout: [movedComment(35)],
+    },
+    {
+      match: "repos/acme/widgets/issues/12$",
+      stdout: { ...otherIssue(12, user("dra")), ...moved },
+    },
+  ]);
+  for (const [tool, args, why] of [
+    [
+      "view",
+      {},
+      /#8 is now in another repository \(it was transferred\) and is not read; nothing done/,
+    ],
+    // Triage closes nothing, so it is not told to name the issue in a
+    // report.
+    [
+      "comments",
+      {},
+      /comment 35 is now in another repository \(it was transferred\) and is not read; nothing done$/,
+    ],
+    ["read_issue", { number: 12 }, /^#12 is now in another repository/],
+  ]) {
+    const r = await s.call(tool, args);
+    assert.equal(r.isError, true, `${tool}: ${r.text}`);
+    assert.match(r.text, why);
+    assert.ok(!r.text.includes("body by") && !r.text.includes("text by"), r.text);
+  }
 });
 
 test("triage read_issue withholds an issue opened without write access", async (t) => {
@@ -445,6 +562,60 @@ test("triage search and open_prs withhold titles by authors without write access
     "api --method GET repos/acme/widgets/collaborators/stranger/permission",
     "api --method GET repos/acme/widgets/collaborators/maintainer/permission",
   ]);
+});
+
+// Each search term below would reach other repositories' issues: GitHub
+// combines a scope qualifier with this run's own one, with OR or alone.
+test("triage search refuses scope qualifiers and fails on another repository's issue", async (t) => {
+  const s = await triage(t, [
+    {
+      match: "^api --method GET search/issues\\?per_page=100&page=1 -f q=.* elsewhere$",
+      stdout: {
+        incomplete_results: false,
+        items: [
+          otherIssue(41, user("dra")),
+          {
+            ...otherIssue(60, user("outsider")),
+            repository_url: "https://api.github.com/repos/other/lib",
+          },
+        ],
+      },
+    },
+    {
+      match: "^api --method GET search/issues\\?per_page=100&page=1 -f q=.* noscope$",
+      stdout: {
+        incomplete_results: false,
+        items: [{ ...otherIssue(61, user("outsider")), repository_url: undefined }],
+      },
+    },
+  ]);
+  for (const terms of [
+    "crash repo:other/lib",
+    "crash OR repo:other/lib",
+    "crash -repo:other/lib",
+    "(crash) OR org:other",
+    "crash OR user:someone",
+    'crash "owner:someone"',
+    "Repo:other/lib crash",
+  ]) {
+    const r = await s.call("search", { terms });
+    assert.equal(r.isError, true, `${terms}: ${r.text}`);
+    assert.match(r.text, /terms must not carry a repo:, org:, user: or owner: qualifier/);
+  }
+  assert.deepEqual(ghCalls(s), []);
+  // A result from another repository, however the terms reached it, or
+  // one that names no repository, fails the search: none of its text is
+  // shown and its author is not looked up.
+  for (const terms of ["crash OR elsewhere", "noscope"]) {
+    const r = await s.call("search", { terms });
+    assert.equal(r.isError, true, r.text);
+    assert.match(r.text, /^search failed: the search returned an issue outside acme\/widgets/);
+    assert.doesNotMatch(r.text, /title by/);
+  }
+  assert.ok(
+    lookups(s).every((a) => !a.includes("outsider")),
+    lookups(s).join("\n"),
+  );
 });
 
 test("triage looks every listed author up in an organization's repository", async (t) => {
