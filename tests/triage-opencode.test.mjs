@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
+import { LOG_LINE, opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -186,7 +186,7 @@ function run(
 test("issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
   const r = run(t);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
+  assert.deepEqual(r.args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
   assert.equal(r.config.model, "opencode-go/glm-5.3-flash");
   assert.equal(r.config.small_model, "opencode-go/glm-5.3-flash");
   assert.equal(r.config.autoupdate, false);
@@ -450,15 +450,15 @@ test("issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at ca
   const r = run(t, { runs: [{ events: REFUSED, exit: 1 }, { events: inSession(SUCCESS) }] });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.calls.length, 2);
-  assert.deepEqual(r.calls[0].args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
+  assert.deepEqual(r.calls[0].args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
   // The second run continues the session with the steps the first left.
-  assert.deepEqual(r.calls[1].args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "--session", "ses_1", CARRY_ON]);
+  assert.deepEqual(r.calls[1].args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "--session", "ses_1", CARRY_ON]);
   assert.deepEqual(r.calls[1].config.agent, { build: { steps: 38 } });
   assert.deepEqual({ ...r.calls[1].config, agent: null }, { ...r.calls[0].config, agent: null });
   assert.deepEqual(r.slept, ["7"]);
   assert.match(
     r.stdout,
-    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 7 s \(refusal 1 of 3 in a row\)$/m,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 7 s \(refusal 1 of the step's 3\)$/m,
   );
   // Steps, cost and tokens are both runs'; the refusal it carried on from
   // is not an error of the run.
@@ -528,11 +528,27 @@ test("issue-triage.yml, Run the triage on OpenCode: a run that ends in error sho
   const stub = run(t, { events: [{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "length" } }] });
   assert.equal(stub.status, 1, stub.stdout + stub.stderr);
   const lines = stub.stdout.split("\n");
-  const at = lines.indexOf("OpenCode's stderr, its last 50 lines:");
+  const at = lines.indexOf("OpenCode's log (its stderr), the last 50 lines:");
   assert.notEqual(at, -1, stub.stdout);
   const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
   assert.ok(begin, stub.stdout);
-  assert.ok(lines.indexOf(`::${begin[1]}::`) > at, stub.stdout);
+  // The log line --print-logs gave, ended so the token has a line of its own.
+  assert.equal(lines[at + 1], LOG_LINE);
+  assert.equal(lines[at + 2], `::${begin[1]}::`);
+  assert.match(lines[at + 3], /^::error::OpenCode's run ended in error/);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: a run with no events shows OpenCode's log, with commands stopped", (t) => {
+  const r = run(t, { events: [], exit: 2 });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  const lines = r.stdout.split("\n");
+  const at = lines.indexOf(LOG_LINE);
+  assert.notEqual(at, -1, r.stdout);
+  const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+  assert.ok(begin, r.stdout);
+  assert.equal(lines[at + 1], `::${begin[1]}::`);
+  assert.equal(lines[at + 2], "::error::OpenCode exited with status 2 and no events");
+  assert.doesNotMatch(r.stderr, /stream error/);
 });
 
 test("issue-triage.yml: .git comes back after the run, whether or not it succeeded", (t) => {

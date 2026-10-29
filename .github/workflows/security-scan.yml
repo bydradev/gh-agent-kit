@@ -945,7 +945,7 @@ jobs:
           # and the kill below stops it.
           password=$(openssl rand -hex 32)
           env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
-            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+            /opt/agent-kit/opencode serve --print-logs --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           url=""
@@ -956,7 +956,10 @@ jobs:
             sleep 1
           done
           if [ -z "$url" ]; then
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's server did not start"
             exit 1
           fi
@@ -1022,13 +1025,13 @@ jobs:
           # each ended on that refusal about 85 s after their request. So
           # after a refusal the scan carries on in the same session, after
           # the wait the refusal names (a minute at most, half a minute when
-          # it names none), three refusals running at most. The refused step
-          # is left out of what the model is sent next, and the steps before
-          # it stay (1.19.3's message history).
+          # it names none), three times in the step at most, asking again
+          # included. The refused step is left out of what the model is sent
+          # next, and the steps before it stay (1.19.3's message history).
           # The seconds to wait when the reply is that refusal; nothing for
           # any other reply.
           refusal_pause() {
-            jq -r '.info.error // empty | [.data.message?, .data.responseBody?, .message?] | map(strings) | join(" ")
+            jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
               | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
@@ -1037,13 +1040,14 @@ jobs:
           # records each prompt as part of the run or of asking for the
           # answer again ($2), for the step limit below.
           kinds=()
+          refusals=0
           send_through() {
-            local refusals=0 pause
+            local pause
             send "$1"
             kinds+=("$2")
             while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
               refusals=$((refusals + 1))
-              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of 3 in a row)"
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
               sleep "$pause"
               send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
               kinds+=("$2")
@@ -1100,11 +1104,14 @@ jobs:
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
-            # The server's log, with workflow commands stopped as above.
+            # The server's log, which --print-logs puts in its output (each
+            # retry of a refused request is a "stream error" line), with
+            # workflow commands stopped as above; awk ends its last line, so
+            # the token below starts a line of its own.
             stop=$(openssl rand -hex 16)
             echo "::stop-commands::$stop"
             echo "OpenCode's server log, its last 50 lines:"
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
             echo "::$stop::"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
@@ -1300,7 +1307,7 @@ jobs:
           # and the kill below stops it.
           password=$(openssl rand -hex 32)
           env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
-            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+            /opt/agent-kit/opencode serve --print-logs --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           url=""
@@ -1311,7 +1318,10 @@ jobs:
             sleep 1
           done
           if [ -z "$url" ]; then
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's server did not start"
             exit 1
           fi
@@ -1377,13 +1387,13 @@ jobs:
           # each ended on that refusal about 85 s after their request. So
           # after a refusal the scan carries on in the same session, after
           # the wait the refusal names (a minute at most, half a minute when
-          # it names none), three refusals running at most. The refused step
-          # is left out of what the model is sent next, and the steps before
-          # it stay (1.19.3's message history).
+          # it names none), three times in the step at most, asking again
+          # included. The refused step is left out of what the model is sent
+          # next, and the steps before it stay (1.19.3's message history).
           # The seconds to wait when the reply is that refusal; nothing for
           # any other reply.
           refusal_pause() {
-            jq -r '.info.error // empty | [.data.message?, .data.responseBody?, .message?] | map(strings) | join(" ")
+            jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
               | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
@@ -1392,13 +1402,14 @@ jobs:
           # records each prompt as part of the run or of asking for the
           # answer again ($2), for the step limit below.
           kinds=()
+          refusals=0
           send_through() {
-            local refusals=0 pause
+            local pause
             send "$1"
             kinds+=("$2")
             while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
               refusals=$((refusals + 1))
-              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of 3 in a row)"
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
               sleep "$pause"
               send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
               kinds+=("$2")
@@ -1455,11 +1466,14 @@ jobs:
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
-            # The server's log, with workflow commands stopped as above.
+            # The server's log, which --print-logs puts in its output (each
+            # retry of a refused request is a "stream error" line), with
+            # workflow commands stopped as above; awk ends its last line, so
+            # the token below starts a line of its own.
             stop=$(openssl rand -hex 16)
             echo "::stop-commands::$stop"
             echo "OpenCode's server log, its last 50 lines:"
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
             echo "::$stop::"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1

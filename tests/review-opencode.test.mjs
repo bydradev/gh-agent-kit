@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
+import { LOG_LINE, opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -273,7 +273,7 @@ function run(
 test("pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
   const r = run(t);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.args, ["run", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "Read the skill."]);
+  assert.deepEqual(r.args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "Read the skill."]);
   assert.equal(r.config.model, "opencode-go/deepseek-v4.1-flash");
   assert.equal(r.config.small_model, "opencode-go/deepseek-v4.1-flash");
   assert.equal(r.config.autoupdate, false);
@@ -319,7 +319,7 @@ test("pr-review.yml, Run the review on OpenCode: the run gets the Go model and a
 test("pr-review.yml, Run the review on OpenCode: an effort level is a variant the model offers", (t) => {
   const max = run(t, { effort: "max" });
   assert.equal(max.status, 0, max.stdout + max.stderr);
-  assert.deepEqual(max.args, ["run", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "max", "Read the skill."]);
+  assert.deepEqual(max.args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "max", "Read the skill."]);
   assert.match(max.stdout, /^variant: max$/m);
 
   // OpenCode would run a variant the model lacks with none, silently, so
@@ -337,7 +337,7 @@ test("pr-review.yml, Run the review on OpenCode: an effort level is a variant th
   // The last model in the list is read whole too.
   const last = run(t, { model: "glm-5.3-flash" });
   assert.equal(last.status, 0, last.stdout + last.stderr);
-  assert.deepEqual(last.args, ["run", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
+  assert.deepEqual(last.args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "Read the skill."]);
 });
 
 test("pr-review.yml, Run the review on OpenCode: a model the pinned CLI does not list fails before the run", (t) => {
@@ -544,18 +544,37 @@ test("pr-review.yml, Run the review on OpenCode: a run Go turns away as at capac
   const r = run(t, { runs: [{ events: first, exit: 1 }, { events: SUCCESS.map((e) => ({ sessionID: "ses_1", ...e })) }], effort: "high" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.calls.length, 2);
-  assert.deepEqual(r.calls[1].args.slice(0, 8), ["run", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "high", "--session"]);
-  assert.equal(r.calls[1].args[8], "ses_1");
-  assert.match(r.calls[1].args[9], /^OpenCode Go turned your last request away because it was at capacity/);
+  assert.deepEqual(r.calls[1].args.slice(0, 9), ["run", "--print-logs", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "high", "--session"]);
+  assert.equal(r.calls[1].args[9], "ses_1");
+  assert.match(r.calls[1].args[10], /^OpenCode Go turned your last request away because it was at capacity/);
   assert.deepEqual(r.calls[1].config.agent, { build: { steps: 119 } });
   assert.deepEqual(r.slept, ["12"]);
   assert.match(r.stdout, /^errors: $/m);
 
-  // The same loop as triage's, on the review's settings.
+  // The same loop as triage's, on the review's settings, and the same
+  // summary and error output after it, to the end of the step.
   const loop = (file, kind) => {
     const script = stepScript(file, kind === "REVIEW" ? "Run the review on OpenCode" : "Run the triage on OpenCode");
-    return script.slice(script.indexOf("# Go turns a request away"), script.indexOf("events=$(cat \"$RESULT\")")).replaceAll(`KIT_${kind}_`, "KIT_X_");
+    return script
+      .slice(script.indexOf("# Go turns a request away"))
+      .replaceAll(`KIT_${kind}_`, "KIT_X_")
+      .replace("# pull request steered could", "# issue steered could");
   };
-  assert.ok(loop(FILE, "REVIEW").length > 1000);
+  assert.ok(loop(FILE, "REVIEW").length > 3000);
+  assert.match(loop(FILE, "REVIEW"), /OpenCode's run reached the turn limit/);
   assert.equal(loop(FILE, "REVIEW"), loop("issue-triage.yml", "TRIAGE"));
+});
+
+test("pr-review.yml, Run the review on OpenCode: a run that ends in error shows OpenCode's log, with commands stopped", (t) => {
+  const r = run(t, { events: [{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "length" } }] });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  const lines = r.stdout.split("\n");
+  const at = lines.indexOf("OpenCode's log (its stderr), the last 50 lines:");
+  assert.notEqual(at, -1, r.stdout);
+  const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+  assert.ok(begin, r.stdout);
+  // The log line --print-logs gave, ended so the token has a line of its own.
+  assert.equal(lines[at + 1], LOG_LINE);
+  assert.equal(lines[at + 2], `::${begin[1]}::`);
+  assert.match(lines[at + 3], /^::error::OpenCode's run ended in error/);
 });

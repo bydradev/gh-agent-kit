@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { MODELS, readEnv, sleepStub } from "./helpers/opencode.mjs";
+import { LOG_LINE, MODELS, readEnv, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -179,7 +179,7 @@ const PROSE = reply("No findings.");
 // message route returns (`status`, JSON `body`), or a list of them served
 // in turn (the last one again once they run out); `session` is what export
 // prints (null fails the export); `models` is the model list (null fails
-// the listing).
+// the listing); `serveFails` has the server log a line and exit unstarted.
 function scan(
   t,
   {
@@ -192,6 +192,7 @@ function scan(
     maxTurns = "80",
     candidates = "",
     models = MODELS,
+    serveFails = false,
   } = {},
 ) {
   const dir = tempDir(t);
@@ -201,7 +202,7 @@ function scan(
   const schema = path.join(temp, "scan-schema.json");
   fs.writeFileSync(schema, JSON.stringify(SCAN_SCHEMA));
   const spec = path.join(dir, "spec.json");
-  fs.writeFileSync(spec, JSON.stringify({ models, answer, session }));
+  fs.writeFileSync(spec, JSON.stringify({ models, answer, session, serveFails }));
   const log = path.join(dir, "calls.jsonl");
   const stub = path.join(dir, "opencode");
   fs.writeFileSync(
@@ -224,6 +225,9 @@ if (command === "models") {
 } else if (command === "export") {
   if (spec.session === null) process.exit(1);
   process.stdout.write(JSON.stringify(spec.session, null, 2));
+} else if (command === "serve" && spec.serveFails) {
+  process.stderr.write(${JSON.stringify(LOG_LINE)});
+  process.exit(1);
 } else if (command === "serve") {
   const auth = "Basic " + Buffer.from("opencode:" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
   const server = http.createServer((req, res) => {
@@ -238,6 +242,8 @@ if (command === "models") {
       if (req.headers.authorization !== auth) return send(401, { name: "Unauthorized" });
       if (req.method === "POST" && req.url === "/session") return send(200, { id: "ses_1" });
       if (req.method === "POST" && req.url === "/session/ses_1/message") {
+        // With --print-logs, a log line on stderr, unended.
+        if (asked === 0 && rest.includes("--print-logs")) process.stderr.write(${JSON.stringify(LOG_LINE)});
         const answer = answers[Math.min(asked++, answers.length - 1)];
         return send(answer.status, answer.body);
       }
@@ -329,7 +335,7 @@ test("security-scan.yml, Run the scan on OpenCode: the answer comes back in Clau
 test("security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema", (t) => {
   const r = scan(t, { effort: "high" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.serve.args, ["--hostname", "127.0.0.1", "--port", "0"]);
+  assert.deepEqual(r.serve.args, ["--print-logs", "--hostname", "127.0.0.1", "--port", "0"]);
   assert.match(r.serve.env.OPENCODE_SERVER_PASSWORD, /^[0-9a-f]{64}$/);
   assert.doesNotMatch(r.stdout + r.stderr, new RegExp(r.serve.env.OPENCODE_SERVER_PASSWORD));
   assert.deepEqual(
@@ -682,7 +688,7 @@ test("security-scan.yml, Run the scan on OpenCode: a run Go turns away as at cap
   assert.deepEqual(r.slept, ["4"]);
   assert.match(
     r.stdout,
-    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 4 s \(refusal 1 of 3 in a row\)$/m,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 4 s \(refusal 1 of the step's 3\)$/m,
   );
   assert.doesNotMatch(r.stdout, /asked for again/);
 
@@ -706,7 +712,7 @@ test("security-scan.yml, Run the scan on OpenCode: a run Go turns away as at cap
   }
 });
 
-test("security-scan.yml, Run the scan on OpenCode: three refusals running at most, and each run of them counts afresh", (t) => {
+test("security-scan.yml, Run the scan on OpenCode: three refusals in the step at most, asking again included", (t) => {
   const r = scan(t, { answer: [refused()] });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.equal(r.messages.length, 4);
@@ -715,10 +721,13 @@ test("security-scan.yml, Run the scan on OpenCode: three refusals running at mos
   assert.match(r.stdout, /^::error::OpenCode's run ended in error or without an answer that fits the schema \(curl status 0\)$/m);
   assert.equal(r.alive, false);
 
-  // Three for the run and three more while the answer is asked for again.
-  const both = scan(t, { answer: [refused(), refused(), refused(), PROSE, refused(), refused(), refused(), ANSWER] });
-  assert.equal(both.status, 0, both.stdout + both.stderr);
-  assert.equal(both.messages.length, 8);
+  // One for the run and two while the answer is asked for again make
+  // three, so the fourth ends the step.
+  const both = scan(t, { answer: [refused(), PROSE, refused(), refused(), refused(), ANSWER] });
+  assert.equal(both.status, 1, both.stdout + both.stderr);
+  assert.equal(both.messages.length, 5);
+  assert.deepEqual(both.slept, ["4", "4", "4"]);
+  assert.match(both.stdout, /\(refusal 3 of the step's 3\)$/m);
 
   // Other errors end the run at once.
   const other = scan(t, {
@@ -751,6 +760,20 @@ test("security-scan.yml, Run the scan on OpenCode: the step limit counts the ste
   assert.match(limit.stdout, /^::error::OpenCode's run reached the turn limit \(KIT_SECURITY_MAX_TURNS=3\)$/m);
 });
 
+test("security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, { step, serveFails: true, candidates: "3" });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const lines = r.stdout.split("\n");
+    const at = lines.indexOf(LOG_LINE);
+    assert.notEqual(at, -1, r.stdout);
+    const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+    assert.ok(begin, r.stdout);
+    assert.equal(lines[at + 1], `::${begin[1]}::`);
+    assert.equal(lines[at + 2], "::error::OpenCode's server did not start");
+  }
+});
+
 test("security-scan.yml, Run the scan on OpenCode: a run that ends in error shows the server's log, with commands stopped", (t) => {
   for (const answer of [PROSE, { status: 500, body: { name: "UnknownError" } }]) {
     const r = scan(t, { answer });
@@ -761,6 +784,9 @@ test("security-scan.yml, Run the scan on OpenCode: a run that ends in error show
     assert.match(lines[at + 1], /^opencode server listening on http:\/\/127\.0\.0\.1:\d+$/);
     const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
     assert.ok(begin, r.stdout);
-    assert.ok(lines.indexOf(`::${begin[1]}::`) > at + 1, r.stdout);
+    // The log line --print-logs gave, ended so the token has a line of its own.
+    assert.equal(lines[at + 2], LOG_LINE);
+    assert.equal(lines[at + 3], `::${begin[1]}::`);
+    assert.match(lines[at + 4], /^::error::OpenCode's run ended in error/);
   }
 });

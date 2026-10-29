@@ -41,6 +41,12 @@ export function readEnv(file) {
   );
 }
 
+// The line a run given --print-logs writes to stderr, as 1.19.3 logs a
+// refused request's retry, with no newline at its end and text a pull
+// request could steer, which must not run as a workflow command.
+export const LOG_LINE =
+  'timestamp=2026-10-28T23:56:29.931Z level=ERROR message="stream error" error.error="AI_APICallError: ::error::steered"';
+
 // Writes the stub to dir/opencode. `models` calls are recorded apart from
 // the run, in models-env and models-args. A run prints `events` and exits
 // with `exit`; `runs`, a list of {events, exit}, gives each run in turn
@@ -64,6 +70,8 @@ export function opencodeStub(dir, { events, exit = 0, runs, models = MODELS, mod
       run.events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))).join("\n") + "\n",
     ),
   );
+  const logLine = path.join(dir, "log-line");
+  fs.writeFileSync(logLine, LOG_LINE);
   const count = path.join(dir, "runs");
   const list = path.join(dir, "models.txt");
   fs.writeFileSync(list, models);
@@ -85,6 +93,7 @@ env > "${files.seen}"
 printf '%s\\n' "$@" > "${files.argv}"
 for arg in "$@"; do jq -cn --arg a "$arg" '$a'; done \\
   | jq -cs --arg config "$OPENCODE_CONFIG_CONTENT" '{config: ($config | fromjson), args: .}' >> "${files.calls}"
+case " $* " in *" --print-logs "*) cat "${logLine}" >&2 ;; esac
 cat "${dir}/events-$i.jsonl"
 exit \${exits[$i]}
 `,

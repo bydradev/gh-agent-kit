@@ -105,9 +105,11 @@ The first triage on OpenCode there (2026-10-28, after v0.4.0) ended on
 Go's capacity refusal, as four scans in two target repositories did that
 evening when ten runs started within a minute; the next triage completed.
 The OpenCode runs now carry on in the same session after such a refusal,
-and triage puts `.git` back after its run as the review and the scan do
-(`docs/setup.md`, *OpenCode CLI*). Not yet seen: a run that carries on
-after a refusal.
+print OpenCode's log when they fail, and triage puts `.git` back after its
+run as the review and the scan do (`docs/setup.md`, *OpenCode CLI*). A
+replay of the refusal against the pinned CLI (2026-10-29) showed its five
+retries in the log; not yet seen on GitHub: a run that carries on after a
+refusal.
 
 ### Security scan on the pinned CLI (2026-10-23)
 
