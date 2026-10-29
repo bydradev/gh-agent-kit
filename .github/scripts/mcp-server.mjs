@@ -234,8 +234,91 @@ const findingIdsIn = (body) =>
   [...body.matchAll(/<!-- pr-review finding ([^ ]+) (R[0-9]+-[0-9]+) -->/g)]
     .filter((m) => m[1] === `${repo}#${pr}`)
     .map((m) => m[2]);
+// GitHub notifies whoever a comment or issue @mentions (a team too, as
+// @org/team), and nothing the model posts should notify anyone: text the
+// run was steered by, or a mistake, would page people from this
+// repository. GitHub finds mentions in the rendered text (the open-source
+// html-pipeline's MentionFilter, read 2026-10-29), where emphasis markup
+// is gone, character references are decoded and a link before an @ ends
+// a text node. So every @, written as itself or as a character reference
+// (&#64;, &#x40;, &commat;), gets a zero-width space after it, as
+// Renovate does in the release notes it posts (lib/util/markdown.ts,
+// sanitizeMarkdown, read 2026-10-29): the text reads the same, and no
+// login follows an @ directly. Addresses, code and URLs get it too.
+//
+// The one exception is a suggestion block in an inline comment, which is
+// committed as written, space and all. It is kept only where its fence is
+// sure to open and close a code block (CommonMark spec 0.31.2, read
+// 2026-10-29): a fence at the start of a line, outside an HTML block and
+// any other fenced block, a backtick fence's info string with no
+// backtick, closed by a fence of its kind. A reading that got out of step
+// with GitHub's parser would leave a mention live, so nothing is kept in
+// a text this does not read (one with a form feed, vertical tab, NUL,
+// byte order mark or line or paragraph separator), or after a fence it
+// does not follow: one after an indent or a quote or list marker, which
+// may open or close a block this does not see, or one never closed.
+const MENTION = /(@|&#0*64;|&#[xX]0*40;|&commat;)/g;
+const UNREAD = /[\v\f\x00\ufeff\u2028\u2029]/;
+const BLOCK_TAGS =
+  "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+// Where an HTML block that starts on this line ends, or null when none
+// starts: CommonMark's seven kinds, read wide where reading them exactly
+// would take more than the line (the seventh, a line that is one complete
+// tag, also where it cannot interrupt a paragraph; "source", which older
+// versions list, among the sixth's names). A kind that ends on a marker
+// ends on the line that holds it, which may be the first. A fence inside
+// an HTML block is HTML, not code.
+const OPEN_TAG =
+  "<[A-Za-z][A-Za-z0-9-]*(?:[ \\t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \\t]*=[ \\t]*(?:[^ \\t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \\t]*/?>";
+const LONE_TAG = new RegExp(`^ {0,3}(?:${OPEN_TAG}|</[A-Za-z][A-Za-z0-9-]*[ \\t]*>)[ \\t]*$`);
+function htmlBlockEnd(line) {
+  if (/^ {0,3}<(pre|script|style|textarea)(\s|>|$)/i.test(line))
+    return /<\/(pre|script|style|textarea)>/i;
+  if (/^ {0,3}<!--/.test(line)) return /-->/;
+  if (/^ {0,3}<\?/.test(line)) return /\?>/;
+  if (/^ {0,3}<!\[CDATA\[/.test(line)) return /\]\]>/;
+  if (/^ {0,3}<![A-Za-z]/.test(line)) return />/;
+  if (new RegExp(`^ {0,3}</?(${BLOCK_TAGS})(\\s|/?>|$)`, "i").test(line)) return /^[ \t]*$/;
+  if (LONE_TAG.test(line)) return /^[ \t]*$/;
+  return null;
+}
+// The model's text with its mentions quieted; with suggestions (an
+// inline comment), its suggestion blocks kept as written where the reading
+// above is sure of them. Line endings go out as "\n", as GitHub's parser
+// reads "\r\n" and a lone "\r".
+function noMentions(t, suggestions = false) {
+  const lines = t.replace(/\r\n?/g, "\n").split("\n");
+  const keep = new Set();
+  const read = suggestions && !UNREAD.test(t);
+  let html = null;
+  for (let i = 0; read && i < lines.length; i++) {
+    const line = lines[i];
+    if (html) {
+      if (html.test(line)) html = null;
+      continue;
+    }
+    if (/^[^A-Za-z`~]+(`{3,}|~{3,})/.test(line)) break;
+    const open = /^(`{3,}|~{3,})([^\n]*)$/.exec(line);
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      const close = new RegExp(`^ {0,3}${open[1][0]}{${open[1].length},}[ \\t]*$`);
+      let j = i + 1;
+      while (j < lines.length && !close.test(lines[j])) j++;
+      if (j === lines.length) break;
+      if (/^[ \t]*suggestion([ \t]|$)/.test(open[2])) for (let k = i; k <= j; k++) keep.add(k);
+      i = j;
+      continue;
+    }
+    const end = htmlBlockEnd(line);
+    if (end && !end.test(line)) html = end;
+  }
+  return lines
+    .map((line, i) => (keep.has(i) ? line : line.replace(MENTION, "$1\u200b")))
+    .join("\n");
+}
 // The model's text in a filed issue, kept from forging the form's
-// structure: no HTML comment (a dedupe marker is one) and no heading.
+// structure: no HTML comment (a dedupe marker is one) and no heading, and
+// kept from notifying anyone (noMentions, last, so that what the stripping
+// joins, such as "&#6<!---->4;login", is quieted too).
 // Comment openers and both closers ("-->" and "--!>") are stripped until
 // nothing changes, so "<!<!---->" cannot rebuild one. Headings are
 // escaped in every form GitHub renders: an ATX "#" after any indent,
@@ -247,10 +330,12 @@ function plain(t) {
     prev = out;
     out = out.replace(/<!--|--!?>/g, "");
   }
-  return out
-    .replace(/^([ \t>*+\-0-9.)]*)#/gm, "$1\\#")
-    .replace(/^([ \t>]*)(=+|-+)([ \t]*)$/gm, "$1\\$2$3")
-    .replace(/<(\/?h[1-6])/gi, "&lt;$1");
+  return noMentions(
+    out
+      .replace(/^([ \t>*+\-0-9.)]*)#/gm, "$1\\#")
+      .replace(/^([ \t>]*)(=+|-+)([ \t]*)$/gm, "$1\\$2$3")
+      .replace(/<(\/?h[1-6])/gi, "&lt;$1"),
+  );
 }
 // The body of a filed issue in the Task form's layout (its headings, as
 // GitHub renders a submitted form), for the operator, who triages it by
@@ -397,18 +482,27 @@ function fetchReviewedBase(sha) {
 const REPORT_LINES = [
   [
     "Closes reviewed",
-    /^Closes reviewed: (none|([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)*)$/gm,
+    /^Closes reviewed: (none|([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)*)$/,
   ],
-  ["Base reviewed", /^Base reviewed: \S+ at [0-9a-f]{40}$/gm],
-  ["Title reviewed", /^Title reviewed: .+$/gm],
-  ["Head reviewed", /^Head reviewed: [0-9a-f]{40}$/gm],
+  ["Base reviewed", /^Base reviewed: \S+ at [0-9a-f]{40}$/],
+  ["Title reviewed", /^Title reviewed: [^\n]+$/],
+  ["Head reviewed", /^Head reviewed: [0-9a-f]{40}$/],
 ];
+// A reviewed line's text after its name, line by line on "\n" as the
+// workflow's grep reads them (JavaScript's ^ and $ would also break at a
+// line or paragraph separator, which a title can hold).
+const reviewedLine = (body, name) =>
+  body
+    .split("\n")
+    .find((l) => l.startsWith(`${name}: `))
+    .slice(name.length + 2);
 function reportLineProblem(body) {
+  const lines = body.split("\n");
   for (const [name, re] of REPORT_LINES) {
     // Every line with the prefix counts, well-formed or not: the workflow
     // reads them all, so a malformed one beside a valid one fails it.
-    const prefixed = (body.match(new RegExp(`^${name}:`, "gm")) || []).length;
-    const valid = (body.match(re) || []).length;
+    const prefixed = lines.filter((l) => l.startsWith(`${name}:`)).length;
+    const valid = lines.filter((l) => re.test(l)).length;
     if (prefixed !== 1 || valid !== 1)
       return `the report must carry exactly one plain "${name}: ..." line of its own, at the start of a line, not a list item and not bold (found ${prefixed} such line(s), ${valid} well-formed); the four lines are "Closes reviewed: none" (or the closed issues), "Base reviewed: <base branch> at <40-hex base_sha>", "Title reviewed: <the title verbatim>" and "Head reviewed: <40-hex head>"`;
   }
@@ -852,7 +946,7 @@ const reviewTools = {
   },
   inline_comment: {
     description:
-      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub.",
+      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, except in a suggestion block whose fence starts a line, unindented, and is closed.",
     schema: {
       type: "object",
       properties: {
@@ -885,14 +979,20 @@ const reviewTools = {
           "--jq",
           ".html_url",
         ],
-        JSON.stringify({ body, commit_id: env.HEAD_SHA, path, line, side: "RIGHT" }),
+        JSON.stringify({
+          body: noMentions(body, true),
+          commit_id: env.HEAD_SHA,
+          path,
+          line,
+          side: "RIGHT",
+        }),
       );
       record({ inline: runState.inline + 1 });
       return text(`posted ${r}`);
     },
   },
   file_issue: {
-    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report.`,
+    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
     schema: {
       type: "object",
       properties: {
@@ -964,7 +1064,7 @@ const reviewTools = {
   },
   post_report: {
     description:
-      "Post the round's report as one comment on this pull request. Allowed once per run; it cannot edit or delete. The body must carry the four plain reviewed lines (Closes, Base, Title, Head reviewed), one each at the start of a line, or the post is refused. The server appends a hidden marker naming this workflow run, which the workflow's report check looks for (run id and attempt).",
+      "Post the round's report as one comment on this pull request. Allowed once per run; it cannot edit or delete. The body must carry the four plain reviewed lines (Closes, Base, Title, Head reviewed), one each at the start of a line, or the post is refused. The server appends a hidden marker naming this workflow run, which the workflow's report check looks for (run id and attempt), and puts a zero-width space after each @, so a mention notifies no one; the Title reviewed line must be the pull request's title verbatim.",
     schema: {
       type: "object",
       properties: { body: { type: "string" } },
@@ -982,7 +1082,7 @@ const reviewTools = {
       // The Base reviewed line names the commit this run diffed against,
       // which range_diff may later fetch by sha, so no other commit.
       const diffedBase = `${env.BASE} at ${git(["rev-parse", `origin/${env.BASE}`]).trim()}`;
-      const named = /^Base reviewed: (.+)$/m.exec(body)[1];
+      const named = reviewedLine(body, "Base reviewed");
       if (named !== diffedBase)
         return fail(
           `the Base reviewed line must read "Base reviewed: ${diffedBase}" (the pr tool's base and base_sha), not "Base reviewed: ${named}"`,
@@ -991,6 +1091,19 @@ const reviewTools = {
       // live pull request, so a stale run must end without a report.
       const why = stale();
       if (why) return fail(why);
+      // The title is the one free-text reviewed line, so it must be the
+      // pull request's own. Like the rest of the report it is posted with
+      // its mentions quieted, and the workflow drops the zero-width spaces
+      // on both sides before it compares the reviewed lines with the pull
+      // request, so they are dropped here too (a title copied from a filed
+      // issue's may hold them).
+      const title = getJson(`repos/${repo}/pulls/${pr}`).title;
+      const reviewedTitle = reviewedLine(body, "Title reviewed");
+      const bare = (x) => x.replaceAll("\u200b", "");
+      if (bare(reviewedTitle) !== bare(title))
+        return fail(
+          `the Title reviewed line must read "Title reviewed: ${title}" (the pull request's title, verbatim), not "Title reviewed: ${reviewedTitle}"`,
+        );
       const r = gh(
         [
           "api",
@@ -1002,7 +1115,7 @@ const reviewTools = {
           "--jq",
           ".html_url",
         ],
-        `${body.trimEnd()}\n\n<!-- pr-review run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
+        `${noMentions(body.trimEnd())}\n\n<!-- pr-review run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
       );
       // Set once the post succeeded (calls run one at a time), so a
       // rejected request can be retried without a duplicate.
@@ -1340,7 +1453,7 @@ const triageTools = {
   },
   comment: {
     description:
-      "Post this run's one comment on the issue. Allowed once per run; it cannot edit or delete. The server appends a hidden marker naming this workflow run, which the workflow's state check looks for (run id and attempt).",
+      "Post this run's one comment on the issue. Allowed once per run; it cannot edit or delete. The server appends a hidden marker naming this workflow run, which the workflow's state check looks for (run id and attempt), and puts a zero-width space after each @, so a mention notifies no one.",
     schema: {
       type: "object",
       properties: { body: { type: "string" } },
@@ -1363,7 +1476,7 @@ const triageTools = {
           "--jq",
           ".html_url",
         ],
-        `${body.trimEnd()}\n\n<!-- issue-triage run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
+        `${noMentions(body.trimEnd())}\n\n<!-- issue-triage run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
       );
       // Set once the post succeeded, so a rejected request can be retried.
       record({ comment: true });

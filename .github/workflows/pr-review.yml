@@ -621,6 +621,13 @@ jobs:
           last=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## Review R"))) | .body | @base64' \
             | tail -n 1 | base64 -d 2>/dev/null | { grep -E '^(Closes|Base|Title|Head) reviewed:' || true; })
+          # The server puts a zero-width space after each @ it posts, so a
+          # mention in the title notifies no one; the comparisons drop it,
+          # from the title too, which may hold one copied from a filed
+          # issue's.
+          zwsp=$(printf '\342\200\213')
+          last=${last//"$zwsp"/}
+          title_now=${TITLE//"$zwsp"/}
           reviewed=$(printf '%s\n' "$last" | grep '^Closes reviewed:' || true)
           base_reviewed=$(printf '%s\n' "$last" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//' || true)
           title_reviewed=$(printf '%s\n' "$last" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//' || true)
@@ -631,7 +638,7 @@ jobs:
             echo "the head is $HEAD but the last report reviewed $head_reviewed (that review may have failed); reviewing"
           elif [ "$base_reviewed" != "$BASE at $(git rev-parse "origin/$BASE")" ]; then
             echo "the base is $BASE at $(git rev-parse "origin/$BASE") but the last report reviewed against $base_reviewed; reviewing"
-          elif [ "$title_reviewed" != "$TITLE" ]; then
+          elif [ "$title_reviewed" != "$title_now" ]; then
             echo "the title differs from the one the last report reviewed; reviewing"
           elif [ "$(printf '%s' "$reviewed" | sed 's/^Closes reviewed:[[:space:]]*//' | tr ',' '\n' | tr -d ' ' | grep -v '^none$' | sed -E "s#^$repo_re\##\##I" | sort -u)" != "$(refs "$BODY")" ]; then
             echo "the closing references differ from the ones the last report reviewed; reviewing"
@@ -1277,6 +1284,11 @@ jobs:
             echo "::error::the reviewer posted no report on pull request $PR"
             exit 1
           fi
+          # The server puts a zero-width space after each @ it posts, so a
+          # mention in the title notifies no one; the comparisons drop it,
+          # from the pull request's side too (below).
+          zwsp=$(printf '\342\200\213')
+          reports=${reports//"$zwsp"/}
           closes=$(printf '%s\n' "$reports" | grep -cE '^Closes reviewed: (none|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+)*)$' || true)
           bases=$(printf '%s\n' "$reports" | grep -cE '^Base reviewed: [^[:space:]]+ at [0-9a-f]{40}$' || true)
           titles=$(printf '%s\n' "$reports" | grep -cE '^Title reviewed: .+$' || true)
@@ -1295,6 +1307,7 @@ jobs:
           # no event, so this is where a review of a stale diff is caught).
           want_base="$(jq -r .base.ref <<<"$pr") at $(jq -r .base.sha <<<"$pr")"
           want_title=$(jq -r .title <<<"$pr"); want_head=$(jq -r .head.sha <<<"$pr")
+          want_title=${want_title//"$zwsp"/}
           base_now=$(jq -r .base.sha <<<"$pr")
           got_base_sha=$(printf '%s\n' "$reports" | grep '^Base reviewed:' | sed -E 's/^Base reviewed: [^[:space:]]+ at //')
           if [ "$got_base_sha" != "$base_now" ] && [ "$got_base_sha" != "" ]; then
