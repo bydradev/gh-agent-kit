@@ -302,3 +302,18 @@ test("the early steps run only on a first attempt's no-op-shaped edit, and the s
   assert.deepEqual([...early.env].sort(), [...job.env, "PR"].sort());
   assert.match(text, /\n {6}- name: Defer the early skip while another review is in flight\n {8}id: inflight\n {8}continue-on-error: true\n/);
 });
+
+test("the last report's title is compared without the server's zero-width spaces", (t) => {
+  // The server posts "@dra" in the reviewed title as "@", a zero-width
+  // space and "dra", so it notifies no one. A title can hold one already,
+  // copied from a filed issue's, and the server adds its own.
+  const z = String.fromCharCode(0x200b);
+  for (const [title, reported] of [
+    ["fix: thank @dra", `fix: thank @${z}dra`],
+    [`fix: thank @${z}dra`, `fix: thank @${z}${z}dra`],
+  ]) {
+    const { out, env } = bodyEdit(t, { title, body: "Fixes #5", reported: { title: reported } });
+    assert.match(out, /nothing to review/, title);
+    assert.equal(env, "RUN=false\n", title);
+  }
+});
