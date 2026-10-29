@@ -2,6 +2,7 @@
 // a model list the way `opencode models opencode-go --verbose` does (1.19.3:
 // each model's id line, then its JSON); every other call records its
 // environment and arguments and prints the given events, one a line.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -40,20 +41,39 @@ export function readEnv(file) {
   );
 }
 
+// The line a run given --print-logs writes to stderr, as 1.19.3 logs a
+// refused request's retry, with no newline at its end and text a pull
+// request could steer, which must not run as a workflow command.
+export const LOG_LINE =
+  'timestamp=2026-10-28T23:56:29.931Z level=ERROR message="stream error" error.error="AI_APICallError: ::error::steered"';
+
 // Writes the stub to dir/opencode. `models` calls are recorded apart from
-// the run, in models-env and models-args.
-export function opencodeStub(dir, { events, exit = 0, models = MODELS, modelsExit = 0 }) {
+// the run, in models-env and models-args. A run prints `events` and exits
+// with `exit`; `runs`, a list of {events, exit}, gives each run in turn
+// its own (the last again once they run out). Every run's arguments and
+// configuration are kept in calls.jsonl, the last run's environment and
+// arguments in seen-env and seen-args.
+export function opencodeStub(dir, { events, exit = 0, runs, models = MODELS, modelsExit = 0 }) {
   const stub = path.join(dir, "opencode");
   const files = {
     stub,
     seen: path.join(dir, "seen-env"),
     argv: path.join(dir, "seen-args"),
+    calls: path.join(dir, "calls.jsonl"),
     modelsSeen: path.join(dir, "models-env"),
     modelsArgv: path.join(dir, "models-args"),
   };
-  const out = path.join(dir, "events.jsonl");
+  const all = runs ?? [{ events, exit }];
+  all.forEach((run, i) =>
+    fs.writeFileSync(
+      path.join(dir, `events-${i}.jsonl`),
+      run.events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))).join("\n") + "\n",
+    ),
+  );
+  const logLine = path.join(dir, "log-line");
+  fs.writeFileSync(logLine, LOG_LINE);
+  const count = path.join(dir, "runs");
   const list = path.join(dir, "models.txt");
-  fs.writeFileSync(out, events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))).join("\n") + "\n");
   fs.writeFileSync(list, models);
   fs.writeFileSync(
     stub,
@@ -65,10 +85,17 @@ if [ "$1" = models ]; then
   if [ ${modelsExit} -eq 0 ]; then cat "${list}"; else cat "${list}" >&2; fi
   exit ${modelsExit}
 fi
+n=$(cat "${count}" 2>/dev/null || echo 0)
+echo $((n + 1)) > "${count}"
+i=$(( n < ${all.length - 1} ? n : ${all.length - 1} ))
+exits=(${all.map((run) => run.exit ?? 0).join(" ")})
 env > "${files.seen}"
 printf '%s\\n' "$@" > "${files.argv}"
-cat "${out}"
-exit ${exit}
+for arg in "$@"; do jq -cn --arg a "$arg" '$a'; done \\
+  | jq -cs --arg config "$OPENCODE_CONFIG_CONTENT" '{config: ($config | fromjson), args: .}' >> "${files.calls}"
+case " $* " in *" --print-logs "*) cat "${logLine}" >&2 ;; esac
+cat "${dir}/events-$i.jsonl"
+exit \${exits[$i]}
 `,
     { mode: 0o755 },
   );
@@ -76,7 +103,7 @@ exit ${exit}
 }
 
 // What the stub recorded: both calls' environments and arguments, and the
-// configuration each was given.
+// configuration each was given, and every run's arguments and configuration.
 export function recorded(files) {
   const env = readEnv(files.seen);
   const modelsEnv = readEnv(files.modelsSeen);
@@ -85,8 +112,25 @@ export function recorded(files) {
     env,
     args: lines(files.argv),
     config: env ? JSON.parse(env.OPENCODE_CONFIG_CONTENT) : null,
+    calls: (lines(files.calls) ?? []).map((l) => JSON.parse(l)),
     modelsEnv,
     modelsArgs: lines(files.modelsArgv),
     modelsConfig: modelsEnv ? JSON.parse(modelsEnv.OPENCODE_CONFIG_CONTENT) : null,
+  };
+}
+
+const realSleep = spawnSync("bash", ["-c", "command -v sleep"], { encoding: "utf8" }).stdout.trim();
+
+// A sleep for dir/bin, ahead of the real one on PATH: it records the
+// seconds asked for in dir/slept and sleeps a twentieth of a second, so a
+// step's waits are seen without being waited out.
+export function sleepStub(dir) {
+  const bin = path.join(dir, "bin");
+  const slept = path.join(dir, "slept");
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, "sleep"), `#!/bin/bash\necho "$1" >> "${slept}"\nexec "${realSleep}" 0.05\n`, { mode: 0o755 });
+  return {
+    path: `${bin}:${process.env.PATH}`,
+    slept: () => (fs.existsSync(slept) ? fs.readFileSync(slept, "utf8").split("\n").filter(Boolean) : []),
   };
 }

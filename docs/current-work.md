@@ -99,8 +99,17 @@ checks against the schema and asks for again when it does not fit
 completed in 8 minutes 44 seconds and 25 steps, with no answer asked for
 again. The first review on OpenCode there, on the same pull request, took
 9 minutes 28 seconds and 39 steps. Not yet seen there: a verification of
-candidate findings on OpenCode (that scan found none), and triage since
-this change.
+candidate findings on OpenCode (that scan found none).
+
+The first triage on OpenCode there (2026-10-28, after v0.4.0) ended on
+Go's capacity refusal, as four scans in two target repositories did that
+evening when ten runs started within a minute; the next triage completed.
+The OpenCode runs now carry on in the same session after such a refusal,
+print OpenCode's log when they fail, and triage puts `.git` back after its
+run as the review and the scan do (`docs/setup.md`, *OpenCode CLI*). A
+replay of the refusal against the pinned CLI (2026-10-29) showed its five
+retries in the log; not yet seen on GitHub: a run that carries on after a
+refusal.
 
 ### Security scan on the pinned CLI (2026-10-23)
 

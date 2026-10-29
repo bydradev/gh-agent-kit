@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { ghCalls, gitRepo, startServer } from "./helpers/server.mjs";
+import { ghCalls, gitRepo, startServer, tempDir } from "./helpers/server.mjs";
 
 const REPORT = (base, head) =>
   [
@@ -85,6 +85,37 @@ test("post_report posts once, with the run marker, when the run is current", asy
   assert.equal(again.isError, true);
   assert.match(again.text, /already posted/);
   assert.equal(posts(server).length, 1);
+});
+
+// OpenCode carries a run on after Go's capacity refusal in a new CLI
+// process, which starts a new server; with STATE_FILE the run's limits
+// hold across it.
+test("with STATE_FILE, a carried-on run's new server keeps the run's report and inline limits", async (t) => {
+  const f = reviewFixture(t);
+  const state = path.join(tempDir(t), "agent-kit-state.json");
+  const env = { ...f.env, STATE_FILE: state };
+  const rules = [prRule(f.pull()), postRule("u")];
+  const first = await startServer(t, { mode: "review", env, rules });
+  const inline = { path: "b.txt", line: 1, body: "finding" };
+  assert.equal((await first.call("inline_comment", inline)).isError, false);
+  assert.equal((await first.call("post_report", { body: REPORT(f.base, f.head) })).isError, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(state, "utf8")), {
+    report: true,
+    inline: 1,
+    issues: 0,
+    comment: false,
+  });
+  const next = await startServer(t, { mode: "review", env, rules });
+  const again = await next.call("post_report", { body: REPORT(f.base, f.head) });
+  assert.equal(again.isError, true);
+  assert.match(again.text, /already posted/);
+  assert.equal((await next.call("inline_comment", inline)).isError, false);
+  assert.equal(JSON.parse(fs.readFileSync(state, "utf8")).inline, 2);
+  fs.writeFileSync(state, JSON.stringify({ report: true, inline: 40, issues: 0, comment: false }));
+  const last = await startServer(t, { mode: "review", env, rules });
+  assert.match((await last.call("inline_comment", inline)).text, /has posted 40 inline comments/);
+  assert.equal(posts(next).length, 1);
+  assert.equal(posts(last).length, 0);
 });
 
 test("post_report turns CRLF line endings into LF before checking and posting", async (t) => {
@@ -977,6 +1008,17 @@ test("comment posts once with the run marker and never on a pull request", async
   assert.equal(posts(onPr).length, 0);
 });
 
+test("with STATE_FILE, a carried-on triage's new server does not comment again", async (t) => {
+  const state = path.join(tempDir(t), "agent-kit-state.json");
+  const env = triageEnv({ STATE_FILE: state });
+  const rules = [issueRule(), postRule("u")];
+  const first = await startServer(t, { mode: "triage", env, rules });
+  assert.equal((await first.call("comment", { body: "## Triage\n" })).isError, false);
+  const next = await startServer(t, { mode: "triage", env, rules });
+  assert.match((await next.call("comment", { body: "again" })).text, /already posted/);
+  assert.equal(posts(next).length, 0);
+});
+
 // ---------- sweep mode ----------
 
 test("dispatch starts a run once per eligible issue still eligible now", async (t) => {
@@ -988,7 +1030,7 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
   const log = path.join(dir, "dispatched");
   fs.writeFileSync(eligible, "8\n9\n");
   fs.writeFileSync(log, "");
-  const server = await startServer(t, {
+  const sweep = {
     mode: "sweep",
     env: { ELIGIBLE_ISSUES: eligible, DISPATCH_LOG: log, GITHUB_REF_NAME: "main" },
     rules: [
@@ -1013,7 +1055,8 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
         stdout: "",
       },
     ],
-  });
+  };
+  const server = await startServer(t, sweep);
   assert.match(
     (await server.call("dispatch", { number: 7 })).text,
     /not in this sweep's eligible list/,
@@ -1029,4 +1072,11 @@ test("dispatch starts a run once per eligible issue still eligible now", async (
   );
   assert.equal(fs.readFileSync(log, "utf8"), "8\n9\n");
   assert.equal(ghCalls(server).filter((c) => c.args[0] === "workflow").length, 1);
+  // OpenCode carries a sweep on after a capacity refusal in a new process,
+  // whose new server reads the log back.
+  const next = await startServer(t, sweep);
+  for (const number of [8, 9])
+    assert.match((await next.call("dispatch", { number })).text, /already dispatched/);
+  assert.equal(ghCalls(next).length, 0);
+  assert.equal(fs.readFileSync(log, "utf8"), "8\n9\n");
 });

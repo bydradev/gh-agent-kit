@@ -454,7 +454,7 @@ allows (all read 2026-10-26 unless a date is given):
   against their pattern, so before the run `.git` moves out of the checkout
   and every symlink in it is removed, as for the security scan. The
   review's server reads `.git` for its diffs, so it is told where `.git`
-  went, and the review and the scan put `.git` back after the run.
+  went, and the review, the scan and triage put `.git` back after the run.
 - The MCP server starts with only its own variables, so it never sees the
   Go key.
 - `KIT_REVIEW_MAX_TURNS`, `KIT_SECURITY_MAX_TURNS` or
@@ -496,6 +496,39 @@ allows (all read 2026-10-26 unless a date is given):
   after each refusal, with pauses of up to a minute, was refused four
   times running. The turn count, cost and tokens come from exporting the
   session once the server has stopped.
+- Go turns a request away when the model's servers are full: "Upstream
+  request failed: [ttft_admission_refused] the cell is at capacity; retry
+  shortly (after 16 s)". 1.19.3 retries a request whose error it counts as
+  retryable five times, with about a minute of waiting in all (its session
+  retry policy, read 2026-10-28; replayed against the pinned CLI on
+  2026-10-29, its last retry failed 71 seconds after the first request),
+  but on 2026-10-28, with ten runs started within a minute, four scans and
+  a triage still ended on that refusal, each about 85 seconds after its
+  request. So after a refusal the run carries on in the same session, told
+  why, after the wait the refusal names (a minute at most, half a minute
+  when it names none), up to three times in a step; a fourth refusal fails
+  the step. The refused step is left out of what the model is sent next,
+  and the steps before it stay.
+  - The review and triage carry on in a new CLI process, with the steps
+    the run has left. The new process's MCP server reads what the run has
+    posted from a file the first one wrote (`STATE_FILE`, under the
+    runner's temporary directory), and the sweep's dispatches from its
+    log, so the run's one report or comment, its limits on inline comments
+    and issues, and the sweep's one dispatch per issue hold across it.
+  - The scan and its verification carry on through the server, where each
+    prompt has its own step budget, and the step limit check counts the
+    steps after each carry-on as the run's.
+  - With OpenCode's own retries, three refusals add about seven minutes to
+    a step when each comes as fast as those did; the scan's job has two
+    such steps. A job that still runs out of time fails on its time limit
+    (`KIT_REVIEW_TIMEOUT_MINUTES`, `KIT_SECURITY_TIMEOUT_MINUTES`,
+    `KIT_TRIAGE_TIMEOUT_MINUTES`).
+  - OpenCode prints its log (`--print-logs`) into the server's output (the
+    scan) or the CLI's stderr (the review and triage), where each retry is
+    a `stream error` line. A run that ends in error prints the last 50
+    lines, with workflow commands stopped. 1.19.3 also writes the log to a
+    file, but in the replay the file lacked its last lines when the CLI
+    exited.
 - The review's prompt says it runs in OpenCode's CLI, so the report's
   *Reviewer* line names OpenCode; a later round finds earlier reports by
   either runner.

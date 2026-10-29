@@ -945,7 +945,7 @@ jobs:
           # and the kill below stops it.
           password=$(openssl rand -hex 32)
           env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
-            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+            /opt/agent-kit/opencode serve --print-logs --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           url=""
@@ -956,7 +956,10 @@ jobs:
             sleep 1
           done
           if [ -z "$url" ]; then
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's server did not start"
             exit 1
           fi
@@ -1005,18 +1008,57 @@ jobs:
           # were refused at times one in four and at worst five in eight,
           # and a local scan that asked again after each refusal, with
           # pauses of up to a minute, was refused four times running.
-          status=0
-          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
-            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          # Through a file: an argument has a size limit.
-          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          # The text in $1 sent to the session: the reply in
+          # opencode-answer.json, curl's status in status, and the answer
+          # that fits, if there is one, in opencode-structured.json.
+          send() {
+            status=0
+            api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            # Through a file: an argument has a size limit.
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          }
+          # Go turns a request away when the model's servers are full:
+          # "[ttft_admission_refused] the cell is at capacity; retry shortly
+          # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
+          # it counts as retryable five times, about a minute of waiting in
+          # all (its session retry policy), but on 2026-10-28 four scans
+          # each ended on that refusal about 85 s after their request. So
+          # after a refusal the scan carries on in the same session, after
+          # the wait the refusal names (a minute at most, half a minute when
+          # it names none), three times in the step at most, asking again
+          # included. The refused step is left out of what the model is sent
+          # next, and the steps before it stay (1.19.3's message history).
+          # The seconds to wait when the reply is that refusal; nothing for
+          # any other reply.
+          refusal_pause() {
+            jq -r '.info.error // empty | tostring
+              | select(test("ttft_admission_refused|at capacity"))
+              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # $1 sent, then the run carried on after each refusal. kinds
+          # records each prompt as part of the run or of asking for the
+          # answer again ($2), for the step limit below.
+          kinds=()
+          refusals=0
+          send_through() {
+            local pause
+            send "$1"
+            kinds+=("$2")
+            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
+              refusals=$((refusals + 1))
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
+              sleep "$pause"
+              send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
+              kinds+=("$2")
+            done
+          }
+          send_through "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")" run
           for _ in 1 2; do
             [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
               && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
             echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
-            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
-              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+            send_through "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again." ask
           done
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
@@ -1062,15 +1104,25 @@ jobs:
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
-            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            # The server's log, which --print-logs puts in its output (each
+            # retry of a refused request is a "stream error" line), with
+            # workflow commands stopped as above; awk ends its last line, so
+            # the token below starts a line of its own.
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            echo "OpenCode's server log, its last 50 lines:"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
-          # The step limit is the run's, so the steps after a second prompt,
-          # which asked for the answer again, do not count.
-          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
-            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
-            | length' "$RUNNER_TEMP/opencode-session.json")
+          # The step limit is the run's: the steps after the first prompt
+          # and after each prompt that carried the run on count, and the
+          # steps after a prompt that asked for the answer again do not.
+          turns=$(jq --argjson kinds "$(printf '%s\n' "${kinds[@]}" | jq -cRs 'split("\n")[:-1]')" '
+            [foreach .messages[] as $m (-1; if $m.info.role == "user" then . + 1 else . end;
+              if $m.info.role == "assistant" and . >= 0 and $kinds[.] == "run"
+              then [$m.parts[]? | select(.type == "step-start")] | length else 0 end)] | add // 0' "$RUNNER_TEMP/opencode-session.json")
           if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
@@ -1255,7 +1307,7 @@ jobs:
           # and the kill below stops it.
           password=$(openssl rand -hex 32)
           env "${isolated[@]}" OPENCODE_CONFIG_CONTENT="$config" OPENCODE_SERVER_PASSWORD="$password" \
-            /opt/agent-kit/opencode serve --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
+            /opt/agent-kit/opencode serve --print-logs --hostname 127.0.0.1 --port 0 > "$RUNNER_TEMP/opencode-serve.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           url=""
@@ -1266,7 +1318,10 @@ jobs:
             sleep 1
           done
           if [ -z "$url" ]; then
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's server did not start"
             exit 1
           fi
@@ -1315,18 +1370,57 @@ jobs:
           # were refused at times one in four and at worst five in eight,
           # and a local scan that asked again after each refusal, with
           # pauses of up to a minute, was refused four times running.
-          status=0
-          api -X POST -d "$(ask "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")")" \
-            "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-          # Through a file: an argument has a size limit.
-          read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          # The text in $1 sent to the session: the reply in
+          # opencode-answer.json, curl's status in status, and the answer
+          # that fits, if there is one, in opencode-structured.json.
+          send() {
+            status=0
+            api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
+            # Through a file: an argument has a size limit.
+            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+          }
+          # Go turns a request away when the model's servers are full:
+          # "[ttft_admission_refused] the cell is at capacity; retry shortly
+          # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
+          # it counts as retryable five times, about a minute of waiting in
+          # all (its session retry policy), but on 2026-10-28 four scans
+          # each ended on that refusal about 85 s after their request. So
+          # after a refusal the scan carries on in the same session, after
+          # the wait the refusal names (a minute at most, half a minute when
+          # it names none), three times in the step at most, asking again
+          # included. The refused step is left out of what the model is sent
+          # next, and the steps before it stay (1.19.3's message history).
+          # The seconds to wait when the reply is that refusal; nothing for
+          # any other reply.
+          refusal_pause() {
+            jq -r '.info.error // empty | tostring
+              | select(test("ttft_admission_refused|at capacity"))
+              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # $1 sent, then the run carried on after each refusal. kinds
+          # records each prompt as part of the run or of asking for the
+          # answer again ($2), for the step limit below.
+          kinds=()
+          refusals=0
+          send_through() {
+            local pause
+            send "$1"
+            kinds+=("$2")
+            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
+              refusals=$((refusals + 1))
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
+              sleep "$pause"
+              send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
+              kinds+=("$2")
+            done
+          }
+          send_through "$prompt Your answer is your last message: one JSON object that fits this JSON schema, with no other text. $(jq -c . "$SCHEMA")" run
           for _ in 1 2; do
             [ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \
               && jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1 || break
             echo "::warning::OpenCode's last message was not a JSON object that fits the schema, so the answer is asked for again"
-            api -X POST -d "$(ask "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again.")" \
-              "$url/session/$session/message" > "$RUNNER_TEMP/opencode-answer.json" || status=$?
-            read_answer > "$RUNNER_TEMP/opencode-structured.json"
+            send_through "That last message was not one JSON object that fits the schema, so the workflow has no answer. Reply now with only that JSON object, your answer to the task above. The work you have done is in this session: do not start again." ask
           done
           # An answer that is not JSON (no answer at all, or a proxy's page)
           # reads as none.
@@ -1372,15 +1466,25 @@ jobs:
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
           echo "::$stop::"
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
-            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-serve.log" >&2
+            # The server's log, which --print-logs puts in its output (each
+            # retry of a refused request is a "stream error" line), with
+            # workflow commands stopped as above; awk ends its last line, so
+            # the token below starts a line of its own.
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            echo "OpenCode's server log, its last 50 lines:"
+            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
-          # The step limit is the run's, so the steps after a second prompt,
-          # which asked for the answer again, do not count.
-          turns=$(jq '.messages | (map(.info.role == "user") | indices(true)) as $u
-            | [.[($u[0] // 0):($u[1] // length)][] | select(.info.role == "assistant") | .parts[]? | select(.type == "step-start")]
-            | length' "$RUNNER_TEMP/opencode-session.json")
+          # The step limit is the run's: the steps after the first prompt
+          # and after each prompt that carried the run on count, and the
+          # steps after a prompt that asked for the answer again do not.
+          turns=$(jq --argjson kinds "$(printf '%s\n' "${kinds[@]}" | jq -cRs 'split("\n")[:-1]')" '
+            [foreach .messages[] as $m (-1; if $m.info.role == "user" then . + 1 else . end;
+              if $m.info.role == "assistant" and . >= 0 and $kinds[.] == "run"
+              then [$m.parts[]? | select(.type == "step-start")] | length else 0 end)] | add // 0' "$RUNNER_TEMP/opencode-session.json")
           if [ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]; then
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1

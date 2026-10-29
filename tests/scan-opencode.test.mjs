@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { MODELS, readEnv } from "./helpers/opencode.mjs";
+import { LOG_LINE, MODELS, readEnv, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -179,7 +179,7 @@ const PROSE = reply("No findings.");
 // message route returns (`status`, JSON `body`), or a list of them served
 // in turn (the last one again once they run out); `session` is what export
 // prints (null fails the export); `models` is the model list (null fails
-// the listing).
+// the listing); `serveFails` has the server log a line and exit unstarted.
 function scan(
   t,
   {
@@ -192,6 +192,7 @@ function scan(
     maxTurns = "80",
     candidates = "",
     models = MODELS,
+    serveFails = false,
   } = {},
 ) {
   const dir = tempDir(t);
@@ -201,7 +202,7 @@ function scan(
   const schema = path.join(temp, "scan-schema.json");
   fs.writeFileSync(schema, JSON.stringify(SCAN_SCHEMA));
   const spec = path.join(dir, "spec.json");
-  fs.writeFileSync(spec, JSON.stringify({ models, answer, session }));
+  fs.writeFileSync(spec, JSON.stringify({ models, answer, session, serveFails }));
   const log = path.join(dir, "calls.jsonl");
   const stub = path.join(dir, "opencode");
   fs.writeFileSync(
@@ -224,6 +225,9 @@ if (command === "models") {
 } else if (command === "export") {
   if (spec.session === null) process.exit(1);
   process.stdout.write(JSON.stringify(spec.session, null, 2));
+} else if (command === "serve" && spec.serveFails) {
+  process.stderr.write(${JSON.stringify(LOG_LINE)});
+  process.exit(1);
 } else if (command === "serve") {
   const auth = "Basic " + Buffer.from("opencode:" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
   const server = http.createServer((req, res) => {
@@ -238,6 +242,8 @@ if (command === "models") {
       if (req.headers.authorization !== auth) return send(401, { name: "Unauthorized" });
       if (req.method === "POST" && req.url === "/session") return send(200, { id: "ses_1" });
       if (req.method === "POST" && req.url === "/session/ses_1/message") {
+        // With --print-logs, a log line on stderr, unended.
+        if (asked === 0 && rest.includes("--print-logs")) process.stderr.write(${JSON.stringify(LOG_LINE)});
         const answer = answers[Math.min(asked++, answers.length - 1)];
         return send(answer.status, answer.body);
       }
@@ -254,6 +260,7 @@ if (command === "models") {
     { mode: 0o755 },
   );
   const script = stepScript(FILE, step).replaceAll("/opt/agent-kit/opencode", stub);
+  const sleep = sleepStub(dir);
   const result = path.join(temp, "result.json");
   const r = runStep(dir, script, {
     RUNNER_TEMP: temp,
@@ -268,6 +275,7 @@ if (command === "models") {
     KIT_SECURITY_MAX_TURNS: maxTurns,
     CANDIDATES: candidates,
     GH_TOKEN: "job-token",
+    PATH: sleep.path,
   });
   const calls = fs.existsSync(log)
     ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
@@ -284,6 +292,8 @@ if (command === "models") {
     requests: calls.filter((c) => c.request),
     messages: calls.filter((c) => c.request === "POST /session/ses_1/message").map((c) => c.body),
     result: fs.existsSync(result) ? JSON.parse(fs.readFileSync(result, "utf8")) : null,
+    // The waits asked for, but the server's start-up polls.
+    slept: sleep.slept().filter((s) => s !== "1"),
     input,
     temp,
   };
@@ -325,7 +335,7 @@ test("security-scan.yml, Run the scan on OpenCode: the answer comes back in Clau
 test("security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema", (t) => {
   const r = scan(t, { effort: "high" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.serve.args, ["--hostname", "127.0.0.1", "--port", "0"]);
+  assert.deepEqual(r.serve.args, ["--print-logs", "--hostname", "127.0.0.1", "--port", "0"]);
   assert.match(r.serve.env.OPENCODE_SERVER_PASSWORD, /^[0-9a-f]{64}$/);
   assert.doesNotMatch(r.stdout + r.stderr, new RegExp(r.serve.env.OPENCODE_SERVER_PASSWORD));
   assert.deepEqual(
@@ -650,4 +660,133 @@ test("security-scan.yml: both runners get the same prompts, and OpenCode's say w
     prompt("Verify the candidate findings on OpenCode"),
     prompt("Verify the candidate findings").slice(0, -1) + ' The verification runs in OpenCode\'s CLI."',
   );
+});
+
+// Go's capacity refusal, as the message route returns it.
+const refused = (after = "after 4 s") => ({
+  status: 200,
+  body: {
+    info: {
+      role: "assistant",
+      error: { name: "APIError", data: { message: `Upstream request failed: [ttft_admission_refused] the cell is at capacity; retry shortly (${after})` } },
+    },
+    parts: [],
+  },
+});
+const CARRY_ON =
+  "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text.";
+
+test("security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session", (t) => {
+  const r = scan(t, { answer: [refused(), ANSWER], effort: "high" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.result.structured_output, FINDINGS);
+  assert.equal(r.messages.length, 2);
+  const [first, second] = r.messages;
+  assert.deepEqual({ ...second, parts: null }, { ...first, parts: null });
+  assert.equal(second.parts[0].text, CARRY_ON);
+  assert.equal(r.requests.filter((q) => q.request === "POST /session").length, 1);
+  assert.deepEqual(r.slept, ["4"]);
+  assert.match(
+    r.stdout,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 4 s \(refusal 1 of the step's 3\)$/m,
+  );
+  assert.doesNotMatch(r.stdout, /asked for again/);
+
+  // While the answer is asked for again too.
+  const asking = scan(t, { answer: [PROSE, refused(), ANSWER] });
+  assert.equal(asking.status, 0, asking.stdout + asking.stderr);
+  assert.equal(asking.messages.length, 3);
+  assert.match(asking.messages[1].parts[0].text, /^That last message was not one JSON object/);
+  assert.equal(asking.messages[2].parts[0].text, CARRY_ON);
+
+  // The wait the refusal names, a minute at most, half a minute when it
+  // names none.
+  for (const [after, want] of [
+    ["after 0 s", "0"],
+    ["after 900 s", "60"],
+    ["soon", "30"],
+  ]) {
+    const w = scan(t, { answer: [refused(after), ANSWER] });
+    assert.equal(w.status, 0, after + w.stdout + w.stderr);
+    assert.deepEqual(w.slept, [want], after);
+  }
+});
+
+test("security-scan.yml, Run the scan on OpenCode: three refusals in the step at most, asking again included", (t) => {
+  const r = scan(t, { answer: [refused()] });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.messages.length, 4);
+  assert.deepEqual(r.slept, ["4", "4", "4"]);
+  assert.match(r.stdout, /^errors: Upstream request failed: \[ttft_admission_refused\] the cell is at capacity; retry shortly \(after 4 s\)$/m);
+  assert.match(r.stdout, /^::error::OpenCode's run ended in error or without an answer that fits the schema \(curl status 0\)$/m);
+  assert.equal(r.alive, false);
+
+  // One for the run and two while the answer is asked for again make
+  // three, so the fourth ends the step.
+  const both = scan(t, { answer: [refused(), PROSE, refused(), refused(), refused(), ANSWER] });
+  assert.equal(both.status, 1, both.stdout + both.stderr);
+  assert.equal(both.messages.length, 5);
+  assert.deepEqual(both.slept, ["4", "4", "4"]);
+  assert.match(both.stdout, /\(refusal 3 of the step's 3\)$/m);
+
+  // Other errors end the run at once.
+  const other = scan(t, {
+    answer: [{ status: 200, body: { info: { role: "assistant", error: { name: "APIError", data: { message: "Upstream request failed: Invalid credential" } } }, parts: [] } }, ANSWER],
+  });
+  assert.equal(other.status, 1, other.stdout + other.stderr);
+  assert.equal(other.messages.length, 1);
+  assert.deepEqual(other.slept, []);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: the step limit counts the steps after a refusal, not the asking again", (t) => {
+  const user = (text) => ({ info: { role: "user" }, parts: [{ type: "text", text }] });
+  const session = {
+    ...SESSION,
+    messages: [
+      user("Read the skill."),
+      message([{ type: "tool", tool: "read" }]),
+      user(CARRY_ON),
+      message([{ type: "tool", tool: "read" }]),
+      message([{ type: "text", text: "No findings." }]),
+      user("That last message was not one JSON object."),
+      message([{ type: "text", text: JSON.stringify(FINDINGS) }]),
+    ],
+  };
+  const answer = [refused(), PROSE, ANSWER];
+  const r = scan(t, { answer, session, maxTurns: "4" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const limit = scan(t, { answer, session, maxTurns: "3" });
+  assert.equal(limit.status, 1, limit.stdout + limit.stderr);
+  assert.match(limit.stdout, /^::error::OpenCode's run reached the turn limit \(KIT_SECURITY_MAX_TURNS=3\)$/m);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, { step, serveFails: true, candidates: "3" });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const lines = r.stdout.split("\n");
+    const at = lines.indexOf(LOG_LINE);
+    assert.notEqual(at, -1, r.stdout);
+    const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+    assert.ok(begin, r.stdout);
+    assert.equal(lines[at + 1], `::${begin[1]}::`);
+    assert.equal(lines[at + 2], "::error::OpenCode's server did not start");
+  }
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a run that ends in error shows the server's log, with commands stopped", (t) => {
+  for (const answer of [PROSE, { status: 500, body: { name: "UnknownError" } }]) {
+    const r = scan(t, { answer });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const lines = r.stdout.split("\n");
+    const at = lines.indexOf("OpenCode's server log, its last 50 lines:");
+    assert.notEqual(at, -1, r.stdout);
+    assert.match(lines[at + 1], /^opencode server listening on http:\/\/127\.0\.0\.1:\d+$/);
+    const begin = lines[at - 1].match(/^::stop-commands::([0-9a-f]{32})$/);
+    assert.ok(begin, r.stdout);
+    // The log line --print-logs gave, ended so the token has a line of its own.
+    assert.equal(lines[at + 2], LOG_LINE);
+    assert.equal(lines[at + 3], `::${begin[1]}::`);
+    assert.match(lines[at + 4], /^::error::OpenCode's run ended in error/);
+  }
 });

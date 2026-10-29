@@ -1,7 +1,9 @@
 // file_issue: the reviewer's backlog issues for out-of-scope findings.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ghCalls, gitRepo, startServer } from "./helpers/server.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { ghCalls, gitRepo, startServer, tempDir } from "./helpers/server.mjs";
 
 function fixture(t, { filed = [], pull = {} } = {}) {
   const repo = gitRepo(t);
@@ -170,6 +172,22 @@ test("file_issue checks its arguments and stops at five a run", async (t) => {
   const sixth = await server.call("file_issue", { ...ARGS, finding: "R1-06" });
   assert.match(sixth.text, /has filed 5 issues/);
   assert.equal(created(server).length, 5);
+});
+
+test("file_issue's five a run hold across a carried-on run's new server (STATE_FILE)", async (t) => {
+  const f = fixture(t);
+  const state = path.join(tempDir(t), "agent-kit-state.json");
+  const env = { ...f.env, STATE_FILE: state };
+  const first = await startServer(t, { mode: "review", env, rules: f.rules });
+  for (let i = 1; i <= 3; i++)
+    assert.equal((await first.call("file_issue", { ...ARGS, finding: `R1-0${i}` })).isError, false);
+  assert.equal(JSON.parse(fs.readFileSync(state, "utf8")).issues, 3);
+  const next = await startServer(t, { mode: "review", env, rules: f.rules });
+  for (let i = 4; i <= 5; i++)
+    assert.equal((await next.call("file_issue", { ...ARGS, finding: `R1-0${i}` })).isError, false);
+  const sixth = await next.call("file_issue", { ...ARGS, finding: "R1-06" });
+  assert.match(sixth.text, /has filed 5 issues/);
+  assert.equal(created(next).length, 2);
 });
 
 test("file_issue is refused once the run is stale", async (t) => {

@@ -529,7 +529,10 @@ jobs:
       # itself gets no Bash, no file-writing tool and no network tool; its
       # file reads stay inside the checkout
       # (blockReadsOutsideWorkingDirectories); and its own process and
-      # subprocesses see empty GH_TOKEN and GITHUB_TOKEN.
+      # subprocesses see empty GH_TOKEN and GITHUB_TOKEN. The server keeps
+      # what the run has posted in a file beside the token's (STATE_FILE),
+      # and the sweep's dispatches in DISPATCH_LOG, so its per-run limits
+      # hold when OpenCode carries the run on in a new process.
       - name: Write the model's settings and the MCP server's configuration
         if: steps.gate.outputs.skip != 'true'
         env:
@@ -548,8 +551,8 @@ jobs:
           cat "$RUNNER_TEMP/claude-settings.json"
           (umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-token")
           mcp=$(jq -cn --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
-            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: {GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt}}}}')
+            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: {GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state}}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
       # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
@@ -748,10 +751,12 @@ jobs:
       # are checked only against their pattern, so the read rules for .git
       # do not cover them, and its read tool follows a symlink that leads
       # out of the checkout. So on the opencode runner, .git moves out of
-      # the checkout (no later step needs it: the server's triage and sweep
-      # tools use gh, not git) and every symlink is removed, as the security
-      # scan does. Paths outside the checkout stay denied, and without .git
-      # OpenCode still scopes them to it (tried with 1.19.3, 2026-10-26).
+      # the checkout (the server's triage and sweep tools use gh, not git)
+      # and every symlink is removed, as the security scan does. Paths
+      # outside the checkout stay denied, and without .git OpenCode still
+      # scopes them to it (tried with 1.19.3, 2026-10-26). A later step puts
+      # .git back for the checkout action's cleanup, as the review and the
+      # scan do.
       - name: Hide .git and the checkout's symlinks from OpenCode
         if: env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'
         run: |
@@ -792,7 +797,8 @@ jobs:
       #   reaches it with a text answer and exit status 0, so a run that
       #   used every step fails here, as Claude Code's does at --max-turns.
       #   An error event (a refused key or model, an API failure) or a
-      #   last step that did not stop on its own fails it as well.
+      #   last step that did not stop on its own fails it as well, but for
+      #   Go's capacity refusal, after which the run carries on (below).
       # - small_model is the triage model too, so the session title
       #   OpenCode generates does not go to another model.
       # - OpenCode installs its plugin package from npm into its config
@@ -877,17 +883,59 @@ jobs:
             variant=(--variant "$KIT_TRIAGE_EFFORT")
           fi
           echo "variant: ${KIT_TRIAGE_EFFORT:-none, so the model default applies}"
-          status=0
-          oc "$config" run --format json -m "opencode-go/$KIT_TRIAGE_MODEL" "${variant[@]}" "$PROMPT" \
-            > "$RESULT" 2> "$RUNNER_TEMP/opencode-stderr" || status=$?
-          # One JSON event a line; anything else on stdout is left out.
-          events=$(jq -cR 'fromjson? | objects' "$RESULT")
+          # Go turns a request away when the model's servers are full:
+          # "[ttft_admission_refused] the cell is at capacity; retry shortly
+          # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
+          # it counts as retryable five times, about a minute of waiting in
+          # all (its session retry policy), but on 2026-10-28 runs still
+          # ended on that refusal. So after a refusal the run carries on in
+          # the same session (--session), told why, with the steps it has
+          # left, after the wait the refusal names (a minute at most, half a
+          # minute when it names none), three times in the step at most. The
+          # refused step is left out of what the model is sent next, and the
+          # steps before it stay (1.19.3's message history). RESULT gets every
+          # attempt's events; the exit status and errors are the last
+          # attempt's.
+          : > "$RESULT"
+          refusals=0
+          session=""
+          run_config=$config
+          resume=()
+          text=$PROMPT
+          while :; do
+            status=0
+            oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_TRIAGE_MODEL" "${variant[@]}" "${resume[@]}" "$text" \
+              > "$RUNNER_TEMP/opencode-attempt.jsonl" 2> "$RUNNER_TEMP/opencode-stderr" || status=$?
+            # One JSON event a line; anything else on stdout is left out.
+            jq -cR 'fromjson? | objects' "$RUNNER_TEMP/opencode-attempt.jsonl" > "$RUNNER_TEMP/opencode-attempt-events.jsonl"
+            cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT"
+            # The seconds to wait when the attempt ended on that refusal.
+            pause=$(jq -rs 'map(select(.type == "error")) | last // empty | .error | tostring
+              | select(test("ttft_admission_refused|at capacity"))
+              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              "$RUNNER_TEMP/opencode-attempt-events.jsonl")
+            session=$(jq -rs 'map(.sessionID // empty | strings) | first // empty' "$RESULT")
+            left=$(( KIT_TRIAGE_MAX_TURNS - $(jq -s 'map(select(.type == "step_start")) | length' "$RESULT") ))
+            if [ -z "$pause" ] || [ "$refusals" -ge 3 ] || [ -z "$session" ] || [ "$left" -le 0 ]; then
+              break
+            fi
+            refusals=$((refusals + 1))
+            echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
+            sleep "$pause"
+            run_config=$(jq -c --argjson steps "$left" '.agent.build.steps = $steps' <<<"$config")
+            resume=(--session "$session")
+            text="OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again."
+          done
+          events=$(cat "$RESULT")
           if [ -z "$events" ]; then
-            tail -n 50 "$RUNNER_TEMP/opencode-stderr" >&2
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            tail -n 50 "$RUNNER_TEMP/opencode-stderr" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode exited with status $status and no events"
             exit 1
           fi
-          summary=$(jq -s '{
+          summary=$(jq -s --slurpfile last "$RUNNER_TEMP/opencode-attempt-events.jsonl" '{
             steps: map(select(.type == "step_start")) | length,
             reason: (map(select(.type == "step_finish")) | last | .part.reason // ""),
             cost: (map(select(.type == "step_finish") | .part.cost // 0) | add // 0),
@@ -896,7 +944,7 @@ jobs:
             cache_write: (map(select(.type == "step_finish") | .part.tokens.cache.write // 0) | add // 0),
             output: (map(select(.type == "step_finish") | .part.tokens.output // 0) | add // 0),
             reasoning: (map(select(.type == "step_finish") | .part.tokens.reasoning // 0) | add // 0),
-            errors: (map(select(.type == "error") | .error.data.message // .error.name // "error") | join("; ")),
+            errors: ($last | map(select(.type == "error") | .error.data.message // .error.name // "error") | join("; ")),
             result: (map(select(.type == "text") | .part.text // "") | last // "")
           }' <<<"$events")
           # The model's last message, with workflow commands stopped: text the
@@ -906,13 +954,29 @@ jobs:
           jq -r '"steps: \(.steps)\nlast step: \(.reason)\ncost_usd (Go prices): \(.cost)\ntokens: input \(.input), cache read \(.cache_read), cache write \(.cache_write), output \(.output), reasoning \(.reasoning)\nerrors: \(.errors)\nresult: \(.result | .[0:2000])"' <<<"$summary"
           echo "::$stop::"
           if [ "$status" -ne 0 ] || [ -n "$(jq -r '.errors' <<<"$summary")" ] || [ "$(jq -r '.reason' <<<"$summary")" != "stop" ]; then
-            [ "$status" -eq 0 ] || tail -n 50 "$RUNNER_TEMP/opencode-stderr" >&2
+            # OpenCode's log, which --print-logs puts on its stderr (each
+            # retry of a refused request is a "stream error" line), with
+            # workflow commands stopped as above; awk ends its last line, so
+            # the token below starts a line of its own.
+            stop=$(openssl rand -hex 16)
+            echo "::stop-commands::$stop"
+            echo "OpenCode's log (its stderr), the last 50 lines:"
+            tail -n 50 "$RUNNER_TEMP/opencode-stderr" | awk 1
+            echo "::$stop::"
             echo "::error::OpenCode's run ended in error (exit status $status)"
             exit 1
           fi
           if [ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_TRIAGE_MAX_TURNS" ]; then
             echo "::error::OpenCode's run reached the turn limit (KIT_TRIAGE_MAX_TURNS=$KIT_TRIAGE_MAX_TURNS)"
             exit 1
+          fi
+      # Back where actions/checkout's post step cleans its configuration,
+      # whether or not the run succeeded.
+      - name: Put .git back in the checkout
+        if: always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'
+        run: |
+          if [ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]; then
+            mv -- "$RUNNER_TEMP/checkout-git" .git
           fi
       - name: Remove the token file
         if: always() && steps.gate.outputs.skip != 'true'

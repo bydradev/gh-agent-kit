@@ -204,13 +204,22 @@ function fail(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+// What this run has posted, against its per-run limits. With STATE_FILE
+// set (outside the checkout, where the model cannot write), the counts
+// outlive this process: OpenCode carries a run on after Go's capacity
+// refusal in a new CLI process, which starts a new server.
+const runState = { report: false, inline: 0, issues: 0, comment: false };
+if (env.STATE_FILE && fs.existsSync(env.STATE_FILE))
+  Object.assign(runState, JSON.parse(fs.readFileSync(env.STATE_FILE, "utf8")));
+function record(change) {
+  Object.assign(runState, change);
+  if (env.STATE_FILE) fs.writeFileSync(env.STATE_FILE, JSON.stringify(runState) + "\n");
+}
+
 // ---------- review mode ----------
 const pr = env.PR;
-let reportPosted = false;
-let inlinePosted = 0;
 const INLINE_LIMIT = 40; // inline findings per run; the report carries the rest
 const ISSUE_LIMIT = 5; // backlog issues per run; the report names the rest
-let issuesFiled = 0;
 // This pull request's filed issues by finding ID, read once per run from
 // the issues this repository's bot opened, open or closed (the operator
 // may have closed one as not planned), and kept current as the run files.
@@ -855,7 +864,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ path, line, body }) => {
-      if (inlinePosted >= INLINE_LIMIT)
+      if (runState.inline >= INLINE_LIMIT)
         return fail(
           `this run has posted ${INLINE_LIMIT} inline comments; put the rest in the report`,
         );
@@ -878,7 +887,7 @@ const reviewTools = {
         ],
         JSON.stringify({ body, commit_id: env.HEAD_SHA, path, line, side: "RIGHT" }),
       );
-      inlinePosted += 1;
+      record({ inline: runState.inline + 1 });
       return text(`posted ${r}`);
     },
   },
@@ -936,7 +945,7 @@ const reviewTools = {
       }
       const earlier = filedByFinding.get(finding);
       if (earlier) return text(`already filed for ${finding}: ${earlier}`);
-      if (issuesFiled >= ISSUE_LIMIT)
+      if (runState.issues >= ISSUE_LIMIT)
         return fail(`this run has filed ${ISSUE_LIMIT} issues; name the rest in the report`);
       const why = stale();
       if (why) return fail(why);
@@ -948,7 +957,7 @@ const reviewTools = {
           labels: ["needs-operator"],
         }),
       );
-      issuesFiled += 1;
+      record({ issues: runState.issues + 1 });
       filedByFinding.set(finding, `${r} (open, filed by this run)`);
       return text(`filed ${r}`);
     },
@@ -963,7 +972,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ body }) => {
-      if (reportPosted) return fail("this run has already posted its report");
+      if (runState.report) return fail("this run has already posted its report");
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
       // Line endings as the workflow's grep reads them.
@@ -997,7 +1006,7 @@ const reviewTools = {
       );
       // Set once the post succeeded (calls run one at a time), so a
       // rejected request can be retried without a duplicate.
-      reportPosted = true;
+      record({ report: true });
       return text(`posted ${r}`);
     },
   },
@@ -1006,8 +1015,13 @@ const reviewTools = {
 // ---------- triage mode ----------
 const n = env.TRIAGE_ISSUE;
 const event = env.TRIAGE_EVENT;
-let commentPosted = false;
-const dispatched = new Set();
+// The sweep's dispatches so far, from its log, which a carried-on run's
+// server reads back.
+const dispatched = new Set(
+  env.DISPATCH_LOG && fs.existsSync(env.DISPATCH_LOG)
+    ? fs.readFileSync(env.DISPATCH_LOG, "utf8").split("\n").filter(Boolean).map(Number)
+    : [],
+);
 // The issues API serves pull requests too; a dispatched number that names
 // one is refused before any read or write.
 function issue() {
@@ -1334,7 +1348,7 @@ const triageTools = {
       additionalProperties: false,
     },
     run: ({ body }) => {
-      if (commentPosted) return fail("this run has already posted its one comment");
+      if (runState.comment) return fail("this run has already posted its one comment");
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
       ensureOpen();
@@ -1352,7 +1366,7 @@ const triageTools = {
         `${body.trimEnd()}\n\n<!-- issue-triage run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
       );
       // Set once the post succeeded, so a rejected request can be retried.
-      commentPosted = true;
+      record({ comment: true });
       return text(`posted ${r}`);
     },
   },
