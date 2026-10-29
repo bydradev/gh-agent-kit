@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/bydradev/gh-agent-kit/compare/v0.4.0...v0.4.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* carry OpenCode runs on after Go's capacity refusal ([#29](https://github.com/bydradev/gh-agent-kit/issues/29)) ([f806fc9](https://github.com/bydradev/gh-agent-kit/commit/f806fc9700054212bd647a1f1ce43a87746d4a86))
+
 ## [0.4.0](https://github.com/bydradev/gh-agent-kit/compare/v0.3.2...v0.4.0) (2026-10-28)
 
 
