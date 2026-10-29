@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=63ed4d0510f1bdb9811a52c6e9812f4046a71b5fb098d87afcdf287ea348c0d5 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=d2c3ecc5af506976899c49f235573ced974f87545b4d9ae972395fc7dac995ca -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -20,42 +20,24 @@ merge-ready:
   changelog entries below, or split the PR. The title becomes the squash
   subject, the changelog entry, and the version-bump signal.
 - **User-visible line:** the body carries one line of its own, at column 0,
-  reading `User-visible: yes` or `User-visible: no`. The required title check
-  fails without it, and when it disagrees with whether Release Please will
-  release the change. Decide the answer from the diff first, then choose the
-  type that agrees with it; never change the answer to fit a type. Answer
-  `yes` when the change reaches users through a release: what the released
-  project does, outputs, or ships changes, so the type is `feat`, `fix`,
-  `perf`, or `revert`, or the change is breaking (`!` or a `BREAKING CHANGE:`
-  footer). Answer `no` when it does not: documentation readers get from the
-  repository or a site as soon as it merges, CI, tests, refactors, and
-  tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text a
-  release ships, such as help output, is `yes`. The check reads the body as
-  Release Please does, so an extra entry of a released type or a
-  `BREAKING-CHANGE:` token anywhere in the body but a footer's own line, even
-  quoted, also makes the answer `yes`. A release or `Release-As:` version
-  that only a footer ending the body gives, such as `Release-As:` under a
-  `chore:` title, fails with either answer, because GitHub's squash trailers
-  turn that footer into body text: give the release to the title or an extra
-  entry, mark a breaking change with `!` or a `BREAKING CHANGE:` note so it
-  stays breaking, and to keep a `Release-As:` version, put the whole message
-  in a `BEGIN_COMMIT_OVERRIDE` block. Keep the `BREAKING-CHANGE:` token, lines
-  that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
-  (Release Please replaces the commit with what follows it) out of prose, and
-  indent a line that starts with a call such as `f(g(x))`: Release Please
-  cannot parse it and drops the commit, which the check also reports. GitHub
-  rewraps a body line over 72 characters for the squash commit, which can
-  start a line that way, and the check reads the wrapped lines: break a long
-  line yourself so none does. Give an extra entry's scope text and no
-  parenthesis inside it, for the same reason.
-  Keep a `<details>` tag out of the scope and code spans of a released title
-  or entry and out of breaking-change notes, including the subject of a
-  change marked `!` that has no note of its own: the changelog keeps it as
-  HTML, and Release Please then cannot read back its release pull request,
-  which the check reports too. Write a `Release-As:` version as numbers on
-  the footer's own line, such as `Release-As: 1.2.0`: Release Please stops
-  with an error on one it cannot read. Editing the body re-runs the check.
-  Release Please and Dependabot PRs have no such line and are not checked.
+  reading `User-visible: yes` or `User-visible: no`. Decide it from the diff,
+  then choose the type that agrees; never change the answer to fit a type.
+  `yes`: what the released project does, outputs or ships changes (help
+  text included), typed `feat`, `fix`, `perf` or `revert`, or breaking (`!`
+  or a `BREAKING CHANGE:` footer). `no`: docs readers get as soon as it
+  merges, CI, tests, refactors and tooling, typed `docs`, `chore`,
+  `refactor`, `test`, `build` or `ci`. The required title check reads the
+  body as Release Please does, so an extra entry of a released type or a
+  `BREAKING-CHANGE:` token anywhere in the body also means `yes`. It also
+  fails a body Release Please would misread: a release or `Release-As:`
+  version that only a closing footer gives, a line that GitHub's 72-column
+  rewrap would start with a call such as `f(x`, a scope with no text or a
+  parenthesis inside it, a `<details>` tag in a released entry. Its message
+  names the fix; follow it rather than rewording around it. Keep the
+  `BEGIN_COMMIT_OVERRIDE` marker out of prose (Release Please replaces the
+  commit with what follows it), and write a `Release-As:` version as
+  numbers, such as `Release-As: 1.2.0`. Editing the body re-runs the check.
+  Release Please and Dependabot PRs are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
@@ -128,21 +110,13 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
 
 ## Sources
 
-- Which changelog entries render: release-please v17.6.0 and
-  conventional-changelog-conventionalcommits 6.1.0, checked 2026-09-17.
-- Which changes Release Please releases (a release needs a rendered entry; a
-  breaking change or a `Release-As:` footer renders whatever its type) and
-  how it reads a squash body: release-please v17.6.0, the version
-  release-please-action v5.0.0 locks, and v17.11.2, with
-  conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18.
-- How it reads back a release pull request's body: release-please v17.6.0
-  with node-html-parser 6.1.11, the version release-please-action v5.0.0
-  bundles, and 6.1.13, which reads those bodies the same way, checked
-  2026-10-22.
-- GitHub's default squash message ending the body with a line of dashes and
-  `Signed-off-by` and `Co-authored-by` trailers: seen on 24 squash commits on
-  gh-repo-bootstrapper's `main`; release-please v17.6.0 then reads a trailing
-  footer as body text, and takes an override block from the pull request
-  body (`build/src/commit.js`), checked 2026-10-23.
+- Which entries render and release, and how a squash body and override block
+  are read: release-please v17.6.0 and v17.11.2 with
+  conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18 and
+  2026-10-23.
+- How a release PR body is read back: release-please v17.6.0 with
+  node-html-parser 6.1.11 and 6.1.13, checked 2026-10-22.
+- GitHub's default squash message (dashes, then trailers): 24 squash commits
+  on gh-repo-bootstrapper's `main`, checked 2026-10-23.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.
