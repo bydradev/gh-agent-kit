@@ -454,9 +454,10 @@ jobs:
           echo "ELIGIBLE_ISSUES=$RUNNER_TEMP/eligible-issues" >> "$GITHUB_ENV"
           sudo install -d -o root -g root -m 0755 /opt/agent-kit
           sudo install -o root -g root -m 0755 .github/scripts/mcp-server.mjs /opt/agent-kit/mcp-server.mjs
-          # The model gets no Bash, no file-writing tool and no network
-          # tool; its file reads stay inside the checkout and out of .git.
-          echo "DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+          # The model gets no Bash, no file-writing tool, no network tool,
+          # no subagent and no worktree (pr-review.yml says why); its file
+          # reads stay inside the checkout and out of .git.
+          echo "DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill,ScheduleWakeup,EnterWorktree,ExitWorktree,CronDelete,SendMessage,TaskStop,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
           if [ -n "$ISSUE" ]; then
             echo "MCP_MODE=triage" >> "$GITHUB_ENV"
             echo "ALLOWED=Read,Grep,Glob,mcp__agent-kit__view,mcp__agent-kit__comments,mcp__agent-kit__comment_body,mcp__agent-kit__search,mcp__agent-kit__read_issue,mcp__agent-kit__open_prs,mcp__agent-kit__info,mcp__agent-kit__add_label,mcp__agent-kit__remove_label,mcp__agent-kit__comment" >> "$GITHUB_ENV"
@@ -543,7 +544,7 @@ jobs:
           {
             "permissions": {
               "blockReadsOutsideWorkingDirectories": true,
-              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ScheduleWakeup", "EnterWorktree", "ExitWorktree", "CronDelete", "SendMessage", "TaskStop", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
             },
             "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
           }

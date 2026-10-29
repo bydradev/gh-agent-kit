@@ -555,12 +555,20 @@ slow to answer.
 
 ### Reads and writes
 
-In the review and triage runs the model has no shell, no file-writing tool
-and no network tool, and reads files only inside the checkout, outside
-`.git`. Every GitHub read and write goes through the MCP server in
-`.github/scripts/mcp-server.mjs`, which runs from a root-owned copy outside
-the checkout, holds the job token in its own environment only, and offers
-named tools:
+In the review and triage runs the model has no shell, no file-writing
+tool, no network tool and no subagent, and reads files only inside the
+checkout, outside `.git`. Claude Code's subagent and scheduling tools
+(`Agent`, its older name `Task`, `Skill` and `ScheduleWakeup`) are denied
+with the others, since `--max-turns` counts only the main session's turns:
+with them, the turn limit would not bound a run. So are the tools it
+offers through `ToolSearch` that act: `EnterWorktree` and `ExitWorktree`,
+which add a worktree and a branch to the checkout, `CronDelete`,
+`SendMessage` and `TaskStop` (tried on 2.1.306, 2026-10-29). OpenCode's
+deny-all permissions leave its own subagent tool out. Every GitHub read
+and write goes through the MCP server in
+`.github/scripts/mcp-server.mjs`, which runs from a root-owned copy
+outside the checkout, holds the job token in its own environment only, and
+offers named tools:
 
 | Run | Reads | Writes |
 | --- | --- | --- |

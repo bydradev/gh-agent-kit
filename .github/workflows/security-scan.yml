@@ -646,9 +646,10 @@ jobs:
       # marked its own files -diff or binary would otherwise hide their
       # content from the scan as "Binary files differ". Its reads stay in
       # those two places (blockReadsOutsideWorkingDirectories) and out of
-      # .git, and it gets no Bash, file-writing or network tool. Its answer
-      # is the structured output the schemas below describe, which the
-      # steps after each run check before anything is posted.
+      # .git, and it gets no Bash, file-writing, network, subagent or
+      # worktree tool (pr-review.yml says why the last two). Its answer is
+      # the structured output the schemas below describe, which the steps
+      # after each run check before anything is posted.
       - name: Write the scan's inputs and the model's settings
         if: env.RUN != 'false'
         env:
@@ -666,14 +667,14 @@ jobs:
           {
             "permissions": {
               "blockReadsOutsideWorkingDirectories": true,
-              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ScheduleWakeup", "EnterWorktree", "ExitWorktree", "CronDelete", "SendMessage", "TaskStop", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
             },
             "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
           }
           EOF
           cat "$RUNNER_TEMP/claude-settings.json"
           echo "SCAN_ALLOWED=Read,Grep,Glob" >> "$GITHUB_ENV"
-          echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+          echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill,ScheduleWakeup,EnterWorktree,ExitWorktree,CronDelete,SendMessage,TaskStop,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
           # The scan's answer: the candidate findings, in the fields the
           # skill names (the record and the inline comments read them).
           jq -cn '{
