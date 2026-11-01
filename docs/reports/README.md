@@ -4,8 +4,8 @@ Which models can run the kit's review, scan and triage, and what does
 each cost? Between 2026-10-23 and 2026-10-26 the three workflows that use
 a model were replayed on past work with cheaper models, and every answer
 was compared with what the default model had done. This page puts the
-results side by side. The four [dated reports](#the-reports) have the
-method, the rules and every case.
+results side by side. The [dated reports](#the-reports) have the method,
+the rules and every case.
 
 **In short:**
 
@@ -45,6 +45,19 @@ every other model's findings were checked against the reviewed commit.
   one review took 36 minutes.
 - **Times are not like for like.** Opus ran on GitHub's runners; the Go
   models ran in a container, where nearly all of the time is the model's.
+
+### Which runner on Go
+
+The review backtest ran every Go model in Claude Code, through Go's
+Anthropic-style endpoint. A later test (2026-11-01) reran one review, kit
+pull request 23, in Claude Code and in OpenCode's CLI, the kit's runner on
+Go since v0.4.0, and in OpenCode's CLI on Go's Anthropic endpoint too, with
+every request's tokens logged. Claude Code finished in 5 min 51 s and
+OpenCode's CLI in 3 min 53 s, both with the verdict of 2026-10-28, when the
+same review in Claude Code had taken 28 minutes off-peak. OpenCode's CLI on
+the Anthropic endpoint had no verdict at 30 minutes, most likely because
+its Anthropic client drops the model's earlier reasoning. One run each
+([report](2026-11-01-review-runner-endpoints.md)).
 
 ## Security scan
 
@@ -201,3 +214,4 @@ Flash about $75 of $80. Jobs on the same Go model share its allowance.
 | 2026-10-25 | [Review and scan models on OpenCode Go](2026-10-25-review-models.md) | Which Go model can review and scan instead of Opus 5.5? | DeepSeek V4.1 Flash, for both |
 | 2026-10-25 | [DeepSeek V4.1 Flash triage backtest](2026-10-25-triage-deepseek.md) | Can DeepSeek V4.1 Flash replace Sonnet 5.5 for triage? | No: it fails on priority only |
 | 2026-10-26 | [Triage models on OpenCode Go](2026-10-26-triage-go-models.md) | Can Qwen3.8 Flash or MiniMax M3.1 Flash replace Sonnet 5.5 for triage? | No: both do worse than DeepSeek |
+| 2026-11-01 | [Review runners on Go's two endpoints](2026-11-01-review-runner-endpoints.md) | Was DeepSeek slow in Claude Code because of Go's Anthropic endpoint or Claude Code's larger prompt? | Neither, this time: Claude Code finished in under 6 minutes; OpenCode's CLI on that endpoint, which drops the model's earlier reasoning, did not finish |
