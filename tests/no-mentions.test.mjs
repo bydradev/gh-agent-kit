@@ -1,10 +1,8 @@
 // Nothing the model posts notifies anyone: the server puts a zero-width
 // space after each @ (or character reference for one) in the report, the
-// inline comments, the filed issues and the triage comment. Only a
-// suggestion block in an inline comment stays as written, where the
-// server is sure GitHub renders it as one; text that only looks like
-// code, other code blocks, addresses and URLs do not. The workflow drops
-// the spaces before comparing the report's reviewed lines with the pull
+// inline comments, the filed issues and the triage comment, in code,
+// suggestion blocks, addresses and URLs too. The workflow drops the
+// spaces before comparing the report's reviewed lines with the pull
 // request.
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -14,8 +12,10 @@ import { runStep, stepScript } from "./helpers/workflow.mjs";
 
 const Z = String.fromCharCode(0x200b);
 const CR = String.fromCharCode(13);
-// Every @, and every character reference for one.
-const allQuiet = (s) => s.replace(/(@|&#0*64;|&#[xX]0*40;|&commat;)/g, `$1${Z}`);
+// Every @ and every character reference for one, the numeric ones also
+// without the semicolon.
+const allQuiet = (s) =>
+  s.replace(/(@|&#0*64(?![0-9]);?|&#[xX]0*40(?![0-9A-Fa-f]);?|&commat;)/g, `$1${Z}`);
 const TEXT = [
   "Thanks @dra, and cc @acme/security-team (see @codex's note).",
   "Write to you@example.com; `@dra` and ``x @y`` are code.",
@@ -38,8 +38,6 @@ const QUIET = [
   "```",
   `@${Z}last`,
 ].join("\n");
-// An inline comment's suggestion is committed as written.
-const QUIET_INLINE = QUIET.replace(`@${Z}Override`, "@Override");
 
 function review(t) {
   const repo = gitRepo(t);
@@ -99,7 +97,7 @@ test("post_report and inline_comment quiet mentions, the reviewed title's too", 
       ...reviewedLines(f, `feat: thank @${Z}dra`),
     ].join("\n") + "\n\n<!-- pr-review run 1001.1 -->\n",
   );
-  assert.equal(JSON.parse(comment).body, QUIET_INLINE);
+  assert.equal(JSON.parse(comment).body, QUIET);
 });
 
 test("the report check compares the reviewed lines without the zero-width spaces", (t) => {
@@ -241,6 +239,8 @@ test("text that only looks like code, an address and a URL have their mentions q
     ["emphasis around or before it", ["_@octocat_ and __@octocat__ and _x_@octocat"]],
     ["one @ after another", ["@@octocat and &#64;@octocat"]],
     ["character references", ["&#64;octocat &#x40;octocat &#0064;octocat &commat;octocat"]],
+    // Raw HTML decodes a numeric reference without its semicolon.
+    ["references without a semicolon", ["<div>&#64octocat &#X040octocat</div>", "&#064x"]],
     ["a character reference in the login", ["@&#111;ctocat"]],
     ["after a reference or a sha", ["#12@octocat and abc1234@octocat"]],
     ["inline HTML", ["<details><summary>cc @octocat</summary>"]],
@@ -259,87 +259,47 @@ test("text that only looks like code, an address and a URL have their mentions q
   }
 });
 
-test("an inline comment's code that is no sure suggestion block has its mentions quieted", async (t) => {
+test("a reference to another character is left as written", async (t) => {
+  const lines = ["&#640; &#6400 &#x40a; &#x400 &commatx"];
+  assert.equal(await posted(t, lines), lines.join("\n"));
+});
+
+test("an inline comment quiets mentions in every code block, a suggestion's too", async (t) => {
+  // A suggestion holding an @ is committed with the space, so the tool
+  // tells the model to describe such a change in words. The rest are
+  // inputs that once kept a mention live.
   const cases = [
+    ["a suggestion", ["Suggested:", "```suggestion", "@Override", "```"]],
+    ["after inline HTML", ["<b>Suggested change</b>", "```suggestion", "@Override", "```"]],
+    ["a tilde suggestion", ["~~~ suggestion", "@inner", "~~~"]],
     ["another code block", ["```js", "@decorator", "```"]],
-    ["a backtick fence whose info string has a backtick", ["```suggestion `x`", "@octocat", "```"]],
     ["a fence inside an HTML block", ["<div>", "```suggestion", "@octocat", "```", "</div>"]],
-    ["a fence after a lone tag", ["<span>", "```suggestion", "@octocat", "```"]],
-    ["a lone tag with > in a value", ['<a title="x>y">', "```suggestion", "@octocat", "```"]],
-    ["a block tag with text", ["<source src=x> media", "```suggestion", "@octocat", "```"]],
-    ["an unclosed fence inside an HTML block", ["<div>", "```", "</div>", "", "@octocat"]],
-    ["an unclosed fence", ["```suggestion", "@octocat"]],
-    ["a fence in a quote", ["> ```suggestion", "> @octocat", "> ```"]],
-    ["a fence in a list item", ["- item", "  ```suggestion", "  @octocat", "  ```", "- @bob"]],
-    // GitHub's parser closes the indented fence on the third line, so a
-    // reading from the second would keep the fourth.
-    ["after an indented fence", ["  ~~~", "```suggestion", "~~~", "@octocat", "```"]],
-    ["after a fence in a list", ["- a", "  ~~~", "```suggestion", "~~~", "@octocat", "```"]],
     [
-      "a lone carriage return",
-      [["```suggestion", "foo", "```", "@octocat"].join(CR), "```"],
-      ["```suggestion", "foo", "```", `@${Z}octocat`, "```"],
+      "a lone tag after a paragraph line",
+      ["Change:", "<b>", "```", "", "`````suggestion", "```", "@octocat", "`````"],
     ],
+    ["after an indented fence", ["  ~~~", "```suggestion", "~~~", "@octocat", "```"]],
+    ["a lone carriage return", [["```suggestion", "foo", "```", "@octocat"].join(CR), "```"]],
     [
       "a form feed in a tag",
       [`<x${String.fromCharCode(12)}a=1>`, "```suggestion", "@octocat", "```"],
-    ],
-    [
-      "a vertical tab in a tag",
-      [`</x${String.fromCharCode(11)}>`, "```suggestion", "@octocat", "```"],
     ],
     [
       "a byte order mark",
       [`${String.fromCharCode(0xfeff)}~~~`, "```suggestion", "~~~", "@octocat", "```"],
     ],
     [
-      "a line separator in an info string",
-      [`~~~ a${String.fromCharCode(0x2028)}b`, "```suggestion", "~~~", "@octocat", "```"],
+      "a list item's HTML block",
+      ["- a", "", "  <div>", "```", "`````suggestion", "```", "@octocat", "`````"],
     ],
   ];
   const got = await inline(
     t,
     cases.map(([, lines]) => lines.join("\n")),
   );
-  cases.forEach(([what, lines, want], i) => {
-    const quiet = want ?? lines.map(allQuiet);
+  cases.forEach(([what, lines], i) => {
+    const quiet = lines.map(allQuiet);
     assert.notDeepEqual(quiet, lines, what);
     assert.equal(got[i], quiet.join("\n"), what);
-  });
-});
-
-test("an inline comment's suggestion block GitHub renders as one stays as written", async (t) => {
-  // Each case with the first and last line of the block kept.
-  const cases = [
-    ["a suggestion", ["Suggested:", "```suggestion", "@Override", "```"], 1, 3],
-    ["after inline HTML", ["<b>Suggested change</b>", "```suggestion", "@Override", "```"], 1, 3],
-    ["a shorter fence inside", ["````suggestion", "```", "@inner", "```", "````"], 0, 4],
-    ["a tilde fence", ["~~~ suggestion", "@inner", "~~~"], 0, 2],
-    [
-      "after an HTML comment closed on its line",
-      ["<!-- @a -->", "```suggestion", "@b", "```"],
-      1,
-      3,
-    ],
-    ["after an HTML block and a blank line", ["<div>", "", "```suggestion", "@inner", "```"], 2, 4],
-    ["after another code block", ["```js", "@x", "```", "```suggestion", "@inner", "```"], 3, 5],
-    [
-      "a closing fence indented, then text",
-      ["```suggestion", "@inner", "   ```  ", "@after"],
-      0,
-      2,
-    ],
-    ["a carriage return and line feed", ["```suggestion\r", "@inner\r", "```\r", "@after"], 0, 2],
-  ];
-  const got = await inline(
-    t,
-    cases.map(([, lines]) => lines.join("\n")),
-  );
-  cases.forEach(([what, lines, from, to], i) => {
-    const want = lines.map((l, j) => {
-      const line = l.replace(/\r$/, "");
-      return j >= from && j <= to ? line : allQuiet(line);
-    });
-    assert.equal(got[i], want.join("\n"), what);
   });
 });
