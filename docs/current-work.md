@@ -173,10 +173,11 @@ Markdown in `docs/reports/`. On 2026-10-28 `docs/reports/README.md` put
 the four backtests side by side, with each model's results, cost and fit
 on Go Plus, and the three Go reports gained a correction: with no level
 set, Claude Code sent their models `high`, its default for a model it
-does not know. On 2026-11-01 a fifth report reran kit pull request 23's
-review in both runners and on both of Go's endpoints: Claude Code finished
-in under 6 minutes, so why it took 28 minutes or reached the limit on
-2026-10-28 is still open.
+does not know. On 2026-11-01 [a fifth
+report](reports/2026-11-01-review-runner-endpoints.md) reran kit pull
+request 23's review in both runners and on both of Go's endpoints: Claude
+Code finished in under 6 minutes, so why it took 28 minutes or reached the
+limit on 2026-10-28 is still open.
 
 ### Renamed to gh-agent-kit (2026-10-22)
 

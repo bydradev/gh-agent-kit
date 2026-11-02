@@ -66,11 +66,13 @@ was cancelled at the 30-minute limit.
   which sends an earlier reasoning part back only as a signed thinking
   block and otherwise drops it with the warning "unsupported reasoning
   metadata" (the pinned binary's code, read 2026-11-01). Go's Anthropic
-  endpoint sent no signature in any of the 97 responses recorded. So none
-  of the two crossover runs' 73 later requests carried the model's earlier
-  reasoning. Claude Code sent its earlier thinking blocks back unsigned,
-  and Go took them, in all 20 of its later requests; OpenCode's CLI on the
-  OpenAI-style endpoint sent `reasoning_content` back in 19 of 20.
+  endpoint sent no signature in any of the 97 responses recorded there:
+  every request in the table that got a response, and the two OpenCode
+  session titles. So none of the two crossover runs' 73 later requests
+  carried the model's earlier reasoning. Claude Code sent its earlier
+  thinking blocks back unsigned, and Go took them, in all 20 of its later
+  requests; OpenCode's CLI on the OpenAI-style endpoint sent
+  `reasoning_content` back in 19 of 20.
 - **Without its earlier reasoning DeepSeek thought far longer.** It wrote
   about 14 times as much a request (median 4,791 tokens to 343) and took a
   median 32 seconds a request to 3. It was still calling tools at the
