@@ -352,7 +352,14 @@ mode](https://api-docs.deepseek.com/guides/thinking_mode), read
 Go through Go's Anthropic-style endpoint, which Go translates for this
 model ([Go's endpoint table](https://opencode.ai/v2/docs/console/go/) lists
 it on the OpenAI-style one, read 2026-10-28), and sends a much larger
-prompt. Which of the two matters was not tested.
+prompt. A rerun on 2026-11-01, off-peak and local, tested both: Claude Code
+went through that endpoint with a first request of 14,294 input tokens to
+OpenCode's 5,632 and finished the same review in 5 minutes 51 seconds, so
+neither stopped it that day, and why the 2026-10-28 runs were slow is still
+not known. OpenCode's CLI pointed at the Anthropic endpoint had no verdict
+at 30 minutes, most likely because its Anthropic client drops the model's
+earlier reasoning ([the 2026-11-01
+report](reports/2026-11-01-review-runner-endpoints.md)).
 
 What to know first (read 2026-10-23 unless a date is given):
 
@@ -546,6 +553,12 @@ changed files):
 | --- | --- | --- |
 | Review | No verdict at the 30-minute limit, on GitHub's runner and locally | 7 minutes 10 seconds, 27 steps, 47,607 reasoning tokens (median 790 a step), $0.054, run locally through the workflow's own step |
 | Scan | 3 minutes 41 seconds, 22 turns, 30,546 output tokens, on GitHub's runner | 87 seconds, 8 steps, 2,975 reasoning tokens, $0.007, run locally the way the workflow's step runs it |
+
+Just after peak that day, at 10:08 UTC, the review in Claude Code on
+GitHub's runner reached a verdict in 27 minutes 48 seconds. Rerun locally
+on 2026-11-01, off-peak, it took 5 minutes 51 seconds in Claude Code and 3
+minutes 53 seconds in OpenCode's CLI, both with a verdict ([the 2026-11-01
+report](reports/2026-11-01-review-runner-endpoints.md)).
 
 A scan of a larger change (nine files, 58 KB of diff) took 11 minutes in
 OpenCode's CLI (23 steps, $0.053), 3.7 minutes of it one step that Go was
