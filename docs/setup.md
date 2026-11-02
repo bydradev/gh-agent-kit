@@ -677,11 +677,12 @@ The workflows also:
   same. Addresses, inline code, code blocks, suggestion blocks and URLs
   get the space too, so a command or address copied from a comment, or a
   link whose path holds an `@` (an npm scope, say), may carry it, and a
-  suggestion that holds an `@` would commit it: `inline_comment` tells the
-  model to describe such a change in words. So do the report's reviewed
-  lines: the server refuses a `Title reviewed:` line that is not the pull
-  request's title, and the workflow drops the spaces on both sides before
-  it compares the lines with the pull request. A reference to an issue in
+  suggestion that holds an `@`, or a character reference for one, would
+  commit it: `inline_comment` tells the model to describe such a change
+  in words. The report's reviewed lines get the space too: the server
+  refuses a `Title reviewed:` line that is not the pull request's title,
+  and the workflow drops the spaces on both sides before it compares the
+  lines with the pull request. A reference to an issue in
   another repository (`owner/repo#n`) is still linked, and adds a
   "mentioned this" entry to that issue;
 - run only on same-repository heads, never on forks, and skip Dependabot

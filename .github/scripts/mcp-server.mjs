@@ -247,9 +247,9 @@ const findingIdsIn = (body) =>
 // (lib/util/markdown.ts, sanitizeMarkdown, read 2026-10-29): the text
 // reads the same, and no login follows an @ directly. Addresses, code,
 // URLs and suggestion blocks get it too. No block is left as written:
-// four reviews each found a way for a reading of the Markdown that kept
-// suggestion blocks to fall out of step with GitHub's parser and leave a
-// mention live, and the reviewer is not asked for suggestions.
+// picking out the ones GitHub is sure to render as code means following
+// its parser, a reading that falls out of step with it leaves a mention
+// live, and the reviewer is not asked for suggestions.
 const MENTION = /(@|&#0*64(?![0-9]);?|&#[xX]0*40(?![0-9A-Fa-f]);?|&commat;)/g;
 const noMentions = (t) => t.replace(MENTION, "$1\u200b");
 // The model's text in a filed issue, kept from forging the form's
@@ -883,7 +883,7 @@ const reviewTools = {
   },
   inline_comment: {
     description:
-      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, in a suggestion block too, where applying it would commit the space: describe a change to a line holding an @ in words instead.",
+      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, in a suggestion block too, where applying it would commit the space: describe a change to a line holding an @, or a character reference for one, in words instead.",
     schema: {
       type: "object",
       properties: {

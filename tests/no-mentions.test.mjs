@@ -260,7 +260,7 @@ test("text that only looks like code, an address and a URL have their mentions q
 });
 
 test("a reference to another character is left as written", async (t) => {
-  const lines = ["&#640; &#6400 &#x40a; &#x400 &commatx"];
+  const lines = ["&#640; &#6400 &#x40a; &#x40A; &#x400 &commatx"];
   assert.equal(await posted(t, lines), lines.join("\n"));
 });
 
