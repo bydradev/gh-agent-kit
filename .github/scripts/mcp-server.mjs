@@ -239,82 +239,19 @@ const findingIdsIn = (body) =>
 // run was steered by, or a mistake, would page people from this
 // repository. GitHub finds mentions in the rendered text (the open-source
 // html-pipeline's MentionFilter, read 2026-10-29), where emphasis markup
-// is gone, character references are decoded and a link before an @ ends
-// a text node. So every @, written as itself or as a character reference
-// (&#64;, &#x40;, &commat;), gets a zero-width space after it, as
-// Renovate does in the release notes it posts (lib/util/markdown.ts,
-// sanitizeMarkdown, read 2026-10-29): the text reads the same, and no
-// login follows an @ directly. Addresses, code and URLs get it too.
-//
-// The one exception is a suggestion block in an inline comment, which is
-// committed as written, space and all. It is kept only where its fence is
-// sure to open and close a code block (CommonMark spec 0.31.2, read
-// 2026-10-29): a fence at the start of a line, outside an HTML block and
-// any other fenced block, a backtick fence's info string with no
-// backtick, closed by a fence of its kind. A reading that got out of step
-// with GitHub's parser would leave a mention live, so nothing is kept in
-// a text this does not read (one with a form feed, vertical tab, NUL,
-// byte order mark or line or paragraph separator), or after a fence it
-// does not follow: one after an indent or a quote or list marker, which
-// may open or close a block this does not see, or one never closed.
-const MENTION = /(@|&#0*64;|&#[xX]0*40;|&commat;)/g;
-const UNREAD = /[\v\f\x00\ufeff\u2028\u2029]/;
-const BLOCK_TAGS =
-  "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
-// Where an HTML block that starts on this line ends, or null when none
-// starts: CommonMark's seven kinds, read wide where reading them exactly
-// would take more than the line (the seventh, a line that is one complete
-// tag, also where it cannot interrupt a paragraph; "source", which older
-// versions list, among the sixth's names). A kind that ends on a marker
-// ends on the line that holds it, which may be the first. A fence inside
-// an HTML block is HTML, not code.
-const OPEN_TAG =
-  "<[A-Za-z][A-Za-z0-9-]*(?:[ \\t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \\t]*=[ \\t]*(?:[^ \\t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \\t]*/?>";
-const LONE_TAG = new RegExp(`^ {0,3}(?:${OPEN_TAG}|</[A-Za-z][A-Za-z0-9-]*[ \\t]*>)[ \\t]*$`);
-function htmlBlockEnd(line) {
-  if (/^ {0,3}<(pre|script|style|textarea)(\s|>|$)/i.test(line))
-    return /<\/(pre|script|style|textarea)>/i;
-  if (/^ {0,3}<!--/.test(line)) return /-->/;
-  if (/^ {0,3}<\?/.test(line)) return /\?>/;
-  if (/^ {0,3}<!\[CDATA\[/.test(line)) return /\]\]>/;
-  if (/^ {0,3}<![A-Za-z]/.test(line)) return />/;
-  if (new RegExp(`^ {0,3}</?(${BLOCK_TAGS})(\\s|/?>|$)`, "i").test(line)) return /^[ \t]*$/;
-  if (LONE_TAG.test(line)) return /^[ \t]*$/;
-  return null;
-}
-// The model's text with its mentions quieted; with suggestions (an
-// inline comment), its suggestion blocks kept as written where the reading
-// above is sure of them. Line endings go out as "\n", as GitHub's parser
-// reads "\r\n" and a lone "\r".
-function noMentions(t, suggestions = false) {
-  const lines = t.replace(/\r\n?/g, "\n").split("\n");
-  const keep = new Set();
-  const read = suggestions && !UNREAD.test(t);
-  let html = null;
-  for (let i = 0; read && i < lines.length; i++) {
-    const line = lines[i];
-    if (html) {
-      if (html.test(line)) html = null;
-      continue;
-    }
-    if (/^[^A-Za-z`~]+(`{3,}|~{3,})/.test(line)) break;
-    const open = /^(`{3,}|~{3,})([^\n]*)$/.exec(line);
-    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      const close = new RegExp(`^ {0,3}${open[1][0]}{${open[1].length},}[ \\t]*$`);
-      let j = i + 1;
-      while (j < lines.length && !close.test(lines[j])) j++;
-      if (j === lines.length) break;
-      if (/^[ \t]*suggestion([ \t]|$)/.test(open[2])) for (let k = i; k <= j; k++) keep.add(k);
-      i = j;
-      continue;
-    }
-    const end = htmlBlockEnd(line);
-    if (end && !end.test(line)) html = end;
-  }
-  return lines
-    .map((line, i) => (keep.has(i) ? line : line.replace(MENTION, "$1\u200b")))
-    .join("\n");
-}
+// is gone, character references are decoded (in raw HTML a numeric one
+// needs no semicolon) and a link before an @ ends a text node. So every
+// @, written as itself or as a character reference (&#64;, &#x40;,
+// &commat;, or the first two without the semicolon), gets a zero-width
+// space after it, as Renovate does in the release notes it posts
+// (lib/util/markdown.ts, sanitizeMarkdown, read 2026-10-29): the text
+// reads the same, and no login follows an @ directly. Addresses, code,
+// URLs and suggestion blocks get it too. No block is left as written:
+// four reviews each found a way for a reading of the Markdown that kept
+// suggestion blocks to fall out of step with GitHub's parser and leave a
+// mention live, and the reviewer is not asked for suggestions.
+const MENTION = /(@|&#0*64(?![0-9]);?|&#[xX]0*40(?![0-9A-Fa-f]);?|&commat;)/g;
+const noMentions = (t) => t.replace(MENTION, "$1\u200b");
 // The model's text in a filed issue, kept from forging the form's
 // structure: no HTML comment (a dedupe marker is one) and no heading, and
 // kept from notifying anyone (noMentions, last, so that what the stripping
@@ -946,7 +883,7 @@ const reviewTools = {
   },
   inline_comment: {
     description:
-      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, except in a suggestion block whose fence starts a line, unindented, and is closed.",
+      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, in a suggestion block too, where applying it would commit the space: describe a change to a line holding an @ in words instead.",
     schema: {
       type: "object",
       properties: {
@@ -980,7 +917,7 @@ const reviewTools = {
           ".html_url",
         ],
         JSON.stringify({
-          body: noMentions(body, true),
+          body: noMentions(body),
           commit_id: env.HEAD_SHA,
           path,
           line,
