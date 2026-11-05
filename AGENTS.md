@@ -183,11 +183,17 @@ third-party upstreams).
   projects, artifacts or chats) and no session, project or thread IDs. A
   commit keeps its `Co-Authored-By:` trailer but carries no
   `Claude-Session:` trailer and no `Signed-off-by:` line, whatever the
-  harness adds.
+  harness adds, except for the exact public footer defined below.
 - No email address but a noreply one. A trailer uses a GitHub
   noreply address (`ID+login@users.noreply.github.com`) or a tool's
   `noreply@` address, never the address of the account an agent works for,
   which its harness may give it. An example address uses `example.com`.
+- The sole additional email and sign-off exception is this exact standalone
+  line shown below (case and spacing must match, with nothing before or
+  after it). This permits known public literal content in any checked text,
+  not proof of the author's identity. It grants no exception to other addresses,
+  sign-offs or surrounding content; all other checks still apply. LF and
+  CRLF line endings are supported.
 - No paths from an agent's machine or project storage (`/mnt/`, `/home/`,
   `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`, scratch folders);
   cite a report by its path in a public repository, or not at all. An
@@ -209,6 +215,12 @@ third-party upstreams).
   bypass or weaken it. Neither file is in `kit-manifest.txt`, so no target
   gets them. gh-repo-bootstrapper's `check_public_content.py` is the same
   check: a change to one goes to the other too.
+
+The exact public footer:
+
+```text
+Signed-off-by: dependabot[bot] <support@github.com>
+```
 
 ### Work tracking
 
@@ -237,4 +249,5 @@ dated status and links to issues rather than restating them.
 
 - A PR's title, body, commits and files name no private repository and carry
   no claude.ai link, `Claude-Session:` trailer or email address but a
-  noreply one (*Public repository content*).
+  noreply one, except the exact public footer defined in *Public repository
+  content*.

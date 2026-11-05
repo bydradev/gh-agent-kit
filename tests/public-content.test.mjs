@@ -105,6 +105,28 @@ test("lets public text through", () => {
     assert.deepEqual(kinds(text), [], text);
 });
 
+test("allows only the exact public footer", () => {
+  const footer = "Signed-off-by: dependabot[bot] <support@github.com>";
+  for (const text of [footer, footer + "\n", footer + "\r\n", "update\n\n" + footer,
+    footer + "\n" + footer]) assert.deepEqual(kinds(text), []);
+  const near = [" " + footer, footer + " ", "\t" + footer, footer + "\t",
+    footer.toLowerCase(), footer.replace("dependabot", "otherbot"),
+    footer.replace("github.com", "github.org"), footer.replace("support", "Support"),
+    footer.replace(": ", ":  "), footer.replace("[bot]", ""),
+    footer.replace("github.com", "GITHUB.COM"), "`" + footer + "`",
+    "support@github.com", footer + " <sam@mailbox.test>",
+    "sam@mailbox.test " + footer, footer + "\r", footer + "\u2028",
+    footer + "\v", footer + "\x85", footer + "\x00"];
+  for (const text of near) assert.ok(kinds(text).includes(EMAIL));
+  for (const forbidden of ["sam@mailbox.test", "Claude-Session: x", "from sunrise-app",
+    "bydradev/secret-thing", "/Users/sam/x"]) {
+    assert.deepEqual(kinds(footer + "\n" + forbidden), kinds(forbidden));
+    assert.deepEqual(kinds(forbidden + "\n" + footer), kinds(forbidden));
+    assert.ok(kinds(footer + " " + forbidden).length);
+  }
+  assert.deepEqual(kinds(footer, false, "dependabot"), ["a private repository name"]);
+});
+
 test("reports line numbers", () => {
   assert.deepEqual(scan("ok\n\nClaude-Session: x\n", []), [[3, "a Claude-Session trailer"]]);
 });
@@ -205,6 +227,46 @@ function repository(t) {
   };
   return { git, commit, check };
 }
+
+test("checks the public footer through text, body, range and file entrypoints", (t) => {
+  const footer = "Signed-off-by: dependabot[bot] <support@github.com>";
+  const body = path.join(tempDir(t), "body.md");
+  for (const ending of ["\n", "\r\n"]) {
+    fs.writeFileSync(body, "update" + ending + footer + ending);
+    for (const option of ["--text", "--pr-body"]) {
+      const [code, out] = run([`${option}=${body}`]);
+      assert.equal(code, 0, out);
+    }
+    fs.writeFileSync(body, footer + "\nsam@mailbox.test\n");
+    const [code, out] = run([`--pr-body=${body}`]);
+    assert.equal(code, 1, out);
+    assert.match(out, /line 2: an email address/);
+    assert.doesNotMatch(out, /mailbox/);
+  }
+  const { git, commit, check } = repository(t);
+  commit("chore: base");
+  git("tag", "base");
+  commit("build: update\n\n" + footer, { "notes.md": footer + "\r\n" });
+  let [code, out] = check("--range=base..main", "--files=base..main");
+  assert.equal(code, 0, out);
+  for (const [suffix, expected] of [["", 0], ["\r", 1], ["\v", 1], ["\u2028", 1]]) {
+    const content = footer + suffix;
+    commit("test: line endings", { "notes.md": content });
+    const [code, out] = check("--files=HEAD^!");
+    assert.equal(code, expected, out);
+    fs.writeFileSync(body, content);
+    for (const option of ["--text", "--pr-body"]) {
+      const [code, out] = run([`${option}=${body}`]);
+      assert.equal(code, expected, out);
+    }
+  }
+  commit("build: update\n\n" + footer + "\nsam@mailbox.test",
+    { "notes.md": footer + "\nsam@mailbox.test\n" });
+  [code, out] = check("--range=HEAD^!", "--files=HEAD^!");
+  assert.equal(code, 1, out);
+  assert.equal((out.match(/::error/g) || []).length, 2, out);
+  assert.doesNotMatch(out, /mailbox/);
+});
 
 test("checks the lines a range adds to files", (t) => {
   const { git, commit, check } = repository(t);
