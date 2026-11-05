@@ -82,6 +82,9 @@ const NOREPLY_LOCAL_PARTS = new Set(["noreply", "no-reply"]);
 const NOREPLY_DOMAINS = ["users.noreply.github.com", "example.com", "example.org", "example.net"];
 const PUBLISHED_ADDRESSES = new Set(["github@bydra.dev", "git@github.com"]);
 
+// Only this complete literal line exempts its email; it does not verify authorship.
+const DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>";
+
 // The check's own script and tests hold every pattern and example it finds.
 export const EXEMPT_FILES = new Set([
   ".github/scripts/public-content.mjs",
@@ -150,7 +153,10 @@ export function scan(text, names, allowAttribution = false) {
         break;
       }
     }
-    if ([...line.matchAll(EMAIL)].some(([, local, domain]) => privateAddress(local, domain)))
+    if (
+      line !== DEPENDABOT_FOOTER &&
+      [...line.matchAll(EMAIL)].some(([, local, domain]) => privateAddress(local, domain))
+    )
       kinds.push("an email address other than a noreply one");
     if (names.some(([, pattern]) => pattern.test(line))) kinds.push("a private repository name");
     for (const kind of kinds) found.push([index + 1, kind]);
@@ -200,14 +206,17 @@ function changedFiles(range) {
       // column per parent: + where the parent lacks the line, - where only the
       // parent has it. A line every parent lacks is added, even one that reads
       // "+++".
-      for (const line of git(...show, "--unified=0", "--", ...paths).split("\n")) {
+      const diffLines = git(...show, "--unified=0", "--", ...paths).split("\n");
+      for (const [index, line] of diffLines.entries()) {
         const header = /^(@@+) .*? \+(\d+)(?:,\d+)? \1/.exec(line);
         if (header) {
           columns = header[1].length - 1;
           number = Number(header[2]);
         } else if (columns && !line.startsWith("\\") && !line.slice(0, columns).includes("-")) {
-          if (line.slice(0, columns) === "+".repeat(columns))
-            added.push([number, line.slice(columns)]);
+          if (line.slice(0, columns) === "+".repeat(columns)) {
+            const ending = diffLines[index + 1].startsWith("\\ No newline") ? "" : "\n";
+            added.push([number, line.slice(columns) + ending]);
+          }
           number += 1;
         }
       }
