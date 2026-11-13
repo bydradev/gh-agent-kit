@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=1c33eda8b821e29602439de8a01138da63bdbbf0e8887cd26716b1d084833bcd -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=934cb22493dbe42d0223d43f6aaa5b130684ebe5658aebdebffd1610f0d20484 -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -15,9 +15,10 @@ checks: read it with the commands below, never from another repository.
   and Rust, not the job name inside `test.yml`.
 - Release Please uses this repository's GitHub App token, so its PRs start
   checks without approval; the workflow's own `GITHUB_TOKEN` only reads
-  (`contents: read`, plus `pull-requests: read` on the release job of a
-  repository whose release waits for tests, for the guard that lists merged
-  release pull requests). The operator sets variable
+  (`contents: read`, plus `pull-requests: read` and `actions: read` on the
+  release job of a repository whose release waits for tests, for the guard
+  that lists merged release pull requests and the runs of an earlier release
+  merge). The operator sets variable
   `RELEASE_PLEASE_CLIENT_ID` and secret `RELEASE_PLEASE_APP_KEY`; never put
   either in source, logs, issues or pull requests. Trust release automation
   once its first release PR reports every required check.
