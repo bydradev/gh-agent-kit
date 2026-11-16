@@ -1,4 +1,4 @@
-# gh-repo-bootstrapper: template-owned; template=pr-title-check.yml; sha256=e7b7e8b450bb76b9f34b1bff8a858dc21d88d4cb2498a209b6b31c0c6c566b66
+# gh-repo-bootstrapper: template-owned; template=pr-title-check.yml; sha256=8ee540a56cb44e0a0979f0ed7ba5dbbe62f815805762f1490c392eca9b35290b
 name: pr-title-check
 
 on:
@@ -34,7 +34,11 @@ jobs:
       !(startsWith(github.head_ref, 'release-please--') &&
         github.event.pull_request.user.type == 'Bot' &&
         github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this job runs one JavaScript action and a
+    # Python script, well inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Validate PR title
