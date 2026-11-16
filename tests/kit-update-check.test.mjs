@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const compareScript = stepScript("kit-update-check.yml", "Compare the lock with the kit");
 const noticeScript = stepScript("kit-update-check.yml", "Open, update or close the notice");
@@ -155,7 +155,7 @@ const LOCK_AT = (ref) => ({
   paths: ["a.txt", "run.sh", "gone.txt", "keep.txt", "s1.md", "s2.md"],
 });
 
-test("the compare step reports each changed, added and removed file", (t) => {
+test("the compare step reports each changed, added and removed file", { skip: needsBash4 }, (t) => {
   const kit = kitFixture(t);
   const r = compare(t, kit, LOCK_AT(kit.first));
   assert.equal(r.status, 0, r.stderr);
@@ -178,7 +178,7 @@ test("the compare step reports each changed, added and removed file", (t) => {
   });
 });
 
-test("the compare step reports a file moving between seed and managed", (t) => {
+test("the compare step reports a file moving between seed and managed", { skip: needsBash4 }, (t) => {
   const kit = kitFixture(t, { moves: true });
   const r = compare(t, kit, {
     source: SOURCE,
@@ -197,7 +197,7 @@ test("the compare step reports a file moving between seed and managed", (t) => {
   });
 });
 
-test("the compare step leaves out the kit's issue forms when the lock keeps its own", (t) => {
+test("the compare step leaves out the kit's issue forms when the lock keeps its own", { skip: needsBash4 }, (t) => {
   const kit = kitFixture(t, { forms: true });
   // With the kit's forms, a changed, added and dropped form each count.
   const withKit = compare(t, kit, {
@@ -282,7 +282,7 @@ test("the compare step finds a lock at the latest release current", (t) => {
   });
 });
 
-test("the compare step ignores what the default branch has past the latest release", (t) => {
+test("the compare step ignores what the default branch has past the latest release", { skip: needsBash4 }, (t) => {
   const kit = kitFixture(t);
   const unreleased = kit.unreleased();
   // At the release, the unreleased change to a.txt is not reported.
@@ -310,7 +310,7 @@ test("the compare step ignores what the default branch has past the latest relea
   });
 });
 
-test("the compare step takes the highest vX.Y.Z tag as the latest release", (t) => {
+test("the compare step takes the highest vX.Y.Z tag as the latest release", { skip: needsBash4 }, (t) => {
   const kit = kitFixture(t);
   const unreleased = kit.unreleased();
   // Neither a pre-release, a tag of another form nor one that sorts

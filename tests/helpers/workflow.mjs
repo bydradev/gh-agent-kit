@@ -31,11 +31,31 @@ export function stepScript(file, name) {
   return body.join("\n").trimEnd() + "\n";
 }
 
+// The bash a step runs with. The runner's is bash 5, but some steps use
+// bash 4 features (declare -A, mapfile) that macOS's stock bash 3.2 lacks,
+// so a host takes the first bash 4+ of STEP_BASH, the bash on PATH and
+// Homebrew's, and falls back to the bash on PATH.
+const bashMajor = (bash) => {
+  const r = spawnSync(bash, ["-c", "echo ${BASH_VERSINFO[0]}"], { encoding: "utf8" });
+  return r.status === 0 ? Number(r.stdout.trim()) : 0;
+};
+const stepBash =
+  [process.env.STEP_BASH, "bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]
+    .filter(Boolean)
+    .find((bash) => bashMajor(bash) >= 4) ?? "bash";
+
+// The skip option for a test whose step needs bash 4: false when the step's
+// bash has it, otherwise the reason, which node --test prints.
+export const needsBash4 =
+  bashMajor(stepBash) >= 4
+    ? false
+    : "the step uses bash 4 (declare -A, mapfile), and no bash 4+ was found: set STEP_BASH to one";
+
 // bash as the workflow's defaults.run.shell runs a step.
 export function runStep(dir, script, env) {
   const file = path.join(dir, "step.sh");
   fs.writeFileSync(file, script);
-  return spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", file], {
+  return spawnSync(stepBash, ["--noprofile", "--norc", "-eo", "pipefail", file], {
     cwd: dir,
     encoding: "utf8",
     env: { PATH: process.env.PATH, HOME: dir, ...env },

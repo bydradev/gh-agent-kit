@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, root, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const READ = "Read the settings file and variables";
 const WORKFLOWS = {
@@ -130,6 +130,13 @@ test("the four workflows run the same read step, over names it knows", () => {
   assert.deepEqual([...used].sort(), [...known].sort());
 });
 
+// The runner has bash 5, so the test workflow never skips a bash 4 step test.
+test("on Linux, every step test runs with a bash 4+", {
+  skip: process.platform !== "linux" && "only the runner's platform is held to it",
+}, () => {
+  assert.equal(needsBash4, false);
+});
+
 test("the setup guide lists exactly the settings the step knows", () => {
   const guide = fs.readFileSync(path.join(root, "docs/setup.md"), "utf8");
   const listed = new Set();
@@ -137,7 +144,7 @@ test("the setup guide lists exactly the settings the step knows", () => {
   assert.deepEqual([...listed].sort(), [...knownNames()].sort());
 });
 
-test("the file sets what no variable does, and a variable wins", (t) => {
+test("the file sets what no variable does, and a variable wins", { skip: needsBash4 }, (t) => {
   const file = [
     "# kit settings",
     "---",
@@ -168,7 +175,7 @@ test("the file sets what no variable does, and a variable wins", (t) => {
   assert.doesNotMatch(r.calls[0].args.join(" "), /ref=/);
 });
 
-test("no file leaves the variables and the defaults", (t) => {
+test("no file leaves the variables and the defaults", { skip: needsBash4 }, (t) => {
   const r = read(t, { vars: { KIT_REVIEW_MODE: "push" } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /no \.github\/gh-agent-kit\.yml on the default branch/);
@@ -193,7 +200,7 @@ test("a file that cannot be read fails the run instead of using the defaults", (
   assert.equal(big.status, 1, "a file over 16 KiB is refused");
 });
 
-test("a line the kit does not read fails the run, naming the line but never printing it", (t) => {
+test("a line the kit does not read fails the run, naming the line but never printing it", { skip: needsBash4 }, (t) => {
   for (const [file, message] of [
     ["KIT_REVIEW_MODE: open\nANTHROPIC_API_KEY: sk-ant-not-a-key\n", /line 2 names a secret/],
     ["KIT_READ_TOKEN: ghp_not-a-token\n", /line 1 names a secret/],
@@ -222,7 +229,7 @@ test("a line the kit does not read fails the run, naming the line but never prin
   }
 });
 
-test("a variable that is not one word fails before it reaches GITHUB_ENV", (t) => {
+test("a variable that is not one word fails before it reaches GITHUB_ENV", { skip: needsBash4 }, (t) => {
   const r = read(t, { vars: { KIT_REVIEW_MODE: "open\nBASH_ENV=/tmp/x" } });
   assert.equal(r.status, 1);
   assert.match(
@@ -232,7 +239,7 @@ test("a variable that is not one word fails before it reaches GITHUB_ENV", (t) =
   assert.equal(r.env.BASH_ENV, undefined);
 });
 
-test("a switch takes only its states, so a typo fails instead of turning a workflow off", (t) => {
+test("a switch takes only its states, so a typo fails instead of turning a workflow off", { skip: needsBash4 }, (t) => {
   for (const [name, states] of [
     ["KIT_REVIEW_MODE", ["push", "open", "off"]],
     ["KIT_SECURITY_SCAN", ["push", "open", "off"]],
