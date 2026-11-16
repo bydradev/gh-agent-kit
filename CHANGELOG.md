@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/bydradev/gh-agent-kit/compare/v0.4.1...v0.4.2) (2026-11-16)
+
+
+### Performance Improvements
+
+* skip unneeded review and scan jobs from the settings job ([#37](https://github.com/bydradev/gh-agent-kit/issues/37)) ([8782273](https://github.com/bydradev/gh-agent-kit/commit/8782273bd92413ce809632c55350f42ff40a24bd))
+
 ## [0.4.1](https://github.com/bydradev/gh-agent-kit/compare/v0.4.0...v0.4.1) (2026-10-29)
 
 
