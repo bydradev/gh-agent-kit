@@ -42,6 +42,11 @@ new_target() {
   git -C "$t" init -q -b main
 }
 install() { "$kit/install.sh" "$@" > "$work/out" 2>&1; }
+# A path's permission bits in octal, with GNU stat (Linux) or BSD stat (macOS).
+mode_of() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
+# The installer's temporary files anywhere in the target, which none of its
+# runs, failed or not, leaves behind.
+temp_files() { find "$1" -path "$1/.git" -prune -o -name '.gh-agent-kit.*' -print; }
 
 it "a fresh install copies every manifest file and writes the lock"
 new_target
@@ -55,6 +60,18 @@ check contains "$t/.github/gh-agent-kit.lock" "\"ref\": \"$head\","
 check contains "$t/.github/gh-agent-kit.lock" '"dirty": false,'
 check contains "$t/.github/gh-agent-kit.lock" '"seeds": [".github/security-review-instructions.md"],'
 check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "kit",'
+
+it "a fresh install gives scripts 0755 and every other kit file and the lock 0644"
+while IFS= read -r p; do
+  case "$p" in
+    *.sh) check test "$(mode_of "$t/$p")" = 755 ;;
+    *) check test "$(mode_of "$t/$p")" = 644 ;;
+  esac
+done < <(manifest_paths)
+check test "$(mode_of "$t/.github/scripts/sync-labels.sh")" = 755
+check test "$(mode_of "$t/.github/scripts/mcp-server.mjs")" = 644
+check test "$(mode_of "$t/.github/gh-agent-kit.lock")" = 644
+check test -z "$(temp_files "$t")"
 
 it "a second install changes nothing, the lock included"
 cp "$t/.github/gh-agent-kit.lock" "$work/lock.before"
@@ -221,7 +238,64 @@ check install "$t"
 chmod 0700 "$t/.github/workflows"
 check test "$(check_mode "$t"; echo $?)" = 0
 check install "$t"
-check test "$(stat -c %a "$t/.github/workflows")" = 700
+check test "$(mode_of "$t/.github/workflows")" = 700
+
+# chmod stand-ins, put first on the PATH of one install: bsd behaves like
+# macOS's chmod, which reads a "--" after the mode as a file name, so the
+# BSD behaviour is checked on Linux too; fail always fails.
+real_chmod=$(command -v chmod)
+mkdir -p "$work/bsd" "$work/fail"
+cat > "$work/bsd/chmod" <<EOF
+#!/usr/bin/env bash
+i=1
+while [ "\$i" -le "\$#" ]; do
+  case "\${!i}" in --) i=\$((i + 1)); break ;; -*) i=\$((i + 1)) ;; *) break ;; esac
+done
+for a in "\${@:i+1}"; do
+  if [ "\$a" = -- ]; then echo "chmod: --: No such file or directory" >&2; exit 1; fi
+done
+exec "$real_chmod" "\$@"
+EOF
+printf '#!/bin/sh\necho "chmod: failed" >&2\nexit 1\n' > "$work/fail/chmod"
+"$real_chmod" 0755 "$work/bsd/chmod" "$work/fail/chmod"
+with_chmod() { local dir=$1; shift; PATH="$dir:$PATH" "$kit/install.sh" "$@" > "$work/out" 2>&1; }
+
+it "the BSD chmod stand-in rejects a \"--\" after the mode, as macOS's does"
+echo x > "$work/modefile"
+check test "$(PATH="$work/bsd:$PATH" chmod 0644 -- "$work/modefile" 2>/dev/null; echo $?)" = 1
+check test "$(PATH="$work/bsd:$PATH" chmod 0600 "$work/modefile"; echo $?)" = 0
+check test "$(mode_of "$work/modefile")" = 600
+
+it "with BSD chmod, an install writes the kit files and the lock with their modes"
+new_target
+check with_chmod "$work/bsd" "$t"
+check test -z "$(grep -F 'chmod:' "$work/out")"
+check test "$(mode_of "$t/.github/scripts/sync-labels.sh")" = 755
+check test "$(mode_of "$t/.github/scripts/mcp-server.mjs")" = 644
+check test "$(mode_of "$t/.github/gh-agent-kit.lock")" = 644
+check test -z "$(temp_files "$t")"
+# A rewrite of the lock alone, every kit file being current.
+check with_chmod "$work/bsd" --issue-forms=own "$t"
+check test -z "$(grep -E '^(added|updated|linked|removed) ' "$work/out")"
+check contains "$work/out" "wrote      .github/gh-agent-kit.lock"
+check contains "$t/.github/gh-agent-kit.lock" '"issue_forms": "own",'
+check test "$(mode_of "$t/.github/gh-agent-kit.lock")" = 644
+check test -z "$(temp_files "$t")"
+check with_chmod "$work/bsd" "$t"
+check contains "$work/out" "unchanged  .github/gh-agent-kit.lock"
+
+it "a chmod failure stops the install and leaves no temporary file"
+new_target
+check test "$(with_chmod "$work/fail" "$t"; echo $?)" = 1
+check test ! -e "$t/.github/gh-agent-kit.lock"
+check test -z "$(temp_files "$t")"
+new_target
+check install "$t"
+cp "$t/.github/gh-agent-kit.lock" "$work/lock.before"
+check test "$(with_chmod "$work/fail" --issue-forms=own "$t"; echo $?)" = 1
+check contains "$work/out" "chmod: failed"
+check cmp -s "$work/lock.before" "$t/.github/gh-agent-kit.lock"
+check test -z "$(temp_files "$t")"
 
 it "--check exits 2 where an install would be refused, and on bad arguments"
 new_target

@@ -112,11 +112,13 @@ is_seed() { local p; for p in "${seeds[@]+"${seeds[@]}"}"; do [ "$p" = "$1" ] &&
 # Write a kit file into the target by a new file and a rename, never into
 # the existing one: a hard link to it elsewhere then keeps the old content
 # and mode. Scripts are executable, the rest read-only for the group.
+# chmod takes no "--": BSD chmod (macOS) reads one after the mode as a file
+# name, and the temporary file's path is absolute, so it never starts with -.
 put() {
   local tmp
   [ "$check" -eq 0 ] || return 0
   tmp=$(mktemp -- "$target/$(dirname "$1")/.gh-agent-kit.XXXXXX")
-  if ! cp -- "$kit/$1" "$tmp" || ! case "$1" in *.sh) chmod 0755 -- "$tmp" ;; *) chmod 0644 -- "$tmp" ;; esac; then
+  if ! cp -- "$kit/$1" "$tmp" || ! case "$1" in *.sh) chmod 0755 "$tmp" ;; *) chmod 0644 "$tmp" ;; esac; then
     rm -f -- "$tmp"
     exit 1
   fi
@@ -353,8 +355,11 @@ else
   if [ "$check" -eq 0 ]; then
     mkdir -p -- "$(dirname "$lock")"
     tmp=$(mktemp -- "$(dirname "$lock")/.gh-agent-kit.XXXXXX")
-    printf '%s' "$lock_body" > "$tmp"
-    chmod 0644 -- "$tmp"
+    # As in put: no "--" for chmod, and no temporary file left on a failure.
+    if ! printf '%s' "$lock_body" > "$tmp" || ! chmod 0644 "$tmp"; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
     mv -f -- "$tmp" "$lock"
   fi
   changed "wrote      .github/gh-agent-kit.lock (ref $ref, dirty $dirty, issue forms $forms)"
