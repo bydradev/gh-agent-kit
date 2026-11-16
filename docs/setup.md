@@ -537,7 +537,7 @@ allows (all read 2026-10-26 unless a date is given):
   shared, so pull requests opened one at a time may be refused less, and
   may not. After a refusal the run carries on in the same session, told
   why, after a wait of 60, 120 and then 180 seconds for each refusal in a
-  row (the seconds the refusal names when they are more). A refusal after
+  row (the seconds the refusal names when they are more, an hour at most). A refusal after
   a step was served starts the row again, so a long run that makes
   progress between refusals is not ended by them. The run carries on
   while the wait fits in the job's time limit, counted from the start of

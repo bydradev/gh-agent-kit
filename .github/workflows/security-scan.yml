@@ -1142,8 +1142,8 @@ jobs:
           started=${AGENT_KIT_STARTED:-$(date +%s)}
           [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
           reserve=300
-          # The seconds the refusal names (0 when it names none) when the
-          # reply is that refusal; nothing for any other reply.
+          # The seconds the refusal names (0 when it names none, an hour at
+          # most) when the reply is that refusal; nothing for any other reply.
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
@@ -1534,8 +1534,8 @@ jobs:
           started=${AGENT_KIT_STARTED:-$(date +%s)}
           [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
           reserve=300
-          # The seconds the refusal names (0 when it names none) when the
-          # reply is that refusal; nothing for any other reply.
+          # The seconds the refusal names (0 when it names none, an hour at
+          # most) when the reply is that refusal; nothing for any other reply.
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))

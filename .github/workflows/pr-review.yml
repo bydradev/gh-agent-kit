@@ -1352,8 +1352,8 @@ jobs:
             # One JSON event a line; anything else on stdout is left out.
             jq -cR 'fromjson? | objects' "$RUNNER_TEMP/opencode-attempt.jsonl" > "$RUNNER_TEMP/opencode-attempt-events.jsonl"
             cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT"
-            # The seconds the refusal names (0 when it names none) when the
-            # attempt ended on that refusal; nothing otherwise.
+            # The seconds the refusal names (0 when it names none, an hour at
+            # most) when the attempt ended on that refusal; nothing otherwise.
             pause=$(jq -rs 'map(select(.type == "error")) | last // empty | .error | tostring
               | select(test("ttft_admission_refused|at capacity"))
               | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
