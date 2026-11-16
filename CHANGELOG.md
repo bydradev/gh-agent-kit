@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/bydradev/gh-agent-kit/compare/v0.4.2...v0.4.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* **install:** drop the chmod "--" that macOS reads as a file name ([#39](https://github.com/bydradev/gh-agent-kit/issues/39)) ([f4a9f19](https://github.com/bydradev/gh-agent-kit/commit/f4a9f193b1fbcb55f0de93276dac67397830c50b))
+
 ## [0.4.2](https://github.com/bydradev/gh-agent-kit/compare/v0.4.1...v0.4.2) (2026-11-16)
 
 
