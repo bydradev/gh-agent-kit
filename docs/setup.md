@@ -529,11 +529,22 @@ allows (all read 2026-10-26 unless a date is given):
   2026-10-29, its last retry failed 71 seconds after the first request),
   but on 2026-10-28, with ten runs started within a minute, four scans and
   a triage still ended on that refusal, each about 85 seconds after its
-  request. So after a refusal the run carries on in the same session, told
-  why, after the wait the refusal names (a minute at most, half a minute
-  when it names none), up to three times in a step; a fourth refusal fails
-  the step. The refused step is left out of what the model is sent next,
-  and the steps before it stay.
+  request. On 2026-10-29 a burst of ten runs, started within a minute in
+  five repositories, was refused for about nine minutes, and re-runs with
+  only two or three runs going were refused for five minutes in one
+  repository and not at all in others. Go's documentation (read
+  2026-10-29) says nothing about whether that capacity is the account's or
+  shared, so pull requests opened one at a time may be refused less, and
+  may not. After a refusal the run carries on in the same session, told
+  why, after a wait of 60, 120 and then 180 seconds for each refusal in a
+  row (the seconds the refusal names when they are more, an hour at most). A refusal after
+  a step was served starts the row again, so a long run that makes
+  progress between refusals is not ended by them. The run carries on
+  while the wait fits in the job's time limit, counted from the start of
+  the job's first OpenCode step and less five minutes for the steps around
+  it; past that, the refusal fails the step with a warning that says so.
+  The refused step is left out of what the model is sent next, and the
+  steps before it stay.
   - The review and triage carry on in a new CLI process, with the steps
     the run has left. The new process's MCP server reads what the run has
     posted from a file the first one wrote (`STATE_FILE`, under the
@@ -543,11 +554,16 @@ allows (all read 2026-10-26 unless a date is given):
   - The scan and its verification carry on through the server, where each
     prompt has its own step budget, and the step limit check counts the
     steps after each carry-on as the run's.
-  - With OpenCode's own retries, three refusals add about seven minutes to
-    a step when each comes as fast as those did; the scan's job has two
-    such steps. A job that still runs out of time fails on its time limit
-    (`KIT_REVIEW_TIMEOUT_MINUTES`, `KIT_SECURITY_TIMEOUT_MINUTES`,
-    `KIT_TRIAGE_TIMEOUT_MINUTES`).
+  - With OpenCode's own retries, three refusals in a row add about ten
+    minutes to a step when each comes as fast as those did. The time
+    limit the carry-on keeps to is the job's (`KIT_REVIEW_TIMEOUT_MINUTES`,
+    `KIT_SECURITY_TIMEOUT_MINUTES`, `KIT_TRIAGE_TIMEOUT_MINUTES`); the
+    scan's job shares it between the scan and the verification, both
+    counted from the scan's start. Raise it to let a run outlast a longer
+    spell: at the defaults, refusals that each take about 85 s are
+    outlasted for about seven minutes in a triage (15 minutes) and about
+    twenty in a review or a scan (30 minutes). A run's own work can still
+    use up the limit, and a job that runs out of time fails on it.
   - OpenCode prints its log (`--print-logs`) into the server's output (the
     scan) or the CLI's stderr (the review and triage), where each retry is
     a `stream error` line. A run that ends in error prints the last 50

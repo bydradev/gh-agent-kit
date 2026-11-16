@@ -58,6 +58,9 @@ export function runStep(dir, script, env) {
   return spawnSync(stepBash, ["--noprofile", "--norc", "-eo", "pipefail", file], {
     cwd: dir,
     encoding: "utf8",
+    // A step that loops (a carry-on whose time bound broke, under the
+    // stubbed sleep) fails its test instead of holding the run.
+    timeout: 60000,
     env: { PATH: process.env.PATH, HOME: dir, ...env },
   });
 }

@@ -145,6 +145,8 @@ function run(
     key = "ok",
     allowed = TRIAGE_ALLOWED,
     maxTurns = "40",
+    timeout = "30",
+    startedAgo,
     effort = "",
     serverArgs,
     models,
@@ -156,6 +158,8 @@ function run(
   fs.mkdirSync(temp);
   const files = opencodeStub(dir, { events, exit, runs, models, modelsExit });
   const sleep = sleepStub(dir);
+  const githubEnv = path.join(temp, "github-env");
+  fs.writeFileSync(githubEnv, "");
   const mcp = {
     mcpServers: {
       "agent-kit": {
@@ -176,11 +180,14 @@ function run(
     KIT_TRIAGE_MODEL: "glm-5.3-flash",
     KIT_TRIAGE_EFFORT: effort,
     KIT_TRIAGE_MAX_TURNS: maxTurns,
+    KIT_TRIAGE_TIMEOUT_MINUTES: timeout,
+    GITHUB_ENV: githubEnv,
+    ...(startedAgo === undefined ? {} : { AGENT_KIT_STARTED: String(Math.floor(Date.now() / 1000) - startedAgo) }),
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
     PATH: sleep.path,
   });
-  return { ...r, ...recorded(files), slept: sleep.slept(), temp, dir };
+  return { ...r, ...recorded(files), slept: sleep.slept(), githubEnv: fs.readFileSync(githubEnv, "utf8"), temp, dir };
 }
 
 test("issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
@@ -448,6 +455,9 @@ const REFUSED = inSession([
 const CARRY_ON =
   "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again.";
 
+// One step, refused before it served anything.
+const STALLED = inSession([{ type: "step_start", part: {} }, refused()]);
+
 test("issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session", (t) => {
   const r = run(t, { runs: [{ events: REFUSED, exit: 1 }, { events: inSession(SUCCESS) }] });
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -457,10 +467,10 @@ test("issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at ca
   assert.deepEqual(r.calls[1].args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/glm-5.3-flash", "--session", "ses_1", CARRY_ON]);
   assert.deepEqual(r.calls[1].config.agent, { build: { steps: 38 } });
   assert.deepEqual({ ...r.calls[1].config, agent: null }, { ...r.calls[0].config, agent: null });
-  assert.deepEqual(r.slept, ["7"]);
+  assert.deepEqual(r.slept, ["60"]);
   assert.match(
     r.stdout,
-    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 7 s \(refusal 1 of the step's 3\)$/m,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 60 s \(refusal 1 in a row\)$/m,
   );
   // Steps, cost and tokens are both runs'; the refusal it carried on from
   // is not an error of the run.
@@ -470,42 +480,86 @@ test("issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at ca
   assert.match(r.stdout, /^errors: $/m);
   assert.match(r.stdout, /^result: Triaged\.$/m);
   assert.equal(fs.readFileSync(path.join(r.temp, "opencode-events.jsonl"), "utf8").trim().split("\n").length, REFUSED.length + SUCCESS.length);
+  // The step's start is kept for the job's later steps, and one kept
+  // already is not replaced.
+  assert.match(r.githubEnv, /^AGENT_KIT_STARTED=\d+$/m);
+  const later = run(t, { runs: [{ events: REFUSED, exit: 1 }, { events: inSession(SUCCESS) }], startedAgo: 60 });
+  assert.equal(later.status, 0, later.stdout + later.stderr);
+  assert.equal(later.githubEnv, "");
 });
 
-test("issue-triage.yml, Run the triage on OpenCode: the wait is the one the refusal names, a minute at most", (t) => {
+test("issue-triage.yml, Run the triage on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer", (t) => {
+  const r = run(t, { runs: [...Array(4).fill({ events: STALLED, exit: 1 }), { events: inSession(SUCCESS) }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60", "120", "180", "180"]);
+  assert.match(r.stdout, /in 180 s \(refusal 4 in a row\)$/m);
+  // Each run gets the steps the ones before it left.
+  assert.deepEqual(
+    r.calls.map((c) => c.config.agent.build.steps),
+    [40, 39, 38, 37, 36],
+  );
   for (const [after, want] of [
-    ["after 0 s", "0"],
-    ["after 59s", "59"],
-    ["after 900 s", "60"],
-    ["soon", "30"],
+    ["after 7 s", "60"],
+    ["after 59s", "60"],
+    ["after 200 s", "200"],
+    ["soon", "60"],
   ]) {
-    const events = [...REFUSED.slice(0, -1), refused(after)];
-    const r = run(t, { runs: [{ events, exit: 1 }, { events: inSession(SUCCESS) }] });
-    assert.equal(r.status, 0, after + r.stdout + r.stderr);
-    assert.deepEqual(r.slept, [want], after);
+    const events = inSession([{ type: "step_start", part: {} }, refused(after)]);
+    const w = run(t, { runs: [{ events, exit: 1 }, { events: inSession(SUCCESS) }] });
+    assert.equal(w.status, 0, after + w.stdout + w.stderr);
+    assert.deepEqual(w.slept, [want], after);
   }
   // Without the number, the refusal still reads as one.
   const plain = run(t, {
     runs: [
-      { events: [...REFUSED.slice(0, -1), { ...refused(), error: { name: "APIError", data: { message: "the cell is at capacity" } } }], exit: 1 },
+      { events: inSession([{ type: "step_start", part: {} }, { ...refused(), error: { name: "APIError", data: { message: "the cell is at capacity" } } }]), exit: 1 },
       { events: inSession(SUCCESS) },
     ],
   });
-  assert.deepEqual(plain.slept, ["30"]);
+  assert.deepEqual(plain.slept, ["60"]);
 });
 
-test("issue-triage.yml, Run the triage on OpenCode: three refusals running at most, then the run fails", (t) => {
-  const r = run(t, { runs: [{ events: REFUSED, exit: 1 }] });
+test("issue-triage.yml, Run the triage on OpenCode: a step served between refusals starts the row again", (t) => {
+  const r = run(t, {
+    runs: [
+      { events: STALLED, exit: 1 },
+      { events: STALLED, exit: 1 },
+      { events: REFUSED, exit: 1 },
+      { events: REFUSED, exit: 1 },
+      { events: REFUSED, exit: 1 },
+      { events: inSession(SUCCESS) },
+    ],
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  // Five refusals in the step, which the earlier three-refusal bound
+  // would have ended on the fourth.
+  assert.deepEqual(r.slept, ["60", "120", "60", "60", "60"]);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the run stops on a refusal when the wait would not fit in the job's time limit", (t) => {
+  // 15 minutes less the 300 s reserve leaves 600 s from the start; 450 s
+  // gone leaves 150, enough for 60 and 120 s but not 180.
+  const r = run(t, { runs: [{ events: STALLED, exit: 1 }], timeout: "15", startedAgo: 450 });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.equal(r.calls.length, 4);
-  assert.deepEqual(r.slept, ["7", "7", "7"]);
-  // Each run gets the steps the ones before it left.
-  assert.deepEqual(
-    r.calls.map((c) => c.config.agent.build.steps),
-    [40, 38, 36, 34],
+  assert.equal(r.calls.length, 3);
+  assert.deepEqual(r.slept, ["60", "120"]);
+  assert.match(
+    r.stdout,
+    /^::warning::OpenCode Go turned a request away as at capacity, and a wait of 180 s would not fit in what KIT_TRIAGE_TIMEOUT_MINUTES leaves, so the run stops on the refusal$/m,
   );
   assert.match(r.stdout, /^errors: Upstream request failed: \[ttft_admission_refused\] the cell is at capacity; retry shortly \(after 7 s\)$/m);
   assert.match(r.stdout, /^::error::OpenCode's run ended in error \(exit status 1\)$/m);
+  // A time limit within the reserve leaves no carry-on at all.
+  const none = run(t, { runs: [{ events: STALLED, exit: 1 }], timeout: "5" });
+  assert.equal(none.status, 1, none.stdout + none.stderr);
+  assert.equal(none.calls.length, 1);
+  assert.deepEqual(none.slept, []);
+  assert.match(none.stdout, /a wait of 60 s would not fit/);
+  // A named wait is an hour at most, however long the number.
+  const huge = run(t, { runs: [{ events: inSession([{ type: "step_start", part: {} }, refused("after 99999999999999999999999 s")]), exit: 1 }] });
+  assert.equal(huge.status, 1, huge.stdout + huge.stderr);
+  assert.deepEqual(huge.slept, []);
+  assert.match(huge.stdout, /a wait of 3600 s would not fit/);
 });
 
 test("issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run", (t) => {

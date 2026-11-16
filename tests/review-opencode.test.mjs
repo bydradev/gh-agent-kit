@@ -222,6 +222,8 @@ function run(
     key = "ok",
     allowed = REVIEW_ALLOWED,
     maxTurns = "120",
+    timeout = "30",
+    startedAgo,
     model = "deepseek-v4.1-flash",
     effort = "",
     models,
@@ -234,6 +236,8 @@ function run(
   fs.mkdirSync(temp);
   const files = opencodeStub(dir, { events, exit, runs, models, modelsExit });
   const sleep = sleepStub(dir);
+  const githubEnv = path.join(temp, "github-env");
+  fs.writeFileSync(githubEnv, "");
   const mcp = {
     mcpServers: {
       "agent-kit": {
@@ -263,11 +267,14 @@ function run(
     KIT_REVIEW_MODEL: model,
     KIT_REVIEW_EFFORT: effort,
     KIT_REVIEW_MAX_TURNS: maxTurns,
+    KIT_REVIEW_TIMEOUT_MINUTES: timeout,
+    GITHUB_ENV: githubEnv,
+    ...(startedAgo === undefined ? {} : { AGENT_KIT_STARTED: String(Math.floor(Date.now() / 1000) - startedAgo) }),
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
     PATH: sleep.path,
   });
-  return { ...r, ...recorded(files), slept: sleep.slept(), temp, dir };
+  return { ...r, ...recorded(files), slept: sleep.slept(), githubEnv: fs.readFileSync(githubEnv, "utf8"), temp, dir };
 }
 
 test("pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration", (t) => {
@@ -550,8 +557,15 @@ test("pr-review.yml, Run the review on OpenCode: a run Go turns away as at capac
   assert.equal(r.calls[1].args[9], "ses_1");
   assert.match(r.calls[1].args[10], /^OpenCode Go turned your last request away because it was at capacity/);
   assert.deepEqual(r.calls[1].config.agent, { build: { steps: 119 } });
-  assert.deepEqual(r.slept, ["12"]);
+  assert.deepEqual(r.slept, ["60"]);
+  assert.match(r.stdout, /in 60 s \(refusal 1 in a row\)$/m);
   assert.match(r.stdout, /^errors: $/m);
+  assert.match(r.githubEnv, /^AGENT_KIT_STARTED=\d+$/m);
+  // The job's time limit bounds the review's carry-ons too.
+  const late = run(t, { runs: [{ events: first, exit: 1 }], timeout: "5" });
+  assert.equal(late.status, 1, late.stdout + late.stderr);
+  assert.deepEqual(late.slept, []);
+  assert.match(late.stdout, /a wait of 60 s would not fit in what KIT_REVIEW_TIMEOUT_MINUTES leaves/);
 
   // The same loop as triage's, on the review's settings, and the same
   // summary and error output after it, to the end of the step.

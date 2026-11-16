@@ -1125,33 +1125,63 @@ jobs:
           # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
           # it counts as retryable five times, about a minute of waiting in
           # all (its session retry policy), but on 2026-10-28 four scans
-          # each ended on that refusal about 85 s after their request. So
-          # after a refusal the scan carries on in the same session, after
-          # the wait the refusal names (a minute at most, half a minute when
-          # it names none), three times in the step at most, asking again
-          # included. The refused step is left out of what the model is sent
-          # next, and the steps before it stay (1.19.3's message history).
-          # The seconds to wait when the reply is that refusal; nothing for
-          # any other reply.
+          # each ended on that refusal about 85 s after their request, and
+          # on 2026-10-29 a burst of runs was refused for several minutes, a
+          # run in a quieter spell too. So after a refusal the scan carries
+          # on in the same session, asking again included, after a wait of
+          # 60, 120 and then 180 s for each refusal in a row (or the seconds
+          # the refusal names, when longer). A refusal after a step was
+          # served (one more step-finish in the session's messages) starts
+          # the row again. The scan carries on while the wait fits in the
+          # job's time limit, counted from the start of the job's first
+          # OpenCode step (this one or the scan before the verification)
+          # and less a reserve for the steps around it; past that it stops
+          # on the refusal. The refused step is left out of what the model
+          # is sent next, and the steps before it stay (1.19.3's message
+          # history).
+          started=${AGENT_KIT_STARTED:-$(date +%s)}
+          [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
+          reserve=300
+          # The seconds the refusal names (0 when it names none, an hour at
+          # most) when the reply is that refusal; nothing for any other reply.
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The steps served in the session so far; nothing when the
+          # messages cannot be read.
+          served_steps() {
+            api "$url/session/$session/message" 2>/dev/null \
+              | jq '[.[]? | .parts[]? | select(.type == "step-finish")] | length' 2>/dev/null || true
           }
           # $1 sent, then the run carried on after each refusal. kinds
           # records each prompt as part of the run or of asking for the
           # answer again ($2), for the step limit below.
           kinds=()
           refusals=0
+          served=0
           send_through() {
-            local pause
+            local pause now delay remaining
             send "$1"
             kinds+=("$2")
-            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
+            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]; do
+              now=$(served_steps)
+              if [ -n "$now" ] && [ "$now" -gt "$served" ]; then
+                served=$now
+                refusals=0
+              fi
               refusals=$((refusals + 1))
-              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
-              sleep "$pause"
+              delay=$(( refusals < 3 ? refusals * 60 : 180 ))
+              [ "$pause" -le "$delay" ] || delay=$pause
+              remaining=$(( KIT_SECURITY_TIMEOUT_MINUTES * 60 - reserve - ($(date +%s) - started) ))
+              if [ "$delay" -gt "$remaining" ]; then
+                echo "::warning::OpenCode Go turned a request away as at capacity, and a wait of $delay s would not fit in what KIT_SECURITY_TIMEOUT_MINUTES leaves, so the scan stops on the refusal"
+                break
+              fi
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $delay s (refusal $refusals in a row)"
+              sleep "$delay"
               send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
               kinds+=("$2")
             done
@@ -1487,33 +1517,63 @@ jobs:
           # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
           # it counts as retryable five times, about a minute of waiting in
           # all (its session retry policy), but on 2026-10-28 four scans
-          # each ended on that refusal about 85 s after their request. So
-          # after a refusal the scan carries on in the same session, after
-          # the wait the refusal names (a minute at most, half a minute when
-          # it names none), three times in the step at most, asking again
-          # included. The refused step is left out of what the model is sent
-          # next, and the steps before it stay (1.19.3's message history).
-          # The seconds to wait when the reply is that refusal; nothing for
-          # any other reply.
+          # each ended on that refusal about 85 s after their request, and
+          # on 2026-10-29 a burst of runs was refused for several minutes, a
+          # run in a quieter spell too. So after a refusal the scan carries
+          # on in the same session, asking again included, after a wait of
+          # 60, 120 and then 180 s for each refusal in a row (or the seconds
+          # the refusal names, when longer). A refusal after a step was
+          # served (one more step-finish in the session's messages) starts
+          # the row again. The scan carries on while the wait fits in the
+          # job's time limit, counted from the start of the job's first
+          # OpenCode step (this one or the scan before the verification)
+          # and less a reserve for the steps around it; past that it stops
+          # on the refusal. The refused step is left out of what the model
+          # is sent next, and the steps before it stay (1.19.3's message
+          # history).
+          started=${AGENT_KIT_STARTED:-$(date +%s)}
+          [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
+          reserve=300
+          # The seconds the refusal names (0 when it names none, an hour at
+          # most) when the reply is that refusal; nothing for any other reply.
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
+          }
+          # The steps served in the session so far; nothing when the
+          # messages cannot be read.
+          served_steps() {
+            api "$url/session/$session/message" 2>/dev/null \
+              | jq '[.[]? | .parts[]? | select(.type == "step-finish")] | length' 2>/dev/null || true
           }
           # $1 sent, then the run carried on after each refusal. kinds
           # records each prompt as part of the run or of asking for the
           # answer again ($2), for the step limit below.
           kinds=()
           refusals=0
+          served=0
           send_through() {
-            local pause
+            local pause now delay remaining
             send "$1"
             kinds+=("$2")
-            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ] && [ "$refusals" -lt 3 ]; do
+            while [ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]; do
+              now=$(served_steps)
+              if [ -n "$now" ] && [ "$now" -gt "$served" ]; then
+                served=$now
+                refusals=0
+              fi
               refusals=$((refusals + 1))
-              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
-              sleep "$pause"
+              delay=$(( refusals < 3 ? refusals * 60 : 180 ))
+              [ "$pause" -le "$delay" ] || delay=$pause
+              remaining=$(( KIT_SECURITY_TIMEOUT_MINUTES * 60 - reserve - ($(date +%s) - started) ))
+              if [ "$delay" -gt "$remaining" ]; then
+                echo "::warning::OpenCode Go turned a request away as at capacity, and a wait of $delay s would not fit in what KIT_SECURITY_TIMEOUT_MINUTES leaves, so the scan stops on the refusal"
+                break
+              fi
+              echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $delay s (refusal $refusals in a row)"
+              sleep "$delay"
               send "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again. Your answer is still your last message: one JSON object that fits the schema, with no other text."
               kinds+=("$2")
             done
