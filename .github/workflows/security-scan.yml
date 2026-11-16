@@ -79,10 +79,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # The early skip below reads the scan record and the base branch's
-      # commit, as the scan job's skip step does.
+      # The early skip below reads the scan record (a comment on the pull
+      # request, which "Pull requests" read alone allows: GitHub's REST
+      # docs, "List issue comments", read 2026-11-16) and the base
+      # branch's commit (contents).
       pull-requests: read
-      issues: read
     env:
       SETTINGS: >-
         KIT_SECURITY_SCAN

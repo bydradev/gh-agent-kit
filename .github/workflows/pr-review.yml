@@ -79,10 +79,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # The early skip below reads the reports, the base branch's commit
-      # and this workflow's runs, as the review job's skip step does.
+      # The early skip below reads the reports (comments on the pull
+      # request, which "Pull requests" read alone allows: GitHub's REST
+      # docs, "List issue comments", read 2026-11-16), the base branch's
+      # commit (contents) and this workflow's runs and jobs (actions).
       pull-requests: read
-      issues: read
       actions: read
     env:
       SETTINGS: >-
