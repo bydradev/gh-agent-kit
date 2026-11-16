@@ -1321,14 +1321,24 @@ jobs:
           # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
           # it counts as retryable five times, about a minute of waiting in
           # all (its session retry policy), but on 2026-10-28 runs still
-          # ended on that refusal. So after a refusal the run carries on in
-          # the same session (--session), told why, with the steps it has
-          # left, after the wait the refusal names (a minute at most, half a
-          # minute when it names none), three times in the step at most. The
-          # refused step is left out of what the model is sent next, and the
-          # steps before it stay (1.19.3's message history). RESULT gets every
+          # ended on that refusal, and on 2026-10-29 a burst of runs was
+          # refused for several minutes, a run in a quieter spell too. So
+          # after a refusal the run carries on in the same session
+          # (--session), told why, with the steps it has left, after a wait
+          # of 60, 120 and then 180 s for each refusal in a row (or the
+          # seconds the refusal names, when longer). A refusal after a step
+          # was served starts the row again, so a long run that makes
+          # progress between refusals is not ended by them. The run carries
+          # on while the wait fits in the job's time limit, counted from the
+          # start of its first OpenCode step and less a reserve for the
+          # steps around it; past that it stops on the refusal. The refused
+          # step is left out of what the model is sent next, and the steps
+          # before it stay (1.19.3's message history). RESULT gets every
           # attempt's events; the exit status and errors are the last
           # attempt's.
+          started=${AGENT_KIT_STARTED:-$(date +%s)}
+          [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
+          reserve=300
           : > "$RESULT"
           refusals=0
           session=""
@@ -1342,19 +1352,31 @@ jobs:
             # One JSON event a line; anything else on stdout is left out.
             jq -cR 'fromjson? | objects' "$RUNNER_TEMP/opencode-attempt.jsonl" > "$RUNNER_TEMP/opencode-attempt-events.jsonl"
             cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT"
-            # The seconds to wait when the attempt ended on that refusal.
+            # The seconds the refusal names (0 when it names none) when the
+            # attempt ended on that refusal; nothing otherwise.
             pause=$(jq -rs 'map(select(.type == "error")) | last // empty | .error | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 0' \
               "$RUNNER_TEMP/opencode-attempt-events.jsonl")
             session=$(jq -rs 'map(.sessionID // empty | strings) | first // empty' "$RESULT")
             left=$(( KIT_REVIEW_MAX_TURNS - $(jq -s 'map(select(.type == "step_start")) | length' "$RESULT") ))
-            if [ -z "$pause" ] || [ "$refusals" -ge 3 ] || [ -z "$session" ] || [ "$left" -le 0 ]; then
+            if [ -z "$pause" ] || [ -z "$session" ] || [ "$left" -le 0 ]; then
               break
             fi
+            # A step served in this attempt starts the row again.
+            if [ "$(jq -s 'map(select(.type == "step_finish")) | length' "$RUNNER_TEMP/opencode-attempt-events.jsonl")" -gt 0 ]; then
+              refusals=0
+            fi
             refusals=$((refusals + 1))
-            echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
-            sleep "$pause"
+            delay=$(( refusals < 3 ? refusals * 60 : 180 ))
+            [ "$pause" -le "$delay" ] || delay=$pause
+            remaining=$(( KIT_REVIEW_TIMEOUT_MINUTES * 60 - reserve - ($(date +%s) - started) ))
+            if [ "$delay" -gt "$remaining" ]; then
+              echo "::warning::OpenCode Go turned a request away as at capacity, and a wait of $delay s would not fit in what KIT_REVIEW_TIMEOUT_MINUTES leaves, so the run stops on the refusal"
+              break
+            fi
+            echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $delay s (refusal $refusals in a row)"
+            sleep "$delay"
             run_config=$(jq -c --argjson steps "$left" '.agent.build.steps = $steps' <<<"$config")
             resume=(--session "$session")
             text="OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again."

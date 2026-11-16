@@ -111,6 +111,16 @@ replay of the refusal against the pinned CLI (2026-10-29) showed its five
 retries in the log; not yet seen on GitHub: a run that carries on after a
 refusal.
 
+On 2026-10-29, v0.4.1's carry-on kept four of ten simultaneous runs going
+(five repositories, a review and a scan each), and six failed on a fourth
+refusal about five minutes after their first; re-runs with two or three
+runs going were refused too, in one repository, and a long review that
+made progress between refusals still failed on its fourth (#33). The
+carry-on now waits 60, 120 and 180 s for refusals in a row, starts the
+row again after a served step, and goes on while the job's time limit
+allows (`docs/setup.md`, *OpenCode CLI*). Not yet seen on GitHub: a run
+that outlasts such a spell.
+
 ### Security scan on the pinned CLI (2026-10-23)
 
 The operator chose to replace `anthropics/claude-code-security-review` with

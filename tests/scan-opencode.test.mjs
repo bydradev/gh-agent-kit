@@ -193,6 +193,9 @@ function scan(
     candidates = "",
     models = MODELS,
     serveFails = false,
+    served,
+    timeout = "30",
+    startedAgo,
   } = {},
 ) {
   const dir = tempDir(t);
@@ -202,7 +205,7 @@ function scan(
   const schema = path.join(temp, "scan-schema.json");
   fs.writeFileSync(schema, JSON.stringify(SCAN_SCHEMA));
   const spec = path.join(dir, "spec.json");
-  fs.writeFileSync(spec, JSON.stringify({ models, answer, session, serveFails }));
+  fs.writeFileSync(spec, JSON.stringify({ models, answer, session, serveFails, served }));
   const log = path.join(dir, "calls.jsonl");
   const stub = path.join(dir, "opencode");
   fs.writeFileSync(
@@ -214,6 +217,7 @@ const spec = JSON.parse(fs.readFileSync(${JSON.stringify(spec)}, "utf8"));
 const record = (entry) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(entry) + "\\n");
 const answers = [spec.answer].flat();
 let asked = 0;
+let listed = 0;
 const [command, ...rest] = process.argv.slice(2);
 record({ command, args: rest, env: process.env, pid: process.pid });
 if (command === "models") {
@@ -247,6 +251,12 @@ if (command === "models") {
         const answer = answers[Math.min(asked++, answers.length - 1)];
         return send(answer.status, answer.body);
       }
+      // The session's messages, with as many served steps as spec.served
+      // gives for this listing; none listed answers 404.
+      if (req.method === "GET" && req.url === "/session/ses_1/message" && spec.served) {
+        const n = spec.served[Math.min(listed++, spec.served.length - 1)];
+        return send(200, [{ info: { role: "assistant" }, parts: Array.from({ length: n }, () => ({ type: "step-finish" })) }]);
+      }
       send(404, { name: "NotFound" });
     });
   });
@@ -262,6 +272,8 @@ if (command === "models") {
   const script = stepScript(FILE, step).replaceAll("/opt/agent-kit/opencode", stub);
   const sleep = sleepStub(dir);
   const result = path.join(temp, "result.json");
+  const githubEnv = path.join(temp, "github-env");
+  fs.writeFileSync(githubEnv, "");
   const r = runStep(dir, script, {
     RUNNER_TEMP: temp,
     SCAN_INPUT: input,
@@ -273,6 +285,9 @@ if (command === "models") {
     KIT_SECURITY_MODEL: model,
     KIT_SECURITY_EFFORT: effort,
     KIT_SECURITY_MAX_TURNS: maxTurns,
+    KIT_SECURITY_TIMEOUT_MINUTES: timeout,
+    GITHUB_ENV: githubEnv,
+    ...(startedAgo === undefined ? {} : { AGENT_KIT_STARTED: String(Math.floor(Date.now() / 1000) - startedAgo) }),
     CANDIDATES: candidates,
     GH_TOKEN: "job-token",
     PATH: sleep.path,
@@ -294,6 +309,7 @@ if (command === "models") {
     result: fs.existsSync(result) ? JSON.parse(fs.readFileSync(result, "utf8")) : null,
     // The waits asked for, but the server's start-up polls.
     slept: sleep.slept().filter((s) => s !== "1"),
+    githubEnv: fs.readFileSync(githubEnv, "utf8"),
     input,
     temp,
   };
@@ -685,26 +701,37 @@ test("security-scan.yml, Run the scan on OpenCode: a run Go turns away as at cap
   assert.deepEqual({ ...second, parts: null }, { ...first, parts: null });
   assert.equal(second.parts[0].text, CARRY_ON);
   assert.equal(r.requests.filter((q) => q.request === "POST /session").length, 1);
-  assert.deepEqual(r.slept, ["4"]);
+  assert.deepEqual(r.slept, ["60"]);
   assert.match(
     r.stdout,
-    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 4 s \(refusal 1 of the step's 3\)$/m,
+    /^::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in 60 s \(refusal 1 in a row\)$/m,
   );
   assert.doesNotMatch(r.stdout, /asked for again/);
+  // The scan's start is kept for the verification, which counts from it
+  // and keeps no start of its own.
+  assert.match(r.githubEnv, /^AGENT_KIT_STARTED=\d+$/m);
+  const verify = scan(t, { step: "Verify the candidate findings on OpenCode", candidates: "1", answer: [refused(), ANSWER], startedAgo: 60 });
+  assert.equal(verify.status, 0, verify.stdout + verify.stderr);
+  assert.equal(verify.githubEnv, "");
 
-  // While the answer is asked for again too.
-  const asking = scan(t, { answer: [PROSE, refused(), ANSWER] });
+  // While the answer is asked for again too, the row going on.
+  const asking = scan(t, { answer: [refused(), PROSE, refused(), refused(), ANSWER] });
   assert.equal(asking.status, 0, asking.stdout + asking.stderr);
-  assert.equal(asking.messages.length, 3);
-  assert.match(asking.messages[1].parts[0].text, /^That last message was not one JSON object/);
-  assert.equal(asking.messages[2].parts[0].text, CARRY_ON);
+  assert.equal(asking.messages.length, 5);
+  assert.match(asking.messages[2].parts[0].text, /^That last message was not one JSON object/);
+  assert.equal(asking.messages[3].parts[0].text, CARRY_ON);
+  assert.deepEqual(asking.slept, ["60", "120", "180"]);
+});
 
-  // The wait the refusal names, a minute at most, half a minute when it
-  // names none.
+test("security-scan.yml, Run the scan on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer", (t) => {
+  const r = scan(t, { answer: [refused(), refused(), refused(), refused(), ANSWER] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60", "120", "180", "180"]);
+  assert.match(r.stdout, /in 180 s \(refusal 4 in a row\)$/m);
   for (const [after, want] of [
-    ["after 0 s", "0"],
-    ["after 900 s", "60"],
-    ["soon", "30"],
+    ["after 4 s", "60"],
+    ["after 200 s", "200"],
+    ["soon", "60"],
   ]) {
     const w = scan(t, { answer: [refused(after), ANSWER] });
     assert.equal(w.status, 0, after + w.stdout + w.stderr);
@@ -712,22 +739,32 @@ test("security-scan.yml, Run the scan on OpenCode: a run Go turns away as at cap
   }
 });
 
-test("security-scan.yml, Run the scan on OpenCode: three refusals in the step at most, asking again included", (t) => {
-  const r = scan(t, { answer: [refused()] });
+test("security-scan.yml, Run the scan on OpenCode: a step served between refusals starts the row again", (t) => {
+  // The session's served steps at each refusal: one, still one, then two.
+  const r = scan(t, { answer: [refused(), refused(), refused(), ANSWER], served: [1, 1, 2] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60", "120", "60"]);
+  assert.equal(r.requests.filter((q) => q.request === "GET /session/ses_1/message").length, 3);
+  // Messages that cannot be read count as no step served.
+  const unread = scan(t, { answer: [refused(), refused(), ANSWER] });
+  assert.equal(unread.status, 0, unread.stdout + unread.stderr);
+  assert.deepEqual(unread.slept, ["60", "120"]);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: the scan stops on a refusal when the wait would not fit in the job's time limit", (t) => {
+  // 30 minutes less the 300 s reserve leaves 1500 s from the start; 1350 s
+  // gone leaves 150, enough for 60 and 120 s but not 180.
+  const r = scan(t, { answer: [refused()], startedAgo: 1350 });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.equal(r.messages.length, 4);
-  assert.deepEqual(r.slept, ["4", "4", "4"]);
+  assert.equal(r.messages.length, 3);
+  assert.deepEqual(r.slept, ["60", "120"]);
+  assert.match(
+    r.stdout,
+    /^::warning::OpenCode Go turned a request away as at capacity, and a wait of 180 s would not fit in what KIT_SECURITY_TIMEOUT_MINUTES leaves, so the scan stops on the refusal$/m,
+  );
   assert.match(r.stdout, /^errors: Upstream request failed: \[ttft_admission_refused\] the cell is at capacity; retry shortly \(after 4 s\)$/m);
   assert.match(r.stdout, /^::error::OpenCode's run ended in error or without an answer that fits the schema \(curl status 0\)$/m);
   assert.equal(r.alive, false);
-
-  // One for the run and two while the answer is asked for again make
-  // three, so the fourth ends the step.
-  const both = scan(t, { answer: [refused(), PROSE, refused(), refused(), refused(), ANSWER] });
-  assert.equal(both.status, 1, both.stdout + both.stderr);
-  assert.equal(both.messages.length, 5);
-  assert.deepEqual(both.slept, ["4", "4", "4"]);
-  assert.match(both.stdout, /\(refusal 3 of the step's 3\)$/m);
 
   // Other errors end the run at once.
   const other = scan(t, {
