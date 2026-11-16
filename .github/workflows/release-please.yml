@@ -1,4 +1,4 @@
-# gh-repo-bootstrapper: template-owned; template=release-please-simple.yml; sha256=32b90794c0df07e13cad6d98e35d50c13d07a136e1a1f2fbb14244ed0863ced1
+# gh-repo-bootstrapper: template-owned; template=release-please-simple.yml; sha256=e506288babc3bfc1c0d625778fffc43866669491ba3810b7169401fc4afe6fe1
 name: release-please
 
 on:
@@ -23,7 +23,11 @@ concurrency:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this job only calls the GitHub API, well
+    # inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     steps:
       # Releases need the Release Please App's RELEASE_PLEASE_CLIENT_ID variable
