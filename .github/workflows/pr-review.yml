@@ -1356,7 +1356,7 @@ jobs:
             # attempt ended on that refusal; nothing otherwise.
             pause=$(jq -rs 'map(select(.type == "error")) | last // empty | .error | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 0' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-attempt-events.jsonl")
             session=$(jq -rs 'map(.sessionID // empty | strings) | first // empty' "$RESULT")
             left=$(( KIT_REVIEW_MAX_TURNS - $(jq -s 'map(select(.type == "step_start")) | length' "$RESULT") ))

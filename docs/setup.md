@@ -554,14 +554,16 @@ allows (all read 2026-10-26 unless a date is given):
   - The scan and its verification carry on through the server, where each
     prompt has its own step budget, and the step limit check counts the
     steps after each carry-on as the run's.
-  - With OpenCode's own retries, three refusals in a row add about nine
+  - With OpenCode's own retries, three refusals in a row add about ten
     minutes to a step when each comes as fast as those did. The time
     limit the carry-on keeps to is the job's (`KIT_REVIEW_TIMEOUT_MINUTES`,
     `KIT_SECURITY_TIMEOUT_MINUTES`, `KIT_TRIAGE_TIMEOUT_MINUTES`); the
     scan's job shares it between the scan and the verification, both
     counted from the scan's start. Raise it to let a run outlast a longer
-    spell. A run's own work can still use up the limit, and a job that
-    runs out of time fails on it.
+    spell: at the defaults, refusals that each take about 85 s are
+    outlasted for about seven minutes in a triage (15 minutes) and about
+    twenty in a review or a scan (30 minutes). A run's own work can still
+    use up the limit, and a job that runs out of time fails on it.
   - OpenCode prints its log (`--print-logs`) into the server's output (the
     scan) or the CLI's stderr (the review and triage), where each retry is
     a `stream error` line. A run that ends in error prints the last 50

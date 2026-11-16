@@ -108,8 +108,8 @@ The OpenCode runs now carry on in the same session after such a refusal,
 print OpenCode's log when they fail, and triage puts `.git` back after its
 run as the review and the scan do (`docs/setup.md`, *OpenCode CLI*). A
 replay of the refusal against the pinned CLI (2026-10-29) showed its five
-retries in the log; not yet seen on GitHub: a run that carries on after a
-refusal.
+retries in the log; runs on GitHub carried on after a refusal on
+2026-10-29 (below).
 
 On 2026-10-29, v0.4.1's carry-on kept four of ten simultaneous runs going
 (five repositories, a review and a scan each), and six failed on a fourth

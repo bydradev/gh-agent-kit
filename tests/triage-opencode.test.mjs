@@ -553,6 +553,11 @@ test("issue-triage.yml, Run the triage on OpenCode: the run stops on a refusal w
   assert.equal(none.calls.length, 1);
   assert.deepEqual(none.slept, []);
   assert.match(none.stdout, /a wait of 60 s would not fit/);
+  // A named wait is an hour at most, however long the number.
+  const huge = run(t, { runs: [{ events: inSession([{ type: "step_start", part: {} }, refused("after 99999999999999999999999 s")]), exit: 1 }] });
+  assert.equal(huge.status, 1, huge.stdout + huge.stderr);
+  assert.deepEqual(huge.slept, []);
+  assert.match(huge.stdout, /a wait of 3600 s would not fit/);
 });
 
 test("issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run", (t) => {

@@ -1147,7 +1147,7 @@ jobs:
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 0' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
           }
           # The steps served in the session so far; nothing when the
@@ -1539,7 +1539,7 @@ jobs:
           refusal_pause() {
             jq -r '.info.error // empty | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 0' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-answer.json" 2>/dev/null || true
           }
           # The steps served in the session so far; nothing when the
