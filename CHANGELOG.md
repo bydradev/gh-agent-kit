@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/bydradev/gh-agent-kit/compare/v0.4.3...v0.4.4) (2026-11-16)
+
+
+### Bug Fixes
+
+* let the opencode go carry-on outlast a capacity spell ([#43](https://github.com/bydradev/gh-agent-kit/issues/43)) ([a047bcd](https://github.com/bydradev/gh-agent-kit/commit/a047bcda430439ff788112b89bb4def625844938))
+
 ## [0.4.3](https://github.com/bydradev/gh-agent-kit/compare/v0.4.2...v0.4.3) (2026-11-16)
 
 
