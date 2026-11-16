@@ -134,3 +134,16 @@ export function sleepStub(dir) {
     slept: () => (fs.existsSync(slept) ? fs.readFileSync(slept, "utf8").split("\n").filter(Boolean) : []),
   };
 }
+
+// Variables the operating system gives every process, even one started with
+// `env -i`: macOS sets __CF_USER_TEXT_ENCODING. Only these are left out of a
+// check of the variables the MCP server starts with.
+const PLATFORM_ENV = new Set(["__CF_USER_TEXT_ENCODING"]);
+
+// The names of a started process's variables, sorted, without the
+// platform's own.
+export function ownEnvNames(env) {
+  return Object.keys(env)
+    .filter((name) => !PLATFORM_ENV.has(name))
+    .sort();
+}

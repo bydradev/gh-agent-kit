@@ -40,6 +40,9 @@ Security issues go through private reporting instead; see
    `bash tests/install.test.sh`, the second from committed changes) and add
    one for a change to the MCP server or the installer; the `test` check
    runs both.
+   On macOS, whose bash is 3.2, ten workflow step tests that need bash 4
+   are skipped, saying so; `STEP_BASH=/path/to/bash4` runs them (the
+   tests also find Homebrew's bash).
 6. If an AI tool helped write a commit, add the `Co-Authored-By:` trailer
    that [AGENTS.md](AGENTS.md) describes. You are still responsible for the
    change.

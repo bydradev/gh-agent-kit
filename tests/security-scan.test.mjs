@@ -261,14 +261,15 @@ test("the limits step refuses a large pull request and a checkout that misses fi
   assert.equal(limits({ KIT_SECURITY_MAX_LINES: "1" }).status, 1);
   const missing = limits({ CHANGED: "3" });
   assert.equal(missing.status, 1);
-  assert.match(missing.stdout, /the checkout shows 2 changed files but the pull request reports 3/);
+  // BSD wc (macOS) pads the count it prints with spaces; the runner's does not.
+  assert.match(missing.stdout, /the checkout shows +2 changed files but the pull request reports 3/);
   // The event's counts are under the limits, but the diff the scanner
   // would read (against the base as fetched) is not.
   const local = limits({ CHANGED: "1", ADDED: "1", KIT_SECURITY_MAX_FILES: "1" });
   assert.equal(local.status, 1);
   assert.match(
     local.stdout,
-    /::error::the checkout's diff against main has 2 files and 2 changed lines/,
+    /::error::the checkout's diff against main has +2 files and 2 changed lines/,
   );
   assert.equal(limits({ CHANGED: "2", ADDED: "1", KIT_SECURITY_MAX_LINES: "1" }).status, 1);
 });

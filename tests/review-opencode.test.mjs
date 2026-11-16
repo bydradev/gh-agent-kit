@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { LOG_LINE, opencodeStub, recorded, sleepStub } from "./helpers/opencode.mjs";
+import { LOG_LINE, opencodeStub, ownEnvNames, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
 
@@ -423,7 +423,9 @@ test("pr-review.yml, Run the review on OpenCode: the MCP server starts with its 
   });
   assert.equal(started.status, 0, started.stderr);
   const env = JSON.parse(started.stdout);
-  assert.deepEqual(Object.keys(env).sort(), [
+  assert.equal(env.OPENCODE_API_KEY, undefined);
+  assert.equal(env.GH_TOKEN, undefined);
+  assert.deepEqual(ownEnvNames(env), [
     "BASE",
     "GH_TOKEN_FILE",
     "GITHUB_REPOSITORY",
