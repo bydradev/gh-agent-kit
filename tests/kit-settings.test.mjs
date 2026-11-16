@@ -105,11 +105,12 @@ test("the four workflows run the same read step, over names it knows", () => {
           `${file}: ${n} not in the job env`,
         );
     }
-    // The main job waits for the settings and takes its switch from them.
+    // The main job waits for the settings and takes its switch from them
+    // (the review and the scan also their early skip).
     const main = text.slice(text.indexOf(`\n  ${job}:\n`));
     assert.match(
       main,
-      /\n {4}needs: settings\n(?: {4}#.*\n)* {4}if: (\$\{\{ !cancelled\(\) && \(needs\.settings\.result == 'failure' \|\| )?needs\.settings\.outputs\./,
+      /\n {4}needs: settings\n(?: {4}#.*\n)* {4}if: (\$\{\{ !cancelled\(\) && \(needs\.settings\.result == 'failure' \|\| (\(needs\.settings\.outputs\.SKIP != 'true' && \()?)?needs\.settings\.outputs\./,
       file,
     );
     // A newer run cancels an older one still reading its settings, so the
