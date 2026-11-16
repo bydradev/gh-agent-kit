@@ -62,7 +62,11 @@ jobs:
         github.event.issue.user.type != 'Bot' &&
         (github.event.action != 'labeled' || github.event.label.name == 'needs-triage') &&
         (github.event.action != 'opened' || !contains(github.event.issue.labels.*.name, 'needs-triage')))
-    runs-on: ubuntu-latest
+    # One CPU is enough for reading settings, at a third of the standard
+    # runner's per-minute price (GitHub's Actions runner pricing and
+    # GitHub-hosted runners reference, read 2026-11-16: ubuntu-slim is a
+    # 1-core container with gh, jq and bash, and stops a job at 15 minutes).
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
       contents: read

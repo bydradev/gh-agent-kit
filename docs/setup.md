@@ -227,7 +227,25 @@ runner time, free on public repositories; on private ones GitHub rounds
 each job's time to a whole minute
 (<https://docs.github.com/en/billing/reference/actions-runner-pricing>,
 read 2026-10-26), so with every workflow off a pull request event can
-still cost up to two billed minutes and an issue event one.
+still cost up to two billed minutes and an issue event one. The settings
+jobs run on `ubuntu-slim`, a one-core runner billed at a third of the
+standard Linux runner's per-minute price (the same page, and
+<https://docs.github.com/en/actions/reference/runners/github-hosted-runners>,
+both read 2026-11-16).
+
+The review's and the scan's settings jobs also decide their main job's
+skip early. A body edit that changed nothing the last review report
+reviewed against (its closing references, the base branch's commit, the
+title and, in mode `push`, the head) skips the review job altogether,
+unless another run of the review is still in flight on the branch or the
+head, or any dispatched review is, when the review job waits and decides
+as before. An edit, or a push in mode `open`, that the scan record already
+covers skips the scan job. A skipped job reports success to branch
+protection, as the job's own skip did; any error in the early decision
+leaves it to the main job, and a re-run always decides in the main job.
+One difference: such an edit by an actor without write access is now
+skipped instead of refused, as the scan already did; nothing is reviewed
+and no key is spent either way.
 
 ## 4. Merge the install pull request
 

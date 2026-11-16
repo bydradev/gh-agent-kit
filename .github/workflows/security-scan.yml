@@ -70,10 +70,20 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       !(startsWith(github.head_ref, 'release-please--') &&
         github.event.pull_request.user.type == 'Bot')
-    runs-on: ubuntu-latest
+    # One CPU is enough for reading settings and a few API calls, at a
+    # third of the standard runner's per-minute price (GitHub's Actions
+    # runner pricing and GitHub-hosted runners reference, read 2026-11-16:
+    # ubuntu-slim is a 1-core container with gh, jq and bash, and stops a
+    # job at 15 minutes).
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
       contents: read
+      # The early skip below reads the scan record (a comment on the pull
+      # request, which "Pull requests" read alone allows: GitHub's REST
+      # docs, "List issue comments", read 2026-11-16) and the base
+      # branch's commit (contents).
+      pull-requests: read
     env:
       SETTINGS: >-
         KIT_SECURITY_SCAN
@@ -95,6 +105,8 @@ jobs:
       KIT_SECURITY_TIMEOUT_MINUTES: ${{ steps.pass.outputs.KIT_SECURITY_TIMEOUT_MINUTES }}
       KIT_SECURITY_MAX_FILES: ${{ steps.pass.outputs.KIT_SECURITY_MAX_FILES }}
       KIT_SECURITY_MAX_LINES: ${{ steps.pass.outputs.KIT_SECURITY_MAX_LINES }}
+      # "true" when the early skip below found nothing to scan.
+      SKIP: ${{ steps.pass.outputs.SKIP }}
     steps:
       # Setting by setting, a repository variable wins over the file, so a
       # variable still changes a setting at once, without a pull request.
@@ -348,13 +360,98 @@ jobs:
           number KIT_SECURITY_TIMEOUT_MINUTES "$TIMEOUT" 30 360
           number KIT_SECURITY_MAX_FILES "$MAX_FILES" 300 300
           number KIT_SECURITY_MAX_LINES "$MAX_LINES" 20000 20000
-      # The checked values, or the ones read when the workflow is off.
+      # The scan job's skip, decided here too, so an edit or a push that
+      # the record already covers starts no scan job. A skipped job
+      # reports success, as the job's own skip does (docs.github.com,
+      # "Troubleshooting required status checks", read 2026-11-16). No
+      # guard for a scan in flight is needed: such a scan can only add a
+      # newer record. If it fails it adds none, and before this step an
+      # edit queued behind it then read the same record, skipped and
+      # created its check after the failed one, as this skip does now.
+      # Only on a first attempt, where the step's notice clean-up finds no
+      # notice of this run and writes nothing (a re-run decides in the
+      # job, as before). The skip is written last, so an error anywhere in
+      # the step leaves the decision to the job.
+      - name: Skip an edit or a push that a recorded scan already covers, before the scan job
+        if: >-
+          github.run_attempt == 1 &&
+          (env.KIT_SECURITY_SCAN == 'push' || env.KIT_SECURITY_SCAN == 'open') &&
+          ((github.event.action == 'edited' && github.event.changes.base == null) ||
+            (github.event.action == 'synchronize' && env.KIT_SECURITY_SCAN == 'open'))
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          ACTION: ${{ github.event.action }}
+          MODE: ${{ env.KIT_SECURITY_SCAN }}
+        # The scan job's step below, byte for byte (a test compares them).
+        run: |
+          # A re-run of a run that failed (here, say, on a GitHub API error)
+          # and left a notice skips when the record covers the event; the
+          # notice, which names this run, then comes down, since no later
+          # scan would replace it.
+          clear_notice() {
+            id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .id' | tail -n 1)
+            [ -n "$id" ] || return 0
+            body=$(gh api "repos/$REPO/issues/comments/$id" --jq .body | tr -d '\r')
+            grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body" || return 0
+            body=$(sed '/^<!-- scan-not-completed -->$/,/^<!-- \/scan-not-completed -->$/d' <<<"$body")
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --jq .html_url
+            echo "removed this run's not-completed notice: the record covers this event"
+          }
+          # The latest record (--paginate runs the filter per page, in order).
+          # Only a line that starts with the record's own words counts: the
+          # comment also quotes the scanner's findings and file names, which
+          # a pull request can steer, on lines that start otherwise.
+          record=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- security-scan-record -->"))) | .body' \
+            | sed -n 's/^Security scan record: \(scanned head [0-9a-f]\{40\} against [^ ]* at [0-9a-f]\{40\}\) .*/\1/p' | tail -n 1)
+          if [ "$ACTION" = "synchronize" ]; then
+            if [ -n "$record" ]; then
+              echo "mode open: a scan has completed ($record); a push is not scanned"
+              clear_notice
+              echo "RUN=false" >> "$GITHUB_ENV"
+            else
+              echo "mode open: no scan has completed; scanning this head"
+            fi
+            exit 0
+          fi
+          # The branch name is in the path: each segment URL-encoded, the
+          # slashes kept (a name may hold a character the URL would cut it at).
+          base_now=$(gh api --method GET "repos/$REPO/git/ref/heads/$(jq -rn --arg b "$BASE" '$b | split("/") | map(@uri) | join("/")')" --jq .object.sha)
+          # In mode "open" a later head is not scanned on a push, so an edit
+          # must not scan it either: the record only has to be against the
+          # base branch's current commit. In mode "push" it has to cover
+          # this head too.
+          # Compared as literal text (a branch name may hold regex characters).
+          rec_head=${record#scanned head }; rec_head=${rec_head%% *}
+          rec_base=${record#* against }
+          covered=0
+          if [ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]; then
+            if [ "$MODE" = "open" ] || [ "$rec_head" = "$HEAD" ]; then covered=1; fi
+          fi
+          if [ "$covered" -eq 1 ]; then
+            echo "the edit changed no base branch and the recorded scan [$record] covers it in mode $MODE; nothing to scan"
+            clear_notice
+            echo "RUN=false" >> "$GITHUB_ENV"
+          else
+            echo "the recorded scan [$record] does not cover $HEAD against $BASE at $base_now in mode $MODE; scanning"
+          fi
+      # The checked values, or the ones read when the workflow is off,
+      # and whether the step above found nothing to scan.
       - name: Pass the settings on
         id: pass
         run: |
           for name in $SETTINGS; do
             printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"
           done
+          if [ "${RUN:-}" = false ]; then
+            echo "SKIP=true" >> "$GITHUB_OUTPUT"
+          fi
 
   security:
     # A check name unique in this repository.
@@ -362,14 +459,18 @@ jobs:
     # Job-level concurrency: a skipped run never cancels a scan in flight,
     # and an edit waits behind one (its first step reads that scan's
     # record) instead of cancelling it; a push cancels it and, in mode
-    # "open" with no completed scan yet, takes over from it.
+    # "open" with no completed scan yet, takes over from it. An event the
+    # settings job already skipped never starts this job, so it neither
+    # waits nor cancels: in mode "open", a push once a record exists
+    # leaves a scan in flight (a base-change rescan, say) to finish.
     concurrency:
       group: security-scan-${{ github.event.pull_request.number }}
       cancel-in-progress: ${{ github.event.action != 'edited' }}
     needs: settings
     # Also when the settings job failed: the first step then fails this
     # job (see "Fail when the settings job failed").
-    if: ${{ !cancelled() && (needs.settings.result == 'failure' || needs.settings.outputs.KIT_SECURITY_SCAN == 'push' || needs.settings.outputs.KIT_SECURITY_SCAN == 'open') }}
+    # Not when the settings job's early skip found nothing to scan.
+    if: ${{ !cancelled() && (needs.settings.result == 'failure' || (needs.settings.outputs.SKIP != 'true' && (needs.settings.outputs.KIT_SECURITY_SCAN == 'push' || needs.settings.outputs.KIT_SECURITY_SCAN == 'open'))) }}
     runs-on: ubuntu-latest
     # Checked by the settings job, which fails on a value outside 1 to 360.
     timeout-minutes: ${{ fromJSON(needs.settings.outputs.KIT_SECURITY_TIMEOUT_MINUTES || '30') }}
@@ -405,7 +506,9 @@ jobs:
       # completed at all; in mode "open" an edit is skipped when a record
       # exists against the base branch's current commit, whatever head it
       # names, since a later head is not a reason to run in that mode but
-      # a moved base still is. Otherwise the job scans.
+      # a moved base still is. Otherwise the job scans. The settings job
+      # runs this same script first, so this step decides only an event
+      # that one could not decide, or a re-run.
       - name: Skip an edit or a push that a recorded scan already covers
         if: (github.event.action == 'edited' && github.event.changes.base == null) || (github.event.action == 'synchronize' && env.KIT_SECURITY_SCAN == 'open')
         env:
@@ -440,9 +543,9 @@ jobs:
             | sed -n 's/^Security scan record: \(scanned head [0-9a-f]\{40\} against [^ ]* at [0-9a-f]\{40\}\) .*/\1/p' | tail -n 1)
           if [ "$ACTION" = "synchronize" ]; then
             if [ -n "$record" ]; then
-              echo "RUN=false" >> "$GITHUB_ENV"
               echo "mode open: a scan has completed ($record); a push is not scanned"
               clear_notice
+              echo "RUN=false" >> "$GITHUB_ENV"
             else
               echo "mode open: no scan has completed; scanning this head"
             fi
@@ -463,9 +566,9 @@ jobs:
             if [ "$MODE" = "open" ] || [ "$rec_head" = "$HEAD" ]; then covered=1; fi
           fi
           if [ "$covered" -eq 1 ]; then
-            echo "RUN=false" >> "$GITHUB_ENV"
             echo "the edit changed no base branch and the recorded scan [$record] covers it in mode $MODE; nothing to scan"
             clear_notice
+            echo "RUN=false" >> "$GITHUB_ENV"
           else
             echo "the recorded scan [$record] does not cover $HEAD against $BASE at $base_now in mode $MODE; scanning"
           fi
