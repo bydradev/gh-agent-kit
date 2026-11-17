@@ -16,7 +16,8 @@ tracking* block, the weekly update check report it, and adds the
 `github-issue-file` skill. The second adds the flow for work the operator
 asks for directly, the label changes and the pull request issue-link check,
 and closes the issue. Targets are updated in one round after the release
-that carries both.
+that carries both; each runs `sync-labels.sh --migrate` once in that round,
+and so does this repository after the second pull request merges.
 
 ### Public release (2026-10-26, public since 2026-10-27)
 

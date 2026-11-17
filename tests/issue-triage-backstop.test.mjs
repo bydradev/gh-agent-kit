@@ -171,3 +171,43 @@ test("no closing pull request and no stale-claim comment fails the stale check",
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, FAILED);
 });
+
+// A dispatched run on an unclaimed issue: an approved plan stands, and so
+// does the plan of a requested issue (filed for work the operator asked for
+// directly); a requested issue never triaged gets the full check.
+function dispatched(t, labels, comments = []) {
+  const dir = tempDir(t);
+  const stub = stubGh(dir, [
+    {
+      match: "^issue view 8 --repo acme/widgets --json state,author,labels$",
+      json: { state: "OPEN", author: { is_bot: false }, labels: labels.map((name) => ({ name })) },
+    },
+    { match: "^api --paginate repos/acme/widgets/issues/8/comments --jq", json: comments },
+  ]);
+  return runStep(dir, script, {
+    PATH: `${stub.bin}${path.delimiter}${process.env.PATH}`,
+    GH_STUB_RULES: stub.rulesFile,
+    GH_STUB_LOG: stub.log,
+    REPO: "acme/widgets",
+    TRIAGE_ISSUE: "8",
+    EVENT: "workflow_dispatch",
+    ACTION: "",
+    RETRIAGE: "false",
+    STALE: "false",
+  });
+}
+
+test("a dispatch leaves an approved or a planned requested issue as it is", (t) => {
+  for (const labels of [
+    ["triaged", "agent:approved", "feature", "P2"],
+    ["triaged", "requested", "feature", "P2"],
+  ]) {
+    const r = dispatched(t, labels);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /::error::/);
+  }
+  // Not yet triaged, a requested issue must end the run triaged.
+  const r = dispatched(t, ["requested", "feature"]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /::error::triage posted no comment on issue 8/);
+});

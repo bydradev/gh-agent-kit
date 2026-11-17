@@ -174,7 +174,7 @@ test("issue withholds the title and body of an issue opened without write access
     title: `title by ${author.login}`,
     body: `body by ${author.login}`,
     state: "open",
-    labels: [{ name: "ready" }],
+    labels: [{ name: "triaged" }],
     user: author,
   });
   const s = await server(t, [
@@ -193,7 +193,7 @@ test("issue withholds the title and body of an issue opened without write access
   const outside = await read({ number: 42 });
   assert.deepEqual(
     [outside.title, outside.body, outside.labels, outside.author],
-    [null, null, ["ready"], "reader"],
+    [null, null, ["triaged"], "reader"],
   );
   assert.equal(
     outside.withheld,

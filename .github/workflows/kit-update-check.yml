@@ -89,7 +89,7 @@ jobs:
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
             KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
             KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
-            KIT_UPDATE_CHECK
+            KIT_UPDATE_CHECK KIT_ISSUE_LINK_CHECK
           )
           file=.github/gh-agent-kit.yml
           # The file on the default branch (the contents API's default ref),
@@ -173,7 +173,7 @@ jobs:
             # fails the run instead of quietly leaving its workflow off.
             case "$name" in
               KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
-              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK | KIT_ISSUE_LINK_CHECK) states="on off" ;;
               *) states="" ;;
             esac
             if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then

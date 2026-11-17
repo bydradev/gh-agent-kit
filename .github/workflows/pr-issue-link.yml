@@ -1,0 +1,252 @@
+name: pr-issue-link
+
+# Does the pull request say which issue it resolves? Fails the check when
+# the body has neither a closing keyword GitHub links ("Closes #12",
+# "Fixes owner/repo#12", "Resolves https://github.com/owner/repo/issues/12",
+# with close, closes, closed, fix, fixes, fixed, resolve, resolves or
+# resolved) nor a "No issue:" line giving the reason, which is how a pull
+# request says the operator's request skipped the issue (the Work tracking
+# block in AGENTS.md). HTML comments, such as a pull request template's
+# hints, and fenced code do not count. Pull requests by Dependabot and by Release Please
+# are exempt. No model, no checkout and no write: the body is read from the
+# API, and an edit to it runs the check again. It runs only when
+# KIT_ISSUE_LINK_CHECK, a repository variable or a line of
+# .github/gh-agent-kit.yml (the settings job below), is "on"; "off" or
+# unset leaves it off, and any other value, or any other failure of the
+# settings job, fails the check. Whether it is a
+# required check is each repository's choice (the kit's setup guide).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  # The settings the check job runs with. Its if: can read only repository
+  # variables and earlier jobs' outputs (GitHub's context availability
+  # table, read 2026-10-26), and a setting may come from
+  # .github/gh-agent-kit.yml instead of a variable (the kit's setup guide,
+  # https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md), so
+  # this job reads both, checks each value and passes them on.
+  settings:
+    name: pr-issue-link settings
+    # A newer run cancels an older one still reading its settings, so the
+    # older one's check never starts after the newer one's.
+    concurrency:
+      group: pr-issue-link-settings-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # Dependabot's and Release Please's pull requests are exempt, as the
+    # review and the scan skip them; a skipped check counts as passed.
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !(startsWith(github.head_ref, 'release-please--') &&
+        github.event.pull_request.user.type == 'Bot')
+    # One CPU is enough for reading settings, at a third of the standard
+    # runner's per-minute price (GitHub's Actions runner pricing and
+    # GitHub-hosted runners reference, read 2026-11-16: ubuntu-slim is a
+    # 1-core container with gh, jq and bash, and stops a job at 15 minutes).
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SETTINGS: >-
+        KIT_ISSUE_LINK_CHECK
+    outputs:
+      KIT_ISSUE_LINK_CHECK: ${{ steps.pass.outputs.KIT_ISSUE_LINK_CHECK }}
+    steps:
+      # Setting by setting, a repository variable wins over the file, so a
+      # variable still changes a setting at once, without a pull request.
+      # The same script in each of the kit's workflows.
+      - name: Read the settings file and variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VARS: ${{ toJSON(vars) }}
+        run: |
+          # Every setting the kit reads, in any of its workflows; the file may
+          # set any of them, and a name outside this list fails the run.
+          # Secrets (ANTHROPIC_API_KEY, OPENCODE_API_KEY) are not settings.
+          known=(
+            KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_RUNNER KIT_REVIEW_MODEL
+            KIT_REVIEW_EFFORT KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES
+            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES
+            KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_RUNNER KIT_SECURITY_MODEL
+            KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
+            KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
+            KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
+            KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
+            KIT_UPDATE_CHECK KIT_ISSUE_LINK_CHECK
+          )
+          file=.github/gh-agent-kit.yml
+          # The file on the default branch (the contents API's default ref),
+          # never a pull request's head: a pull request cannot change its own
+          # review or scan, and a change to the file applies once merged, as a
+          # variable's does. No file is no setting; any other failure to read
+          # it fails the run rather than running with the defaults.
+          err=$(mktemp)
+          if content=$(gh api "repos/$REPO/contents/$file" \
+            --jq 'if .type != "file" then error("not a file") elif .size > 16384 then error("larger than 16 KiB") else .content end' 2> "$err"); then
+            content=$(printf '%s' "$content" | base64 -d)
+            echo "read $file from the default branch"
+          elif grep -q 'HTTP 404' "$err"; then
+            content=""
+            echo "no $file on the default branch"
+          else
+            echo "::error::could not read $file from the default branch: $(head -c 300 "$err")"
+            exit 1
+          fi
+          # One "NAME: value" line per setting, a value being a word or a
+          # number, quoted or not; comments and blank lines are skipped.
+          # Anything else fails the run naming the line, and a line is never
+          # printed: one that is not a setting could hold a secret.
+          declare -A value=() at=()
+          word='[A-Za-z0-9._-]'
+          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          n=0
+          while IFS= read -r l || [ -n "$l" ]; do
+            n=$((n + 1))
+            l=${l%$'\r'}
+            if [[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] || { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }; then
+              continue
+            fi
+            if ! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]; then
+              echo "::error::$file line $n is not a NAME: value line"
+              exit 1
+            fi
+            name=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]}
+            if [[ " ${known[*]} " != *" $name "* ]]; then
+              case "$name" in
+                *KEY* | *TOKEN* | *SECRET* | *PASSWORD*)
+                  echo "::error::$file line $n names a secret; secrets go in the repository's Actions secrets, never in a committed file" ;;
+                KIT_*)
+                  echo "::error::$file line $n: $name is not a setting the kit reads (the kit's setup guide lists them)" ;;
+                *)
+                  echo "::error::$file line $n is not a kit setting" ;;
+              esac
+              exit 1
+            fi
+            if [ -n "${at[$name]:-}" ]; then
+              echo "::error::$file sets $name twice, on lines ${at[$name]} and $n"
+              exit 1
+            fi
+            if ! [[ "$rest" =~ $pair ]]; then
+              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              exit 1
+            fi
+            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            at[$name]=$n
+          done <<< "$content"
+          # Each setting this workflow reads: the repository variable when
+          # set, else the file's value, else unset (the kit's default). Every
+          # legitimate value is a word or a number, so anything else fails
+          # here, before it reaches GITHUB_ENV, where a line break would set
+          # another variable.
+          for name in $SETTINGS; do
+            v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
+            if [ -n "$v" ]; then
+              from="the repository variable"
+            elif [ -n "${value[$name]:-}" ]; then
+              v=${value[$name]}
+              from="$file line ${at[$name]}"
+            else
+              from="unset"
+            fi
+            if ! [[ "$v" =~ ^$word*$ ]]; then
+              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+              exit 1
+            fi
+            # A switch takes only the values that name a state, so a typo
+            # fails the run instead of quietly leaving its workflow off.
+            case "$name" in
+              KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK | KIT_ISSUE_LINK_CHECK) states="on off" ;;
+              *) states="" ;;
+            esac
+            if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
+              echo "::error::the setting $name must be ${states// /, } or unset, not '$v' ($from)"
+              exit 1
+            fi
+            echo "$name=$v" >> "$GITHUB_ENV"
+            echo "FROM_$name=$from" >> "$GITHUB_ENV"
+            echo "$name=${v:-(unset)} ($from)"
+          done
+      # The checked values, or the ones read when the workflow is off.
+      - name: Pass the settings on
+        id: pass
+        run: |
+          for name in $SETTINGS; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"
+          done
+
+  link:
+    name: pr-issue-link
+    needs: settings
+    # Also when the settings job failed: the first step then fails this
+    # job, since a skipped check counts as passed and a broken setting must
+    # not let a pull request through. Not when the settings job was skipped
+    # (an exempt pull request).
+    if: ${{ !cancelled() && (needs.settings.result == 'failure' || needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on') }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      # The body, read from the API: "Pull requests" read alone allows it.
+      pull-requests: read
+    concurrency:
+      group: pr-issue-link-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # A failed settings job (a settings file that could not be read, or a
+      # line the kit does not read) leaves the switch unknown.
+      - name: Fail when the settings job failed
+        if: needs.settings.result == 'failure'
+        run: |
+          echo "::error::the settings job failed (its log names the setting and where it came from); the issue link was not checked"
+          exit 1
+      # The body is read from the API, never from the event into an
+      # expression, and is the current one when a run is re-run.
+      - name: Look for a closing issue or a No issue line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # HTML comments go first (in the API's jq, so no other tool is
+          # needed), so a template's hint that shows the syntax is not taken
+          # for the real thing; then fenced code, where GitHub links nothing.
+          body=$(gh api "repos/$REPO/pulls/$PR" --jq '(.body // "") | gsub("\r"; "") | gsub("<!--[\\s\\S]*?-->"; "")')
+          text=$(awk '
+            {
+              l = $0
+              sub(/^ ? ? ?/, "", l)
+              c = substr(l, 1, 1)
+              n = 0
+              if (c == "`" || c == "~") while (substr(l, n + 1, 1) == c) n++
+              rest = substr(l, n + 1)
+              if (fence) {
+                if (c == fc && n >= fl && rest ~ /^[ \t]*$/) fence = 0
+                next
+              }
+              if (n >= 3 && !(c == "`" && index(rest, "`"))) { fence = 1; fc = c; fl = n; next }
+              print
+            }
+          ' <<< "$body")
+          name='[A-Za-z0-9_.-]+'
+          close='(^|[^[:alnum:]_])(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)(:[[:space:]]*|[[:space:]]+)'
+          target="(($name/$name)?#[0-9]+|https://github\.com/$name/$name/issues/[0-9]+)([^[:alnum:]_]|\$)"
+          if grep -qiE -- "$close$target" <<< "$text"; then
+            echo "The body names the issue this pull request closes."
+          # A line that starts "No issue:", after a list marker or bold
+          # markup, with a reason after it, which may itself be emphasised.
+          elif grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?No issue:((\*\*|__)[[:space:]]*|[[:space:]]*)(\*\*|__|\*|_)?[^[:space:]*_]' <<< "$text"; then
+            echo "The body says why this pull request has no issue (a No issue: line)."
+          else
+            echo "::error::The pull request's body names no issue it closes. Add \"Closes #<n>\" for the issue it resolves (or another closing keyword GitHub links), or, when the operator's request said to skip the issue, a line \"No issue: <the reason>\". Editing the body runs this check again."
+            exit 1
+          fi

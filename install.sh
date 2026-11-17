@@ -540,5 +540,5 @@ untracked=$(git -C "$target" ls-files --others --exclude-standard -- "${paths[@]
 [ -z "$untracked" ] || printf 'new:\n%s\n' "$untracked"
 echo
 echo "Next: edit .github/security-review-instructions.md for this repository, run"
-echo ".github/scripts/sync-labels.sh <owner/repo>, and set the secret and"
-echo "settings in docs/setup.md."
+echo ".github/scripts/sync-labels.sh <owner/repo> (once with --migrate when it"
+echo "lists dropped labels), and set the secret and settings in docs/setup.md."
