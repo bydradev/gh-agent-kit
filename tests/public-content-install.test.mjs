@@ -136,7 +136,7 @@ function runTriage(t, rules) {
   return { ...step, env: fs.readFileSync(githubEnv, "utf8"), installed };
 }
 const contents = (f, body) => ({
-  match: `^api repos/acme/widgets/contents/${f.replace(/\./g, "\\.")}$`,
+  match: `^api repos/acme/widgets/contents/${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
   stdout: body,
 });
 const notFound = (f) => ({
