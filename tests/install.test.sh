@@ -532,6 +532,13 @@ check install "$t"
 { printf '# W\n\n## Project specifics\n\n````md\n```\n## Not a heading\n````\n\n'; kit_block; printf '\nLater\n-----\n\nText.\n'; } > "$work/expected"
 check cmp -s "$work/expected" "$t/AGENTS.md"
 
+it "a multi-line setext heading gets the block before its first line"
+new_target
+printf '%s\n\nNext\nheading\n-------\n\nText.\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n' "$agents_md"; kit_block; printf '\nNext\nheading\n-------\n\nText.\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
 it "a line under a list item or a quote is no setext heading"
 new_target
 printf '%s\n\n- item one\n  continued\n---\n\n> quoted\nlazy\n---\n' "$agents_md" > "$t/AGENTS.md"
