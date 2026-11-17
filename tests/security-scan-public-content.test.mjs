@@ -283,3 +283,39 @@ test("findings the check passes are left as they were", (t) => {
   assert.deepEqual(s.read("scan-results.json"), before);
   assert.equal(s.text("scan-withheld.md"), null);
 });
+
+test("a token the comment or the record would rebuild by taking out a backtick is refused", (t) => {
+  const s = setup(t, { [MJS]: CHECK });
+  s.write(
+    "scan-results.json",
+    results([
+      finding({ description: at("Reads /ho", "`me/dra/notes.txt.") }),
+      finding({ line: 20, recommendation: "Compare skunk`works." }),
+      finding({ line: 30 }),
+    ]),
+  );
+  const hold = s.run(holdScript, { PRIVATE_REPO_NAMES: "skunkworks" });
+  assert.equal(hold.status, 0, hold.stdout + hold.stderr);
+  assert.deepEqual(
+    s.read("scan-results.json").findings.map((f) => Boolean(f._withheld)),
+    [true, true, false],
+  );
+});
+
+test("a check step that did not finish leaves the summary listing no finding's text", (t) => {
+  const s = setup(t, { [MJS]: CHECK });
+  s.write("scan-results.json", results([finding(), finding({ line: 20 })]));
+  // As a step cut short leaves it: the marker, and no finding marked.
+  fs.writeFileSync(s.file("scan-content-pending"), "");
+  const summary = s.run(summaryScript);
+  assert.equal(summary.status, 0, summary.stdout + summary.stderr);
+  assert.equal(s.text("scan-count"), "2\n");
+  assert.equal(s.text("scan-findings.md"), null);
+  assert.doesNotMatch(summary.stdout, /api\.js|::group::/);
+  assert.match(summary.stdout, /::warning::the public-content check did not finish/);
+  assert.match(s.text("scan-withheld.md"), /did not finish, so the text of all 2 findings is withheld/);
+  // A step that finishes takes the marker down.
+  const hold = s.run(holdScript);
+  assert.equal(hold.status, 0, hold.stdout + hold.stderr);
+  assert.ok(!fs.existsSync(s.file("scan-content-pending")));
+});

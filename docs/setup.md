@@ -820,9 +820,10 @@ unchecked.
   base without one gets none, even on the pull request that first
   installs the kit, and a check committed as a symlink fails the review
   (the contents API gives triage a symlink's target when it is a file in
-  the repository). Each workflow runs the check once on an empty text
-  before the model starts and stops with an error naming it if that
-  fails, so a broken check does not cost a model run.
+  the repository). The review and triage workflows each run the check
+  once on an empty text before the model starts and stop with an error
+  naming it if that fails, so a broken check does not cost a model run;
+  the scan runs it only after the scan, below.
 - The check runs with only `PATH` and, when the repository sets it,
   `PRIVATE_REPO_NAMES` in its environment, never the job token. Set the
   `PRIVATE_REPO_NAMES` secret to have it refuse bare private names too;
@@ -841,13 +842,21 @@ unchecked.
   workflow, not through the server, so the workflow runs the base
   branch's check itself, after the verification, on each finding's
   model-written text (category, file, description, exploit scenario and
-  recommendation). A finding the check refuses is withheld: no inline
-  comment, no line in the record or the run's log, and the record says
-  how many were withheld and the kinds the check found, never the text.
-  It is not reworded: the scan has no second try. A check that cannot run
-  withholds every finding, with a warning in the run's log. The scan's
-  count still includes withheld findings, and the candidates the
-  verification dropped, which only the run's log lists, are not checked.
+  recommendation, as written and as the comment and the record show
+  them). A finding the check refuses is withheld: no inline comment, no
+  line in the record or in the log of the steps after the check, and the
+  record says how many were withheld and the kinds the check found, never
+  the text. It is not reworded: the scan has no second try. A check that
+  cannot run, runs past 30 seconds or does not finish withholds every
+  finding, with a warning in the run's log. The scan's count still
+  includes withheld findings. Not covered yet: the scan's and the
+  verification's own log lines (their last message and any answer that
+  fails the schema) and the candidates the verification dropped, which
+  the log lists before or without the check. Each finding is checked on
+  its own, and the record names the kinds, a private repository name
+  among them: unlike the review, which a pull request's text can steer,
+  the scan reads only the diff, whose author has write access and could
+  read the secret through a workflow change anyway.
 
 ## The verdict check
 
