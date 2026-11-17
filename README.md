@@ -3,11 +3,11 @@
 GitHub Issues as the backlog for coding agents, with AI triage, pull
 request review and security scanning in GitHub Actions.
 
-The kit is four GitHub Actions workflows, an MCP server, four skills, issue
-forms and a label script. `install.sh` copies them into your repository as
-plain files, pinned to a commit of this one, so you review them like any
-other change. Until a setting turns a workflow on, it runs only a short
-settings check.
+The kit is four GitHub Actions workflows, an MCP server, five skills, issue
+forms, a label script and the *Work tracking* rules for your `AGENTS.md`.
+`install.sh` copies them into your repository as plain files, pinned to a
+commit of this one, so you review them like any other change. Until a
+setting turns a workflow on, it runs only a short settings check.
 
 The kit was extracted from a working pilot and ships as tagged releases.
 It runs on GitHub-hosted Ubuntu runners; [How it runs](#how-it-runs) says
@@ -37,13 +37,22 @@ which program and which model each workflow uses.
   dependencies are left to a dependency scanner such as Dependabot
   ([The security scan](docs/setup.md#the-security-scan)).
 - **An update notice.** A weekly check opens one issue when the kit's
-  latest release has changed files your repository installed from it, and
+  latest release has changed files your repository installed from it, or
+  when your `AGENTS.md` lacks the release's *Work tracking* block, and
   closes it once you are current. It reads the kit as data and runs none of
   its code.
 - **An implementation skill** (`github-issue-e2e`) for the coding agent
   that picks up an approved issue: claim, branch, implement, validate,
   review, open the pull request that closes it, and report each acceptance
   criterion on the issue with its evidence.
+- **A filing skill** (`github-issue-file`) for an agent that files an
+  issue: no security problem in public, a duplicate search, and the issue
+  form's headings and labels, which an issue filed from the command line
+  otherwise lacks.
+- **Work tracking rules** in your `AGENTS.md`: how work is tracked, what
+  the labels mean and which comments are input rather than instructions.
+  `install.sh` writes them between two marker comments and keeps them
+  current on each install.
 
 The review and the scan follow the base branch's copies of their skills,
 the review guidelines and every `AGENTS.md`, and the review uses the
@@ -64,9 +73,10 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
      ./gh-agent-kit/install.sh /path/to/your-repo
    ```
 
-   Add the *Work tracking* block from
-   [`docs/agents-md-block.md`](docs/agents-md-block.md) to your
-   `AGENTS.md`, then commit both and open a pull request.
+   The installer also writes the *Work tracking* block from
+   [`docs/agents-md-block.md`](docs/agents-md-block.md) at the end of your
+   `AGENTS.md`'s *Project specifics* section, or says why it could not.
+   Commit the result and open a pull request.
 
    This README and `docs/` describe the default branch, which can be
    ahead of the latest release; the copies in your checkout describe the
@@ -194,13 +204,15 @@ the workflow posts what it found.
 - [`docs/labels.md`](docs/labels.md): the fifteen labels, the issue
   lifecycle and who sets what.
 - [`docs/agents-md-block.md`](docs/agents-md-block.md): the *Work tracking*
-  rules to add to your `AGENTS.md`.
+  rules `install.sh` writes into your `AGENTS.md`, and where your own
+  additions go.
 - [`docs/reports/`](docs/reports/): the dated tests behind the default
   models, and one page comparing every model tested with its cost (see
   [How it runs](#how-it-runs)).
 - `.agents/skills/github-pr-review`, `github-security-scan`,
-  `github-issue-triage` and `github-issue-e2e`: what the reviewer, the
-  scanner, the triage bot and an implementing agent follow.
+  `github-issue-triage`, `github-issue-e2e` and `github-issue-file`: what
+  the reviewer, the scanner, the triage bot, an implementing agent and an
+  agent filing an issue follow.
 
 For work on this repository itself: [`AGENTS.md`](AGENTS.md) (branch,
 commit, pull request and validation workflow),
@@ -212,7 +224,7 @@ decisions).
 
 The kit's files sit in this repository at the paths they take in a target,
 so this repository runs them on itself. `kit-manifest.txt` lists these
-fifteen, and `install.sh` copies them:
+sixteen, and `install.sh` copies them:
 
 ```text
 .github/workflows/pr-review.yml
@@ -224,12 +236,14 @@ fifteen, and `install.sh` copies them:
 .github/ISSUE_TEMPLATE/{bug,task,config}.yml
 .github/security-review-instructions.md   (seed: copied once, then yours)
 .agents/skills/{github-pr-review,github-security-scan}/SKILL.md
-.agents/skills/{github-issue-triage,github-issue-e2e}/SKILL.md
+.agents/skills/{github-issue-triage,github-issue-e2e,github-issue-file}/SKILL.md
 .github/gh-agent-kit/LICENSE              (a copy of this repository's LICENSE)
 ```
 
 With `--issue-forms=own`, the three files in `.github/ISSUE_TEMPLATE/` are
-left out.
+left out. `install.sh` also writes the block between the markers in
+[`docs/agents-md-block.md`](docs/agents-md-block.md) into the target's
+`AGENTS.md`.
 
 ## Contributing and licence
 

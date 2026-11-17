@@ -8,6 +8,16 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
+### Work tracking block and issue filing (2026-11-17)
+
+[#48](https://github.com/bydradev/gh-agent-kit/issues/48) lands in two
+pull requests. The first has `install.sh` write and check the *Work
+tracking* block, the weekly update check report it, and adds the
+`github-issue-file` skill. The second adds the flow for work the operator
+asks for directly, the label changes and the pull request issue-link check,
+and closes the issue. Targets are updated in one round after the release
+that carries both.
+
 ### Public release (2026-10-26, public since 2026-10-27)
 
 The operator chose to publish the kit as a new public repository named

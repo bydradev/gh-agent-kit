@@ -15,9 +15,13 @@ name: kit-update-check
 # label would never clear. Updating stays a person's job: run install.sh
 # from a clone of the kit at that release and open a pull request. Local
 # edits to the kit's files are not this check's business; install.sh
-# --check shows them. It runs only when KIT_UPDATE_CHECK, a repository
-# variable or a line of .github/gh-agent-kit.yml (the settings job below),
-# is "on"; "off" or unset leaves it off, and any other value fails the run.
+# --check shows them. The Work tracking block install.sh writes into
+# AGENTS.md is the exception: unless the lock is past the release, the
+# notice lists it too when it is missing or differs from the release's,
+# edited here or not, since nothing else would tell the repository. It
+# runs only when KIT_UPDATE_CHECK, a repository variable or a line of
+# .github/gh-agent-kit.yml (the settings job below), is "on"; "off" or
+# unset leaves it off, and any other value fails the run.
 # A repository that keeps its own issue forms (the lock's issue_forms is
 # "own") is not told about the kit's files under .github/ISSUE_TEMPLATE/.
 #
@@ -287,6 +291,54 @@ jobs:
               fi
             done
           fi
+          # The Work tracking block install.sh writes into AGENTS.md, from
+          # the kit's docs/agents-md-block.md between its markers, checked
+          # when the lock is at the release or behind it (a lock past the
+          # release is current, block included). A release without the
+          # markers has no block to check. AGENTS.md is scanned as
+          # install.sh scans it: markers inside fenced code do not count,
+          # a fence closing as CommonMark closes it, and anything but one
+          # start marker followed by one end marker is no block. No block,
+          # or one that differs from the release's (the release changed
+          # it or someone edited it here), counts.
+          start='<!-- gh-agent-kit:work-tracking:start -->'
+          end='<!-- gh-agent-kit:work-tracking:end -->'
+          want=""
+          if [ "$ref" = "$release" ] || ! kit cat-file -e "$ref^{commit}" 2> /dev/null \
+            || ! kit merge-base --is-ancestor "$release" "$ref"; then
+            want=$(kit show "$release:docs/agents-md-block.md" 2> /dev/null | sed -n "\|^$start\$|,\|^$end\$|p" || true)
+          fi
+          if [ -n "$want" ]; then
+            agents=target/AGENTS.md
+            have=""
+            if [ -f "$agents" ] && [ ! -L "$agents" ]; then
+              have=$(awk -v s="$start" -v e="$end" '
+                {
+                  l = $0
+                  sub(/^ ? ? ?/, "", l)
+                  c = substr(l, 1, 1)
+                  n = 0
+                  if (c == "`" || c == "~") while (substr(l, n + 1, 1) == c) n++
+                  rest = substr(l, n + 1)
+                  if (fence) {
+                    if (c == fc && n >= fl && rest ~ /^[ \t]*$/) fence = 0
+                    if (open) block = block $0 "\n"
+                    next
+                  }
+                  if (n >= 3 && !(c == "`" && index(rest, "`"))) { fence = 1; fc = c; fl = n }
+                }
+                $0 == s { starts++; if (!ends) open = 1 }
+                open { block = block $0 "\n" }
+                $0 == e { ends++; if (open) { open = 0; closed = 1 } }
+                END { if (starts == 1 && ends == 1 && closed) printf "%s", block; else if (starts || ends) print "malformed" }
+              ' "$agents")
+            fi
+            if [ -z "$have" ]; then
+              echo "missing    AGENTS.md (Work tracking block)" >> "$report"
+            elif [ "$have" != "$want" ]; then
+              echo "updated    AGENTS.md (Work tracking block)" >> "$report"
+            fi
+          fi
           cat "$report"
           if [ -s "$report" ]; then state=behind; else state=current; fi
           { echo "state=$state"; echo "ref=$release"; echo "tag=$tag"; echo "source=$source"; } >> "$GITHUB_OUTPUT"
@@ -319,7 +371,7 @@ jobs:
             exit 0
           fi
           title="Update gh-agent-kit to $KIT_TAG"
-          what="Since the kit commit this repository's lock names, the kit's latest release, $KIT_TAG, has changed the files below."
+          what="This repository's copy of gh-agent-kit differs from the kit's latest release, $KIT_TAG, as listed below: each file the release changed since the kit commit this repository's lock names, and AGENTS.md when its Work tracking block is missing or differs from the release's."
           out=$(head -n 200 "$RUNNER_TEMP/check.out" | sed 's/~~~/~ ~ ~/g')
           body="$marker
           $what Checked $(date -u +%Y-%m-%d) against $KIT_SOURCE $KIT_TAG (\`$KIT_REF\`) ([run]($RUN_URL)).
@@ -328,7 +380,7 @@ jobs:
           $out
           ~~~
 
-          To update, from a clone of the kit with that release checked out (\`git checkout $KIT_TAG\`): \`./install.sh --check /path/to/this-repository\` shows what an install would do, including any local edits it would replace; \`./install.sh /path/to/this-repository\` does it. Commit the result on a branch and open a pull request. This issue is opened and updated by the \`kit-update-check\` workflow, and closed by it once the copy is current."
+          To update, from a clone of the kit with that release checked out (\`git checkout $KIT_TAG\`): \`./install.sh --check /path/to/this-repository\` shows what an install would do, including any local edits it would replace; \`./install.sh /path/to/this-repository\` does it. Where the install cannot place the Work tracking block (no \`AGENTS.md\`, or a hand-pasted section), it says why, and the file needs that edit by hand first ([the setup guide](https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#the-work-tracking-block)). Commit the result on a branch and open a pull request. This issue is opened and updated by the \`kit-update-check\` workflow, and closed by it once the copy is current."
           if [ -n "$open" ]; then
             gh api --method PATCH "repos/$REPO/issues/$open" -f title="$title" -f body="$body" > /dev/null
             echo "updated #$open"

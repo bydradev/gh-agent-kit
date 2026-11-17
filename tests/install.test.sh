@@ -34,13 +34,22 @@ head=$(git -C "$kit" rev-parse HEAD)
 manifest_paths() { sed -n '/^#/d; /^$/d; s/^seed //; p' "$kit/kit-manifest.txt"; }
 
 n=0
-# Sets t to a new, empty git repository.
+# Sets t to a new git repository with only an AGENTS.md.
 new_target() {
   n=$((n + 1))
   t="$work/target$n"
   mkdir -p "$t"
   git -C "$t" init -q -b main
+  # An AGENTS.md like a bootstrapped repository's, for the block.
+  printf '%s\n' "$agents_md" > "$t/AGENTS.md"
 }
+agents_md='# Working in this repo
+
+## Project specifics
+
+### Ours
+
+A rule.'
 install() { "$kit/install.sh" "$@" > "$work/out" 2>&1; }
 # A path's permission bits in octal, with GNU stat (Linux) or BSD stat (macOS).
 mode_of() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
@@ -430,6 +439,163 @@ check install "$t"
 check contains "$work/out" "is not in the history of this clone's commit"
 check test -f "$t/.github/ISSUE_TEMPLATE/config.yml"
 git -C "$kit" checkout -q "$head"
+
+# The Work tracking block, as docs/agents-md-block.md holds it and as a
+# target's AGENTS.md has it (outside fenced code is not checked here).
+block_sed='/^<!-- gh-agent-kit:work-tracking:start -->$/,/^<!-- gh-agent-kit:work-tracking:end -->$/p'
+kit_block() { sed -n "$block_sed" "$kit/docs/agents-md-block.md"; }
+target_block() { sed -n "$block_sed" "$t/AGENTS.md"; }
+
+it "the kit's docs hold one Work tracking block, which names the filing skill"
+check test "$(kit_block | grep -c '^<!-- gh-agent-kit:work-tracking:')" = 2
+check test -n "$(kit_block | grep -F 'github-issue-file')"
+
+it "an install puts the block at the end of Project specifics, before the next section"
+new_target
+printf '%s\n\n## Later\n\nText.\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+check contains "$work/out" "added      AGENTS.md (Work tracking block)"
+{ printf '%s\n\n' "$agents_md"; kit_block; printf '\n## Later\n\nText.\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+check test "$(mode_of "$t/AGENTS.md")" = 644
+check test -z "$(temp_files "$t")"
+
+it "an install puts the block at the end of the file when Project specifics is last"
+new_target
+check install "$t"
+{ printf '%s\n\n' "$agents_md"; kit_block; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "a second install leaves the block as it is"
+cp "$t/AGENTS.md" "$work/agents.before"
+check install "$t"
+check contains "$work/out" "unchanged  AGENTS.md (Work tracking block)"
+check cmp -s "$work/agents.before" "$t/AGENTS.md"
+check test "$(check_mode "$t"; echo $?)" = 0
+
+it "an edited block is reported by --check, then replaced, and a subsection after it is kept"
+sed -i.bak 's/^### Work tracking$/### Work tracking (edited)/' "$t/AGENTS.md"
+rm -f "$t/AGENTS.md.bak"
+printf '\n### Our additions\n\nAnother rule.\n' >> "$t/AGENTS.md"
+cp "$t/AGENTS.md" "$work/agents.before"
+check test "$(check_mode "$t"; echo $?)" = 1
+check contains "$work/out" "updated    AGENTS.md (Work tracking block)"
+check cmp -s "$work/agents.before" "$t/AGENTS.md"
+check install "$t"
+check contains "$work/out" "updated    AGENTS.md (Work tracking block)"
+{ printf '%s\n\n' "$agents_md"; kit_block; printf '\n### Our additions\n\nAnother rule.\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "markers and headings inside fenced code do not count"
+new_target
+printf '%s\n\n```markdown\n<!-- gh-agent-kit:work-tracking:start -->\n## Project specifics\n<!-- gh-agent-kit:work-tracking:end -->\n```\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+check contains "$work/out" "added      AGENTS.md (Work tracking block)"
+check test "$(grep -c '^## Project specifics$' "$t/AGENTS.md")" = 2
+check test "$(tail -n 1 "$t/AGENTS.md")" = "<!-- gh-agent-kit:work-tracking:end -->"
+check install "$t"
+check contains "$work/out" "unchanged  AGENTS.md (Work tracking block)"
+
+# skipped <AGENTS.md as written> <expected reason>: the install goes on
+# and writes the kit's files, leaves AGENTS.md as it was, and says why;
+# --check counts the missing block.
+skipped() {
+  new_target
+  printf '%s\n' "$1" > "$t/AGENTS.md"
+  cp "$t/AGENTS.md" "$work/agents.before"
+  check install "$t"
+  check contains "$work/out" "skipped    AGENTS.md (Work tracking block: $2"
+  check cmp -s "$work/agents.before" "$t/AGENTS.md"
+  check test -f "$t/.github/gh-agent-kit.lock"
+  check test "$(check_mode "$t"; echo $?)" = 1
+  check contains "$work/out" "skipped    AGENTS.md (Work tracking block: $2"
+}
+
+it "a target without the Project specifics heading, or with two, is skipped"
+skipped "# Working in this repo" "no single \"## Project specifics\" heading"
+skipped "$agents_md"$'\n\n## Project specifics' "no single \"## Project specifics\" heading"
+skipped $'# Working in this repo\n\n```\n## Project specifics\n```' "no single \"## Project specifics\" heading"
+
+it "a Work tracking section without the markers is skipped, not replaced"
+skipped "$agents_md"$'\n\n### Work tracking\n\n- Our own line.' "a \"### Work tracking\" section without the kit's markers"
+
+it "unpaired or misordered markers are skipped"
+skipped "$agents_md"$'\n\n<!-- gh-agent-kit:work-tracking:start -->' "its markers are not one start followed by one end"
+skipped "$agents_md"$'\n\n<!-- gh-agent-kit:work-tracking:end -->\n<!-- gh-agent-kit:work-tracking:start -->' "its markers are not one start followed by one end"
+skipped "$agents_md"$'\n\n<!-- gh-agent-kit:work-tracking:start -->\n<!-- gh-agent-kit:work-tracking:end -->\n<!-- gh-agent-kit:work-tracking:start -->\n<!-- gh-agent-kit:work-tracking:end -->' "its markers are not one start followed by one end"
+
+it "a fence closes only on its own kind and length, and a setext heading ends the section"
+new_target
+body=$'# W\n\n## Project specifics\n\n````md\n```\n## Not a heading\n````\n\nLater\n-----\n\nText.'
+printf '%s\n' "$body" > "$t/AGENTS.md"
+check install "$t"
+{ printf '# W\n\n## Project specifics\n\n````md\n```\n## Not a heading\n````\n\n'; kit_block; printf '\nLater\n-----\n\nText.\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "a multi-line setext heading gets the block before its first line"
+new_target
+printf '%s\n\nNext\nheading\n-------\n\nText.\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n' "$agents_md"; kit_block; printf '\nNext\nheading\n-------\n\nText.\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "a setext heading indented up to three spaces ends the section, indented code does not"
+new_target
+printf '%s\n\n    code\n---\n\n   Later\n=====\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n    code\n---\n\n' "$agents_md"; kit_block; printf '\n   Later\n=====\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "a line under a list item or a quote is no setext heading"
+new_target
+printf '%s\n\n- item one\n  continued\n---\n\n> quoted\nlazy\n---\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n- item one\n  continued\n---\n\n> quoted\nlazy\n---\n\n' "$agents_md"; kit_block; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
+it "the rest of AGENTS.md keeps its bytes, its mode and a missing final newline"
+new_target
+printf '%s' "$agents_md" > "$t/AGENTS.md"
+chmod 600 "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n' "$agents_md"; kit_block; } > "$work/expected"
+printf '%s' "$(cat "$work/expected")" > "$work/expected.nonl"
+check cmp -s "$work/expected.nonl" "$t/AGENTS.md"
+check test "$(mode_of "$t/AGENTS.md")" = 600
+check test "$(check_mode "$t"; echo $?)" = 0
+check install "$t"
+check contains "$work/out" "unchanged  AGENTS.md (Work tracking block)"
+
+it "a fence left open in Project specifics is skipped"
+skipped "$agents_md"$'\n\n```sh\nnpm test' "a fenced code block in \"## Project specifics\" is never closed"
+skipped "$agents_md"$'\n\n```sh\nnpm test\n\n## Later\n\nText.' "a fenced code block in \"## Project specifics\" is never closed"
+
+it "a broken block doc is refused before the target changes"
+new_target
+git -C "$kit" checkout -q "$head"
+sed -i.bak '/^<!-- gh-agent-kit:work-tracking:end -->$/d' "$kit/docs/agents-md-block.md"
+rm -f "$kit/docs/agents-md-block.md.bak"
+snapshot "$t" > "$work/before"
+check test "$(KIT_ALLOW_DIRTY=1 "$kit/install.sh" "$t" > "$work/out" 2>&1; echo $?)" = 2
+check contains "$work/out" "docs/agents-md-block.md has no single block between its markers"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+git -C "$kit" checkout -q -- docs/agents-md-block.md
+
+it "a target without AGENTS.md, or with a symlink there, is skipped"
+new_target
+rm "$t/AGENTS.md"
+check install "$t"
+check contains "$work/out" "skipped    AGENTS.md (Work tracking block: no AGENTS.md file"
+check test ! -e "$t/AGENTS.md"
+new_target
+printf '%s\n' "$agents_md" > "$work/agents-elsewhere.md"
+rm "$t/AGENTS.md"
+ln -s "$work/agents-elsewhere.md" "$t/AGENTS.md"
+check install "$t"
+check contains "$work/out" "skipped    AGENTS.md (Work tracking block: no AGENTS.md file"
+check test -L "$t/AGENTS.md"
+check test "$(cat "$work/agents-elsewhere.md")" = "$agents_md"
 
 echo "$passes passed, $failures failed"
 [ "$failures" -eq 0 ]
