@@ -109,7 +109,7 @@ jobs:
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
             KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
             KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
-            KIT_UPDATE_CHECK
+            KIT_UPDATE_CHECK KIT_ISSUE_LINK_CHECK
           )
           file=.github/gh-agent-kit.yml
           # The file on the default branch (the contents API's default ref),
@@ -193,7 +193,7 @@ jobs:
             # fails the run instead of quietly leaving its workflow off.
             case "$name" in
               KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
-              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK | KIT_ISSUE_LINK_CHECK) states="on off" ;;
               *) states="" ;;
             esac
             if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
@@ -483,7 +483,7 @@ jobs:
           gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
             --jq '.[] | select(.pull_request == null and .user.type != "Bot") | select(
                 (.labels | map(.name) | index("needs-triage")) != null
-                or ((.labels | map(.name)) - ["needs-triage","triaged","ready","in-progress","blocked","needs-operator"] | length) == (.labels | length)
+                or ((.labels | map(.name)) - ["needs-triage","triaged","in-progress","needs-operator"] | length) == (.labels | length)
                 or ((.labels | map(.name) | index("in-progress")) != null and (now - (.updated_at | fromdate)) > 7 * 86400)
               ) | .number' | sort -n > "$RUNNER_TEMP/candidates"
           : > "$DISPATCH_LOG"
@@ -1053,9 +1053,12 @@ jobs:
                 :
               elif has in-progress && [ "$EVENT" != "workflow_dispatch" ]; then
                 exit 0
-              elif [ "$EVENT" = "workflow_dispatch" ] && ! has in-progress && { has agent:approved || has ready; }; then
-                # An approved plan nobody has claimed stands; a claimed one
-                # (agent:approved stays through the claim) gets the stale
+              elif [ "$EVENT" = "workflow_dispatch" ] && ! has in-progress \
+                && { has agent:approved || { has requested && has triaged; }; }; then
+                # An approved plan nobody has claimed stands, and so does the
+                # plan of an issue filed for work the operator asked for
+                # directly (requested), which needs no approval; a claimed
+                # one (agent:approved stays through the claim) gets the stale
                 # check below.
                 exit 0
               elif has in-progress && [ "$STALE" != "true" ]; then
@@ -1138,14 +1141,13 @@ jobs:
           # Both outcomes carry one type and one priority (the questions
           # path applies the bot's best reading; the re-triage after the
           # answer may change them).
-          [ "$(count 'bug|feature|chore|docs')" -eq 1 ] || fail "a triaged or needs-operator issue carries one type label"
+          [ "$(count 'bug|feature|chore')" -eq 1 ] || fail "a triaged or needs-operator issue carries one type label"
           [ "$(count 'P[0-3]')" -eq 1 ] || fail "a triaged or needs-operator issue carries one priority label"
           # needs-triage on an approved issue is the operator asking for a
           # fresh plan, so the old approval goes with it on labeled events
           # and on a dispatch of an issue that carried the label.
           if [ "$ACTION" = edited ] || [ "$ACTION" = reopened ] || [ "$ACTION" = labeled ] || [ "$RETRIAGE" = true ]; then
             has agent:approved && fail "agent:approved survived a $ACTION event"
-            has ready && fail "ready survived a $ACTION event"
           fi
           if [ "$ACTION" = "reopened" ] && has in-progress; then fail "in-progress survived a reopened event"; fi
       # The sweep ends successfully whether or not it dispatched anything.

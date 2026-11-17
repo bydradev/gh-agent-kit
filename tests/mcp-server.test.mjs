@@ -966,10 +966,14 @@ test("remove_label takes agent:approved off only on a fresh triage or a later ed
     env: triageEnv({ TRIAGE_EVENT: "reopened" }),
     rules: [edit, issueRule()],
   });
-  assert.equal((await reopened.call("remove_label", { label: "ready" })).isError, false);
+  assert.equal((await reopened.call("remove_label", { label: "agent:approved" })).isError, false);
   assert.equal((await reopened.call("remove_label", { label: "in-progress" })).isError, false);
-  const other = await reopened.call("remove_label", { label: "wontfix" });
-  assert.match(other.text, /may not remove 'wontfix'/);
+  // requested records the operator's request and is never the bot's to
+  // remove; ready, blocked and docs are no longer kit labels.
+  for (const label of ["wontfix", "requested", "ready", "blocked", "docs"]) {
+    const other = await reopened.call("remove_label", { label });
+    assert.match(other.text, new RegExp(`may not remove '${label}'`));
+  }
 });
 
 test("add_label adds only the bot's labels, never needs-triage", async (t) => {
@@ -982,7 +986,7 @@ test("add_label adds only the bot's labels, never needs-triage", async (t) => {
     ],
   });
   assert.equal((await server.call("add_label", { label: "P2" })).isError, false);
-  for (const label of ["needs-triage", "agent:approved", "ready"])
+  for (const label of ["needs-triage", "agent:approved", "requested", "ready", "blocked", "docs"])
     assert.match((await server.call("add_label", { label })).text, /may not add/);
 });
 

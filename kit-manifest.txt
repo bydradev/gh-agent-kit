@@ -5,6 +5,7 @@
 .github/workflows/security-scan.yml
 .github/workflows/issue-triage.yml
 .github/workflows/kit-update-check.yml
+.github/workflows/pr-issue-link.yml
 .github/scripts/mcp-server.mjs
 .github/scripts/sync-labels.sh
 seed .github/security-review-instructions.md

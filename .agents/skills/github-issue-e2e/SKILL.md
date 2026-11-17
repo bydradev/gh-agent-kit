@@ -6,7 +6,7 @@ description: >-
 
 # Work an issue end to end
 
-This skill takes one issue from `ready` to an open, green, reviewed pull
+This skill takes one approved issue to an open, green, reviewed pull
 request that closes it. The repository's rules still govern: `AGENTS.md`,
 `pull-requests`, `fresh-eyes-review`, `worktrees-and-scratch` and the
 validation skill `AGENTS.md` names. This skill only says how an issue flows
@@ -28,10 +28,14 @@ Proceed only when *the approval check* passes; otherwise stop and report
 which failed. Later steps run it again, so each time re-fetch the issue,
 its comments and its timeline
 (`gh api --paginate repos/<owner>/<repo>/issues/<n>/timeline`, every page;
-the endpoint returns 30 events a page). It passes when all of these hold:
+the endpoint returns 30 events a page). An issue is approved in one of two
+ways, and the check passes when all of the conditions for its way hold.
 
-- The operator applied `agent:approved`: the latest `labeled` event for it
-  has the operator as `actor`, not a bot or another agent, and is later
+**Approved by label.** The operator approves an issue by applying
+`agent:approved`:
+
+- The latest `labeled` event for `agent:approved` has the operator as
+  `actor`, not a bot or another agent, and is later
   than every `reopened` and `renamed` event (a title change is a scope
   change the triage bot may not have processed yet) and than the latest
   `## Triage` comment's `created_at` (an approval applied while the bot was
@@ -50,20 +54,49 @@ the endpoint returns 30 events a page). It passes when all of these hold:
   approval, but only while triage is on and once its run has happened, so
   the label alone is not enough; a bot `## Triage (revised)` comment that
   reports a reset means the current label is a fresh one.
-- The issue is open, carries `agent:approved` and none of `blocked`,
-  `needs-operator` (an open question from triage means the spec is not
-  settled) or `needs-triage` (the operator has asked for a fresh plan that
-  the bot has not posted yet), and has no assignee other than the operator.
-  Before the label swap in step 2 it also carries `ready` and not
-  `in-progress`; after the swap, `in-progress` in place of `ready`.
+- The issue is open, carries `agent:approved` and neither
+  `needs-operator` (an open question from triage, or from an agent that
+  handed the issue back, means the spec is not settled) nor `needs-triage`
+  (the operator has asked for a fresh plan that the bot has not posted
+  yet), and has no assignee other than the operator. Before the claim in
+  step 2 it does not carry `in-progress`; after it, it does.
 
-An approved issue with no plan, or a body edited, retitled or reopened
-after the plan or after the approval, has no settled scope to check an edit
-against: ask on the issue rather than proceed.
+**Approved by request.** The operator asked an agent for the work
+directly, and that agent filed the issue as `github-issue-file` says, with
+the request recorded in place of `agent:approved`:
 
-`agent:approved` is the operator's authorization for the scope the issue
-describes. It authorizes nothing else: no merge, deployment, external
-mutation, or change outside that scope.
+- The issue was opened by the operator's account (`user.login`), carries
+  `requested`, and its body has the `### Operator request` section quoting
+  the request. The request is the approval, for the work it names and
+  nothing more.
+- The latest `labeled` event for `requested` has the operator as `actor`
+  and is later than the issue's last body edit (`lastEditedAt`, read as
+  above) and every `renamed` and `reopened` event. An edit, a retitle or a
+  reopen after it is a scope change the operator has not seen: only the
+  session that holds the operator's answer re-applies the label
+  (`github-issue-file` step 7); any other agent stops and asks on the
+  issue.
+- Either the plan conditions above hold (the latest bot triage comment is a
+  plan, later than the last body edit and the latest `renamed` and
+  `reopened` events, and the body still matches it), or no bot triage
+  comment exists because triage is off or did not answer in time, which
+  the pull request will say.
+- The issue is open, carries no `needs-operator`, and carries
+  `needs-triage` only when no triage comment exists; it has no assignee
+  other than the operator; and `in-progress` as for an issue approved by
+  label.
+
+Either way, an issue that still carries `blocked`, a label of the kit's
+releases before `sync-labels.sh --migrate` removed it, is handed back and
+waiting for the operator: it fails the check.
+
+An issue approved by label with no plan, or a body edited, retitled or
+reopened after the plan or after the approval, has no settled scope to
+check an edit against: ask on the issue rather than proceed.
+
+`agent:approved`, or a recorded request, is the operator's authorization
+for the scope the issue describes. It authorizes nothing else: no merge,
+deployment, external mutation, or change outside that scope.
 
 ## 2. Claim
 
@@ -90,25 +123,27 @@ mutation, or change outside that scope.
   `Session: <link>.` only where `AGENTS.md` allows session links. A resume
   comment is a claim too and follows the same rule. Note the URL
   `gh issue comment` prints, then re-read the comments. If another claim or
-  resume comment was posted after the latest `labeled` event for `ready` in
+  resume comment was posted after the approval's latest `labeled` event
+  (`agent:approved`, or `requested` for an issue approved by request) in
   the issue timeline and before yours (compare comment URLs or IDs, not
   authors, since agents share the operator's credentials), back off: delete
   nothing, reply that you yield, and stop. The earlier claim owns the issue,
-  unless it is abandoned: a claim or resume comment on an issue that is
-  still `ready` ten minutes later was interrupted before its label swap, and
-  a later agent may claim over it, saying so in its own claim comment.
-- Swap `ready` for `in-progress`: `gh issue edit <n> --add-label in-progress --remove-label ready`,
+  unless it is abandoned: a claim or resume comment on an issue that still
+  lacks `in-progress` ten minutes later was interrupted before its label,
+  and a later agent may claim over it, saying so in its own claim comment.
+- Add `in-progress`: `gh issue edit <n> --add-label in-progress`,
   after running the approval check again (an approval withdrawn since your
   first read leaves the old `labeled` event in the timeline but not the
-  label). If more than ten minutes passed between your claim comment and the swap,
-  re-read the comments once more: a claim posted over yours in that window
-  wins, and you yield as above. When you are resuming after an operator
+  label). If more than ten minutes passed between your claim comment and
+  the label, re-read the comments once more: a claim posted over yours in
+  that window wins, and you yield as above. When you are resuming after an operator
   answer, read the answer before continuing.
 - Otherwise branch from the repository's default branch, read with
   `gh repo view <owner>/<repo> --json defaultBranchRef -q .defaultBranchRef.name`
   (never assume `main`; the checks above mean the same branch), as
   `<type>/<n>-<short-slug>`, type from the issue's type label
-  (`feature` → `feat`).
+  (`feature` → `feat`, `bug` → `fix`, `chore` → `chore`, or `docs` for a
+  change to documentation only).
 
 ## 3. Implement
 
@@ -122,11 +157,12 @@ mutation, or change outside that scope.
   say so. Ask on the issue: comment with the question and your
   recommendation, then release the claim so the answer can be picked up by
   any agent: push the branch as it stands (`AGENTS.md` allows the push) and
-  name it in the comment, add `blocked`, swap `in-progress` back to
-  `ready`, and end the session. (`needs-operator` is the triage bot's label
-  and would block the resume.) The operator answers on the issue and
-  removes `blocked`; the next run passes the preconditions again and finds
-  your branch and comment.
+  name it in the comment, swap `in-progress` for `needs-operator`, and end
+  the session. On an issue approved by request, also ask the operator in
+  your session. The operator answers on the issue and removes
+  `needs-operator` (or re-applies `needs-triage` for a fresh plan); the
+  next run passes the preconditions again and finds your branch and
+  comment.
 
 ## 4. Validate, review, open the PR
 
@@ -138,9 +174,10 @@ mutation, or change outside that scope.
   that, and an issue whose body or plan no longer matches what you
   implemented is withdrawn even while `agent:approved` is still there):
   push the branch, comment where you stopped and name the branch, remove
-  `in-progress` and stop. Do not restore `ready` or add
-  `blocked`: the issue is back at `triaged` with a revised plan, and the
-  operator re-approves it from there.
+  `in-progress` and stop. Do not add `needs-operator`: the issue is back
+  at `triaged` with a revised plan, and the operator re-approves it from
+  there (on an issue approved by request, check the revised plan against
+  the request as `github-issue-file` says before working it again).
 
 - Run the validation the repository's validation skill names for the
   changed area, plus each phase's named check from the plan.
@@ -160,7 +197,11 @@ mutation, or change outside that scope.
 - Open the PR with the `pull-requests` skill. The body's *Why* section
   carries `Closes #<n>`, and its section on checks (such as *How it was
   checked*) lists the criteria with their evidence as step 6 shows, for the
-  reviewer to verify. Mention any new issues you opened.
+  reviewer to verify. Mention any new issues you opened. For an issue
+  approved by request, the *Why* section says so, and says where the
+  plan and the request differed and which you followed; with no triage
+  plan, it says why (triage off, or no answer within the time limit) and
+  that the criteria are the issue's own.
 
 ## 5. Handle review findings on the PR
 
@@ -212,7 +253,7 @@ Review rounds that arrive on the open PR afterwards are worked from the PR
 (step 5) with its approval re-check, not by re-running step 1 on the issue.
 If you must stop before the terminal state, push the branch and say where
 you stopped in a comment that names it, release the claim (remove
-`in-progress`, restore `ready`, add `blocked` when an answer is needed) so
-any agent can take it, and clean up
+`in-progress`, and add `needs-operator` when an answer is needed) so any
+agent can take it, and clean up
 worktrees and scratch as `worktrees-and-scratch` says. Before the terminal
 state, a claim never outlives its session.

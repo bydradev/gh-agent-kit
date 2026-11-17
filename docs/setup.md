@@ -119,8 +119,22 @@ From your repository:
 .github/scripts/sync-labels.sh owner/repo
 ```
 
-Creates or updates the fifteen labels in [`labels.md`](labels.md). Safe to
+Creates or updates the thirteen labels in [`labels.md`](labels.md). Safe to
 re-run.
+
+A repository that synced the labels from a release before this one may
+still have `ready`, `blocked` and `docs`, which the kit no longer uses. The
+script lists them and leaves them alone; when you update the kit, run it
+once with `--migrate`:
+
+```sh
+.github/scripts/sync-labels.sh --migrate owner/repo
+```
+
+It moves every issue and pull request, open or closed, from `docs` to
+`chore` and from `blocked` to `needs-operator`, takes `ready` off (an
+approved issue keeps `agent:approved`, which alone approves now), and then
+deletes the three labels.
 
 ## 3. Add the secret and the settings
 
@@ -136,6 +150,7 @@ secrets: the file holds settings only.
 | `KIT_SECURITY_SCAN` | Setting | `push`, `open`, `off` or unset | Same modes for the security scan |
 | `KIT_ISSUE_TRIAGE` | Setting | `on`, `off` or unset | `on`: triage issues and run the weekly sweep; `off` or unset: off |
 | `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
+| `KIT_ISSUE_LINK_CHECK` | Setting | `on`, `off` or unset | `on`: fail a pull request whose body names no issue it closes and gives no `No issue:` reason ([The issue-link check](#the-issue-link-check)); `off` or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails before the model starts without it, naming the missing secret. It never stands in for `ANTHROPIC_API_KEY` while the provider is `anthropic` |
 
 The workflows' models, effort, budgets and size limits are settings too,
@@ -635,7 +650,7 @@ named tools:
 | Run | Reads | Writes |
 | --- | --- | --- |
 | Review | The pull request, its conversation, reviews, inline comments, checks, linked issues, files, diffs, commits (a base commit an earlier report recorded is fetched by sha when the checkout no longer has it); a comment, review or linked issue by an author without write access, other than a GitHub App, is listed with its text withheld | Inline review comments on the reviewed head (at most 40), one report comment, and backlog issues for findings outside the pull request's scope (at most 5, one per finding, in the Task form's layout and labelled `needs-operator`), all refused once the head moves; the workflow, not the model, then sets the verdict check |
-| Triage (one issue) | The issue, its comments, other issues and pull requests, repository metadata; a comment on the issue, another issue, or the title of an issue or pull request it lists, by an author without write access, other than a GitHub App, is listed with its text withheld, and a pull request by such an author never counts as closing the issue | Named label moves on that issue (never `ready` or `agent:approved`), one comment |
+| Triage (one issue) | The issue, its comments, other issues and pull requests, repository metadata; a comment on the issue, another issue, or the title of an issue or pull request it lists, by an author without write access, other than a GitHub App, is listed with its text withheld, and a pull request by such an author never counts as closing the issue | Named label moves on that issue (never `agent:approved` or `requested`), one comment |
 | Sweep | The list of eligible issues the workflow computed | One `issue-triage` dispatch per listed issue, on the current branch |
 | Scan and verification | The checkout, the base's rules in it, and the diff, file list and (for the verification) candidate findings the workflow wrote to a directory of its own; no GitHub access | Nothing: each run answers with structured output, which the workflow checks and then posts as at most 30 inline comments on the scanned head and one record comment |
 
@@ -659,7 +674,7 @@ from the reviewer's text and escapes headings in every form GitHub renders
 (`#`, also after a quote or list marker, a `---` or `===` underline, and
 `<h1>` to `<h6>`), so the text cannot pose as the form or another finding's
 issue. Check the finding against the code yourself before you mark the issue
-`ready` or `agent:approved`.
+`agent:approved`.
 
 ### The security scan
 
@@ -819,6 +834,36 @@ that:
   queued pull request waits for it;
 - a verdict is not an approval: a passing check says the reviewer found
   nothing blocking, not that anyone agreed to merge.
+
+## The issue-link check
+
+`pr-issue-link.yml` runs no model and changes nothing. While the setting
+`KIT_ISSUE_LINK_CHECK` is `on`, it reads each pull request's body when the
+pull request opens, is edited, reopened, pushed to or marked ready, and
+its `pr-issue-link` check fails when the body has neither
+
+- a closing keyword before an issue: `close`, `closes`, `closed`, `fix`,
+  `fixes`, `fixed`, `resolve`, `resolves` or `resolved`, in any case and
+  with or without a colon, then `#12` or `owner/repo#12`, the forms GitHub
+  links (GitHub's "Linking a pull request to an issue", read 2026-11-17;
+  GitHub ignores them on a pull request into any branch but the default
+  one), or the issue's URL, which the check accepts too; nor
+- a line starting `No issue:` (also as a list item or in bold) with the
+  reason after it, which is how a pull request says the operator's request
+  skipped the issue (the *Work tracking* block).
+
+Text inside HTML comments, such as a pull request template's hints, and
+inside fenced code does not count. Pull requests by Dependabot and by Release Please are exempt and
+skip the check, and a required check that is skipped counts as passed
+(GitHub's "About protected branches", read 2026-11-17). Editing the body runs it
+again.
+
+Whether the check blocks a merge is each repository's choice: add
+`pr-issue-link` to the branch's required checks to make it one, or leave
+it advisory. A pull request runs its own copy of the workflow, as for the
+others ([The verdict check](#the-verdict-check)), so one that edits
+`pr-issue-link.yml` sets its own result: review such a change as you would
+any workflow change.
 
 ## The scan's instructions file
 

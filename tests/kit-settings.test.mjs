@@ -1,6 +1,6 @@
 // The settings job of each workflow: its first step, which reads
 // .github/gh-agent-kit.yml from the default branch and the repository
-// variables, run against the stub gh; the checks that the four copies of
+// variables, run against the stub gh; the checks that the five copies of
 // it agree with each other, with the workflows' jobs and with the setup
 // guide; the validation steps' errors naming a setting's source; and the
 // review's skip steps, which now look past runs whose review job was
@@ -18,6 +18,7 @@ const WORKFLOWS = {
   "security-scan.yml": { job: "security", switch: "KIT_SECURITY_SCAN" },
   "issue-triage.yml": { job: "triage", switch: "KIT_ISSUE_TRIAGE" },
   "kit-update-check.yml": { job: "check", switch: "KIT_UPDATE_CHECK" },
+  "pr-issue-link.yml": { job: "link", switch: "KIT_ISSUE_LINK_CHECK" },
 };
 const CONTENTS = "^api repos/acme/widgets/contents/\\.github/gh-agent-kit\\.yml ";
 
@@ -79,7 +80,7 @@ function read(
   return { ...r, env, calls: ghCalls(stub) };
 }
 
-test("the four workflows run the same read step, over names it knows", () => {
+test("the five workflows run the same read step, over names it knows", () => {
   const script = stepScript("pr-review.yml", READ);
   const known = knownNames();
   for (const [file, { job, switch: name }] of Object.entries(WORKFLOWS)) {
@@ -94,12 +95,13 @@ test("the four workflows run the same read step, over names it knows", () => {
     for (const n of names) {
       assert.ok(known.includes(n), `${file}: ${n} is not in the known list`);
       // Each is an output of the settings job and, but for the update
-      // check, which reads only its switch, in the main job's env.
+      // check and the issue-link check, which read only their switch, in
+      // the main job's env.
       assert.ok(
         text.includes(`      ${n}: \${{ steps.pass.outputs.${n} }}\n`),
         `${file}: no output ${n}`,
       );
-      if (file !== "kit-update-check.yml")
+      if (file !== "kit-update-check.yml" && file !== "pr-issue-link.yml")
         assert.ok(
           text.includes(`      ${n}: \${{ needs.settings.outputs.${n} }}\n`),
           `${file}: ${n} not in the job env`,
@@ -245,6 +247,7 @@ test("a switch takes only its states, so a typo fails instead of turning a workf
     ["KIT_SECURITY_SCAN", ["push", "open", "off"]],
     ["KIT_ISSUE_TRIAGE", ["on", "off"]],
     ["KIT_UPDATE_CHECK", ["on", "off"]],
+    ["KIT_ISSUE_LINK_CHECK", ["on", "off"]],
   ]) {
     for (const v of states) {
       const r = read(t, { vars: { [name]: v }, settings: name });

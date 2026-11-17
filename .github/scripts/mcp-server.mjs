@@ -24,7 +24,6 @@ const LABELS_ADD = [
   "bug",
   "feature",
   "chore",
-  "docs",
   "P0",
   "P1",
   "P2",
@@ -32,16 +31,14 @@ const LABELS_ADD = [
   "triaged",
   "needs-operator",
 ];
-const LABELS_RESET = ["ready", "agent:approved"];
+const LABELS_RESET = ["agent:approved"];
 // needs-triage is removable (every triage ends by swapping it) but never
 // added: applying it starts another run that cancels this one.
 const LABELS_REMOVE = [...LABELS_ADD, "needs-triage"];
 const STATE_LABELS = [
   "needs-triage",
   "triaged",
-  "ready",
   "in-progress",
-  "blocked",
   "needs-operator",
 ];
 const digits = (s) => typeof s === "string" && /^[0-9]+$/.test(s);
@@ -1308,7 +1305,7 @@ const triageTools = {
   },
   remove_label: {
     description:
-      "Remove one label: any of the bot's set or needs-triage; ready and agent:approved only on a run the operator started for a fresh triage (edited, reopened, labeled, or a dispatch of an issue carrying needs-triage) or when the issue was edited, reopened or retitled after the approval; in-progress only after a reopen.",
+      "Remove one label: any of the bot's set or needs-triage; agent:approved only on a run the operator started for a fresh triage (edited, reopened, labeled, or a dispatch of an issue carrying needs-triage) or when the issue was edited, reopened or retitled after the approval; in-progress only after a reopen.",
     schema: {
       type: "object",
       properties: { label: { type: "string" } },

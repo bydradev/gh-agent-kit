@@ -3,7 +3,7 @@
 GitHub Issues as the backlog for coding agents, with AI triage, pull
 request review and security scanning in GitHub Actions.
 
-The kit is four GitHub Actions workflows, an MCP server, five skills, issue
+The kit is five GitHub Actions workflows, an MCP server, five skills, issue
 forms, a label script and the *Work tracking* rules for your `AGENTS.md`.
 `install.sh` copies them into your repository as plain files, pinned to a
 commit of this one, so you review them like any other change. Until a
@@ -20,8 +20,9 @@ which program and which model each workflow uses.
   that ties each acceptance criterion to a phase and to how it is proved,
   or a `needs-operator` question when the model cannot decide it. A
   weekly sweep triages the untriaged backlog and warns about stale claims.
-  The bot never approves work: `ready` and `agent:approved` are the
-  operator's.
+  The bot never approves work: `agent:approved` is the operator's, and an
+  issue an agent files for work the operator asked for directly carries
+  `requested` and the request instead.
 - **Pull request review.** A model reviews each pull request against the
   repository's own review guidelines, posts inline findings and a numbered
   report that marks each acceptance criterion of the issues it closes as
@@ -41,6 +42,10 @@ which program and which model each workflow uses.
   when your `AGENTS.md` lacks the release's *Work tracking* block, and
   closes it once you are current. It reads the kit as data and runs none of
   its code.
+- **An issue-link check.** A model-free check that fails a pull request
+  whose body names no issue it closes and gives no `No issue:` reason,
+  while `KIT_ISSUE_LINK_CHECK` is `on`; Dependabot's and Release Please's
+  pull requests are exempt. Each repository decides whether to require it.
 - **An implementation skill** (`github-issue-e2e`) for the coding agent
   that picks up an approved issue: claim, branch, implement, validate,
   review, open the pull request that closes it, and report each acceptance
@@ -104,6 +109,7 @@ own copy of them ([The verdict check](docs/setup.md#the-verdict-check)).
    | `KIT_SECURITY_SCAN` | `open` or `push` | `security-scan` |
    | `KIT_ISSUE_TRIAGE` | `on` | `issue-triage`, the weekly sweep included |
    | `KIT_UPDATE_CHECK` | `on` | `kit-update-check` |
+   | `KIT_ISSUE_LINK_CHECK` | `on` | `pr-issue-link` |
 
    Unset, or `off`, leaves a workflow off; any other value, a capitalised
    one included, fails its run.
@@ -129,6 +135,7 @@ runner) on one of two hosts (the provider):
 | `security-scan` | Claude Code CLI; OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-opus-5-5`; `deepseek-v4.1-flash` on Go | `xhigh` |
 | `issue-triage` | Claude Code CLI; OpenCode's CLI on Go | Anthropic API, or OpenCode Go | `claude-sonnet-5-5`; `deepseek-v4.1-flash` on Go | `medium`, Claude Code's default |
 | `kit-update-check` | none: `git` and `gh` only | none | none | none |
+| `pr-issue-link` | none: `gh` and `awk` only | none | none | none |
 
 The effort column is for the Anthropic API. On Go the kit sets no default
 level and OpenCode's CLI sends none, so the model's own default applies:
@@ -201,7 +208,7 @@ the workflow posts what it found.
 - [`docs/setup.md`](docs/setup.md): install, secrets and settings, costs,
   OpenCode Go, what each run may do, the verdict check, the scan's
   instructions file, the lock file, updates and the pinned CLIs.
-- [`docs/labels.md`](docs/labels.md): the fifteen labels, the issue
+- [`docs/labels.md`](docs/labels.md): the thirteen labels, the issue
   lifecycle and who sets what.
 - [`docs/agents-md-block.md`](docs/agents-md-block.md): the *Work tracking*
   rules `install.sh` writes into your `AGENTS.md`, and where your own
@@ -224,13 +231,14 @@ decisions).
 
 The kit's files sit in this repository at the paths they take in a target,
 so this repository runs them on itself. `kit-manifest.txt` lists these
-sixteen, and `install.sh` copies them:
+seventeen, and `install.sh` copies them:
 
 ```text
 .github/workflows/pr-review.yml
 .github/workflows/security-scan.yml
 .github/workflows/issue-triage.yml
 .github/workflows/kit-update-check.yml
+.github/workflows/pr-issue-link.yml
 .github/scripts/mcp-server.mjs
 .github/scripts/sync-labels.sh
 .github/ISSUE_TEMPLATE/{bug,task,config}.yml
