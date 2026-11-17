@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/bydradev/gh-agent-kit/compare/v0.5.0...v0.5.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* format mcp-server.mjs as targets' prettier check expects ([#53](https://github.com/bydradev/gh-agent-kit/issues/53)) ([200cac8](https://github.com/bydradev/gh-agent-kit/commit/200cac8de0e4322a2a5c54682860c6d0ebf8a850))
+
 ## [0.5.0](https://github.com/bydradev/gh-agent-kit/compare/v0.4.4...v0.5.0) (2026-11-17)
 
 
