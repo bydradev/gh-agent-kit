@@ -468,6 +468,53 @@ jobs:
             echo "MCP_MODE=sweep" >> "$GITHUB_ENV"
             echo "ALLOWED=mcp__agent-kit__list_eligible,mcp__agent-kit__dispatch" >> "$GITHUB_ENV"
           fi
+      # A public repository's public-content check, which the server runs
+      # on the triage comment before posting it, is the repository's rule,
+      # so it comes from the default branch through the contents API (which
+      # follows a symlink to a file in the repository), not from whatever
+      # branch the run checked out. A 404 means the repository has none;
+      # any other failure, or a path that is not a file the API returns
+      # whole, fails the run rather than post unchecked.
+      - name: Install the default branch's public-content check
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          for f in .github/scripts/public-content.mjs .github/scripts/check_public_content.py; do
+            if ! gh api "repos/$REPO/contents/$f" > "$RUNNER_TEMP/public-content.json" 2> "$RUNNER_TEMP/public-content.err"; then
+              if grep -q 'HTTP 404' "$RUNNER_TEMP/public-content.err"; then continue; fi
+              cat "$RUNNER_TEMP/public-content.err"
+              echo "::error::could not read $f from the default branch"
+              exit 1
+            fi
+            type=$(jq -r 'if type == "object" then "\(.type) \(.encoding)" else "directory" end' "$RUNNER_TEMP/public-content.json")
+            if [ "$type" != "file base64" ]; then
+              echo "::error::$f on the default branch is not a file the contents API returns whole ($type); the public-content check is not installed through it"
+              exit 1
+            fi
+            tmp="$RUNNER_TEMP/public-content-check.${f##*.}"
+            jq -r .content "$RUNNER_TEMP/public-content.json" | base64 -d > "$tmp"
+            # Run it once on an empty text, as the server will, so a check
+            # that cannot run fails here, naming itself, instead of having
+            # every post refused after the model has spent its run.
+            : > "$RUNNER_TEMP/public-content-empty"
+            case "$f" in
+              *.py) run=(python3 -I) ;;
+              *) run=(node) ;;
+            esac
+            if ! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-empty" > /dev/null 2>&1; then
+              echo "::error::$f does not pass on an empty text with --text=FILE; the server would refuse every post, so the run stops here"
+              exit 1
+            fi
+            rm -f -- "$RUNNER_TEMP/public-content-empty"
+            dest="/opt/agent-kit/public-content.${f##*.}"
+            sudo install -o root -g root -m 0644 "$tmp" "$dest"
+            rm -f -- "$tmp"
+            echo "PUBLIC_CONTENT_CHECK=$dest" >> "$GITHUB_ENV"
+            break
+          done
+          rm -f -- "$RUNNER_TEMP/public-content.json" "$RUNNER_TEMP/public-content.err"
       # The sweep's candidates are computed here, not by the model: every
       # open issue labelled needs-triage, carrying no state label, or
       # labelled in-progress with no activity for 7 days. The dispatch
@@ -541,6 +588,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
           REPO: ${{ github.repository }}
         run: |
           cat > "$RUNNER_TEMP/claude-settings.json" <<EOF
@@ -554,9 +602,14 @@ jobs:
           EOF
           cat "$RUNNER_TEMP/claude-settings.json"
           (umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-token")
-          mcp=$(jq -cn --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
+          # The private names reach only the server's public-content check,
+          # through a file the runner user alone can read, like the token.
+          if [ -n "${PUBLIC_CONTENT_CHECK:-}" ]; then
+            (umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_TEMP/private-repo-names")
+          fi
+          mcp=$(jq -cn --arg check "${PUBLIC_CONTENT_CHECK:-}" --arg names "$RUNNER_TEMP/private-repo-names" --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
             --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: {GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state}}}}')
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
       # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
@@ -1006,7 +1059,7 @@ jobs:
           fi
       - name: Remove the token file
         if: always() && steps.gate.outputs.skip != 'true'
-        run: rm -f -- "$RUNNER_TEMP/gh-token"
+        run: rm -f -- "$RUNNER_TEMP/gh-token" "$RUNNER_TEMP/private-repo-names"
       # Claude Code succeeds when its turn ends, whether or not the issue
       # was touched. Every single-issue path posts one comment and leaves
       # the labels in the state the skill names for its event; a run that

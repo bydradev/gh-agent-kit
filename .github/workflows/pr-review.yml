@@ -697,6 +697,40 @@ jobs:
           done
           sudo install -d -o root -g root -m 0755 /opt/agent-kit
           sudo install -o root -g root -m 0755 .github/scripts/mcp-server.mjs /opt/agent-kit/mcp-server.mjs
+          # A public repository's public-content check, which the server
+          # runs on every text it posts, comes from the base only, read from
+          # git rather than the checkout: a base without one gets none, even
+          # on a first adoption, so a head can neither add nor change the
+          # check its own review is held to. A base that commits it as a
+          # symlink fails the run rather than post unchecked.
+          for f in .github/scripts/public-content.mjs .github/scripts/check_public_content.py; do
+            entry=$(git ls-tree "origin/$BASE" -- "$f")
+            [ -n "$entry" ] || continue
+            case "${entry%% *}" in
+              100644|100755) ;;
+              *) echo "::error::$f on $BASE is not a regular file; the public-content check is not installed through it"; exit 1 ;;
+            esac
+            tmp="$RUNNER_TEMP/public-content-check.${f##*.}"
+            git show "origin/$BASE:$f" > "$tmp"
+            # Run it once on an empty text, as the server will, so a check
+            # that cannot run fails here, naming itself, instead of having
+            # every post refused after the model has spent its run.
+            : > "$RUNNER_TEMP/public-content-empty"
+            case "$f" in
+              *.py) run=(python3 -I) ;;
+              *) run=(node) ;;
+            esac
+            if ! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-empty" > /dev/null 2>&1; then
+              echo "::error::$f does not pass on an empty text with --text=FILE; the server would refuse every post, so the run stops here"
+              exit 1
+            fi
+            rm -f -- "$RUNNER_TEMP/public-content-empty"
+            dest="/opt/agent-kit/public-content.${f##*.}"
+            sudo install -o root -g root -m 0644 "$tmp" "$dest"
+            rm -f -- "$tmp"
+            echo "PUBLIC_CONTENT_CHECK=$dest" >> "$GITHUB_ENV"
+            break
+          done
       # The reviewer's Read follows a symlink the head commits, to a runner
       # file outside the checkout (the runner's credentials), whose text a
       # finding would then carry into a comment. A link that resolves inside
@@ -992,6 +1026,7 @@ jobs:
         if: env.RUN != 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
           REPO: ${{ github.repository }}
           EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE: ${{ github.event.pull_request.base.ref }}
@@ -1019,8 +1054,13 @@ jobs:
           EOF
           cat "$RUNNER_TEMP/claude-settings.json"
           (umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-token")
-          mcp=$(jq -cn --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg pr "$PR" --arg ws "$GITHUB_WORKSPACE" --arg head "$head" --arg base "$base" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", "review"], env: {GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, PR: $pr, GITHUB_WORKSPACE: $ws, HEAD_SHA: $head, BASE: $base, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state}}}}')
+          # The private names reach only the server's public-content check,
+          # through a file the runner user alone can read, like the token.
+          if [ -n "${PUBLIC_CONTENT_CHECK:-}" ]; then
+            (umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_TEMP/private-repo-names")
+          fi
+          mcp=$(jq -cn --arg check "${PUBLIC_CONTENT_CHECK:-}" --arg names "$RUNNER_TEMP/private-repo-names" --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg pr "$PR" --arg ws "$GITHUB_WORKSPACE" --arg head "$head" --arg base "$base" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", "review"], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, PR: $pr, GITHUB_WORKSPACE: $ws, HEAD_SHA: $head, BASE: $base, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
           echo "REVIEW_ALLOWED=Read,Grep,Glob,mcp__agent-kit__inline_comment,mcp__agent-kit__pr,mcp__agent-kit__conversation,mcp__agent-kit__inline,mcp__agent-kit__reviews,mcp__agent-kit__checks,mcp__agent-kit__issue,mcp__agent-kit__issue_comments,mcp__agent-kit__comment_body,mcp__agent-kit__files,mcp__agent-kit__diff,mcp__agent-kit__show,mcp__agent-kit__log,mcp__agent-kit__range_diff,mcp__agent-kit__file_issue,mcp__agent-kit__post_report" >> "$GITHUB_ENV"
           echo "REVIEW_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
@@ -1435,7 +1475,7 @@ jobs:
           fi
       - name: Remove the token file
         if: always()
-        run: rm -f -- "$RUNNER_TEMP/gh-token"
+        run: rm -f -- "$RUNNER_TEMP/gh-token" "$RUNNER_TEMP/private-repo-names"
       # Claude Code succeeds when its turn ends, whether or not a report
       # was posted; every run that reaches it owes a report or an
       # addendum, both headed "## Review R" and posted by the Actions bot,

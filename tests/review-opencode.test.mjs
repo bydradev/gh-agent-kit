@@ -229,6 +229,7 @@ function run(
     models,
     modelsExit,
     serverArgs,
+    serverEnv = {},
   } = {},
 ) {
   const dir = tempDir(t);
@@ -252,6 +253,7 @@ function run(
           BASE: "main",
           GITHUB_RUN_ID: "11",
           GITHUB_RUN_ATTEMPT: "1",
+          ...serverEnv,
         },
       },
     },
@@ -593,4 +595,21 @@ test("pr-review.yml, Run the review on OpenCode: a run that ends in error shows 
   assert.equal(lines[at + 1], LOG_LINE);
   assert.equal(lines[at + 2], `::${begin[1]}::`);
   assert.match(lines[at + 3], /^::error::OpenCode's run ended in error/);
+});
+
+test("pr-review.yml, Run the review on OpenCode: the server gets the public-content check and the names file", (t) => {
+  const dump = path.join(tempDir(t), "dump-env.mjs");
+  fs.writeFileSync(dump, "process.stdout.write(JSON.stringify(process.env));\n");
+  const serverEnv = {
+    PUBLIC_CONTENT_CHECK: "/opt/agent-kit/public-content.mjs",
+    PRIVATE_REPO_NAMES_FILE: "/runner/temp/private-repo-names",
+  };
+  const r = run(t, { serverArgs: [dump], serverEnv });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const command = r.config.mcp["agent-kit"].command;
+  const started = spawnSync(command[0], command.slice(1), { encoding: "utf8" });
+  assert.equal(started.status, 0, started.stderr);
+  const env = JSON.parse(started.stdout);
+  assert.equal(env.PUBLIC_CONTENT_CHECK, serverEnv.PUBLIC_CONTENT_CHECK);
+  assert.equal(env.PRIVATE_REPO_NAMES_FILE, serverEnv.PRIVATE_REPO_NAMES_FILE);
 });

@@ -149,6 +149,7 @@ function run(
     startedAgo,
     effort = "",
     serverArgs,
+    serverEnv = {},
     models,
     modelsExit,
   } = {},
@@ -165,7 +166,7 @@ function run(
       "agent-kit": {
         command: "node",
         args: serverArgs ?? ["/opt/agent-kit/mcp-server.mjs", "triage"],
-        env: { GH_TOKEN_FILE: path.join(temp, "gh-token"), GITHUB_REPOSITORY: "acme/widgets", TRIAGE_ISSUE: "8" },
+        env: { GH_TOKEN_FILE: path.join(temp, "gh-token"), GITHUB_REPOSITORY: "acme/widgets", TRIAGE_ISSUE: "8", ...serverEnv },
       },
     },
   };
@@ -647,4 +648,21 @@ test("issue-triage.yml: .git comes back after the run, whether or not it succeed
   const again = step(NAME);
   assert.equal(again.status, 0, again.stdout + again.stderr);
   assert.ok(fs.existsSync(path.join(work, ".git", "config")));
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the server gets the public-content check and the names file", (t) => {
+  const dump = path.join(tempDir(t), "dump-env.mjs");
+  fs.writeFileSync(dump, "process.stdout.write(JSON.stringify(process.env));\n");
+  const serverEnv = {
+    PUBLIC_CONTENT_CHECK: "/opt/agent-kit/public-content.mjs",
+    PRIVATE_REPO_NAMES_FILE: "/runner/temp/private-repo-names",
+  };
+  const r = run(t, { serverArgs: [dump], serverEnv });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const command = r.config.mcp["agent-kit"].command;
+  const started = spawnSync(command[0], command.slice(1), { encoding: "utf8" });
+  assert.equal(started.status, 0, started.stderr);
+  const env = JSON.parse(started.stdout);
+  assert.equal(env.PUBLIC_CONTENT_CHECK, serverEnv.PUBLIC_CONTENT_CHECK);
+  assert.equal(env.PRIVATE_REPO_NAMES_FILE, serverEnv.PRIVATE_REPO_NAMES_FILE);
 });
