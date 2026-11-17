@@ -166,9 +166,37 @@ test("a bare private name is refused only when PRIVATE_REPO_NAMES reaches the ch
   );
   const r = await withNames.call("comment", { body });
   assert.equal(r.isError, true);
-  assert.match(r.text, /body line 3: a private repository name/);
-  assert.doesNotMatch(r.text, /skunkworks/);
+  assert.match(r.text, /nothing was posted, and this run posts nothing more/);
+  assert.doesNotMatch(r.text, /skunkworks|line|private repository name/);
   assert.equal(posts(withNames).length, 0);
+});
+
+// The names are a secret the model never sees: a refusal that named the
+// line or the kind, or let the model try again, would confirm guesses.
+test("a private name says nothing of where it was and closes the run's posts, across a new server", async (t) => {
+  const f = review(t);
+  const state = path.join(tempDir(t), "state.json");
+  const env = {
+    ...f.env,
+    PUBLIC_CONTENT_CHECK: CHECK,
+    PRIVATE_REPO_NAMES_FILE: namesFile(t, "skunkworks"),
+    STATE_FILE: state,
+  };
+  const server = await startServer(t, { mode: "review", env, rules: f.rules });
+  const probe = await server.call("inline_comment", {
+    path: "b.txt",
+    line: 1,
+    body: `Compare ${HOME_PATH}\nskunkworks`,
+  });
+  assert.equal(probe.isError, true);
+  assert.doesNotMatch(probe.text, /line [0-9]|path|private repository name/);
+  for (const s of [server, await startServer(t, { mode: "review", env, rules: f.rules })]) {
+    const after = await s.call("post_report", { body: REPORT(f.base, f.head, "See the run.") });
+    assert.equal(after.isError, true);
+    assert.match(after.text, /this run posts nothing more/);
+    assert.equal(posts(s).length, 0);
+  }
+  assert.match(server.stderr(), /held a private repository name/);
 });
 
 // A stand-in check that misbehaves as a third-party one might: it prints

@@ -192,6 +192,7 @@ function fail(message) {
 // set (outside the checkout, where the model cannot write), the counts
 // outlive this process: OpenCode carries a run on after Go's capacity
 // refusal in a new CLI process, which starts a new server.
+// closed, once set, means a text held a private repository name.
 const runState = { report: false, inline: 0, issues: 0, comment: false };
 if (env.STATE_FILE && fs.existsSync(env.STATE_FILE))
   Object.assign(runState, JSON.parse(fs.readFileSync(env.STATE_FILE, "utf8")));
@@ -210,7 +211,11 @@ function record(change) {
 // runner user alone can read, like the token), never GH_TOKEN, and its
 // output never reaches the model: a refusal names the line and one of the
 // kinds the kit's own checks print, so a check that printed what it matched
-// could not repeat it through the model.
+// could not repeat it through the model. A private repository name is the
+// exception: the names are a secret the model never sees, so a refusal
+// that said which line held one, or let the model try again, would let it
+// confirm guesses one post at a time. A text holding one is refused with
+// no detail, and the run posts nothing more.
 const privateRepoNames = env.PRIVATE_REPO_NAMES_FILE
   ? fs.readFileSync(env.PRIVATE_REPO_NAMES_FILE, "utf8").trim()
   : "";
@@ -223,14 +228,17 @@ const CONTENT_KINDS = new Set([
   "a bydradev or bydraio repository outside the public list",
   "a bydradev repository outside the public list",
   "an email address other than a noreply one",
-  "a private repository name",
 ]);
 const CONTENT_FINDING = /^::error title=Public repository content::.*, line ([0-9]+): (.+)$/;
 const CONTENT_SHOWN = 10;
+const PRIVATE_NAME = "a private repository name";
+const POSTS_CLOSED =
+  "the repository's public-content check found something this run may not post, so nothing was posted, and this run posts nothing more; the operator has to look at the job";
 // Why the texts must not be posted, or null. texts: [[label, text], ...].
 function contentProblem(texts) {
   const check = env.PUBLIC_CONTENT_CHECK;
   if (!check) return null;
+  if (runState.closed) return POSTS_CLOSED;
   const cannot = (why) => {
     // To the job log as well, where the operator can find it.
     process.stderr.write(`agent-kit: the public-content check could not run (${why})\n`);
@@ -268,6 +276,13 @@ function contentProblem(texts) {
       // Exit 1 without a line it locates: a finding of another format, or
       // a crash (Node exits 1 on an uncaught error). Either way, unposted.
       if (hits.length === 0) return cannot("exit 1 without naming a line it found");
+      if (hits.some(([, , kind]) => kind === PRIVATE_NAME)) {
+        record({ closed: true });
+        process.stderr.write(
+          "agent-kit: a text held a private repository name, so this run posts nothing more\n",
+        );
+        return POSTS_CLOSED;
+      }
       for (const [, line, kind] of hits)
         found.push(
           `${label} line ${line}: ${CONTENT_KINDS.has(kind) ? kind : "a detail the check rules out"}`,

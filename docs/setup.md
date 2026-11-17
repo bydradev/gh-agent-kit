@@ -821,6 +821,12 @@ unchecked.
   the workflows pass it to the server in a file only the runner user can
   read, not on the model's command line. Without the secret, the check's
   other patterns still apply.
+- The names are a secret the model never sees, so a text holding one is
+  refused without the line or the kind, and the run posts nothing more:
+  a refusal that said where the name was, or let the model try again,
+  would let a model steered by injected text confirm guesses one post at
+  a time. The job log records it, and the review fails without its
+  report.
 - A repository without either file posts as before.
 - The security scan's inline findings and record comment are not checked
   yet ([#56](https://github.com/bydradev/gh-agent-kit/issues/56)).
