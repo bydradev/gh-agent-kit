@@ -78,6 +78,11 @@ const OWNER_REPO = /(?<![A-Za-z0-9-])(?:bydradev|bydraio)\/([A-Za-z0-9._-]+)/gi;
 // the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 // login, not a person's. A backslash before it is an escape such as `\n`.
 const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
+// A URL's user information (scheme://user@host or scheme://user:password@host),
+// as tests of code that refuses credentials in URLs hold, is not an address:
+// a match whose text before it ends with this is skipped. mailto: has no //,
+// so an address after it is still found.
+const URL_USERINFO = /[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^\s/?#@:]*:)?$/;
 const NOREPLY_LOCAL_PARTS = new Set(["noreply", "no-reply"]);
 const NOREPLY_DOMAINS = ["users.noreply.github.com", "example.com", "example.org", "example.net"];
 const PUBLISHED_ADDRESSES = new Set(["github@bydra.dev", "git@github.com"]);
@@ -155,7 +160,10 @@ export function scan(text, names, allowAttribution = false) {
     }
     if (
       line !== DEPENDABOT_FOOTER &&
-      [...line.matchAll(EMAIL)].some(([, local, domain]) => privateAddress(local, domain))
+      [...line.matchAll(EMAIL)].some(
+        (match) =>
+          !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),
+      )
     )
       kinds.push("an email address other than a noreply one");
     if (names.some(([, pattern]) => pattern.test(line))) kinds.push("a private repository name");

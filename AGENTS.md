@@ -193,7 +193,8 @@ third-party upstreams).
 - No email address but a noreply one. A trailer uses a GitHub
   noreply address (`ID+login@users.noreply.github.com`) or a tool's
   `noreply@` address, never the address of the account an agent works for,
-  which its harness may give it. An example address uses `example.com`.
+  which its harness may give it. An example address uses `example.com`. A
+  URL's user information (`scheme://user:password@host`) is not an address.
 - The sole additional email and sign-off exception is this exact standalone
   line shown below (case and spacing must match, with nothing before or
   after it). This permits known public literal content in any checked text,
