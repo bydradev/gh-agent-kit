@@ -131,10 +131,11 @@ once with `--migrate`:
 .github/scripts/sync-labels.sh --migrate owner/repo
 ```
 
-It moves every issue and pull request, open or closed, from `docs` to
-`chore` and from `blocked` to `needs-operator`, takes `ready` off (an
-approved issue keeps `agent:approved`, which alone approves now), and then
-deletes the three labels.
+It takes the three labels off every issue and pull request, open or
+closed, and then deletes them. On the way, `docs` becomes `chore` where the
+issue has no type label yet, `blocked` becomes `needs-operator` on open
+issues only, and `ready` gets no replacement (an approved issue keeps
+`agent:approved`, which alone approves now).
 
 ## 3. Add the secret and the settings
 

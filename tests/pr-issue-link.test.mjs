@@ -43,11 +43,14 @@ test("a closing keyword before an issue passes, in each form GitHub links", (t) 
   }
 });
 
-test("a No issue line with a reason passes, plain, bold or as a list item", (t) => {
+test("a No issue line with a reason passes, plain, bold, emphasised or as a list item", (t) => {
   for (const body of [
     "## Why\n\nNo issue: the operator asked to skip it for this typo fix.\n",
     "**No issue:** a typo",
     "- No issue: a typo",
+    "No issue: **the operator asked to skip this**",
+    "No issue: _the operator asked_",
+    "**No issue:** *a typo*",
   ]) {
     const r = check(t, body);
     assert.equal(r.status, 0, `${JSON.stringify(body)}: ${r.stdout}${r.stderr}`);
@@ -68,6 +71,9 @@ test("a mention, a keyword without a number, a bare No issue, a template hint or
     "<!-- Closes #12, or a No issue: line -->\n## Why\n\nBecause.",
     "Mentions closes#12 without a space",
     "**No issue:**",
+    "No issue:**",
+    "No issue: __",
+    "**No issue:** **",
     "- __No issue:__ ",
     "**No issue:** <!-- the reason -->",
     "```\nCloses #12\n```",

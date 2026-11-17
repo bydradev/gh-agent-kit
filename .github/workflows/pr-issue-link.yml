@@ -243,8 +243,8 @@ jobs:
           if grep -qiE -- "$close$target" <<< "$text"; then
             echo "The body names the issue this pull request closes."
           # A line that starts "No issue:", after a list marker or bold
-          # markup, with a reason after it.
-          elif grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?No issue:((\*\*|__)[[:space:]]*|[[:space:]]*)[^[:space:]*_]' <<< "$text"; then
+          # markup, with a reason after it, which may itself be emphasised.
+          elif grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?No issue:((\*\*|__)[[:space:]]*|[[:space:]]*)(\*\*|__|\*|_)?[^[:space:]*_]' <<< "$text"; then
             echo "The body says why this pull request has no issue (a No issue: line)."
           else
             echo "::error::The pull request's body names no issue it closes. Add \"Closes #<n>\" for the issue it resolves (or another closing keyword GitHub links), or, when the operator's request said to skip the issue, a line \"No issue: <the reason>\". Editing the body runs this check again."

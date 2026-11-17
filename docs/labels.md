@@ -40,7 +40,7 @@ the issue and stays until the issue closes or is sent back to the bot.
 | `needs-operator` | A question or decision only the operator can answer | The bot, instead of `triaged`; an agent that hands an issue back with a question (its comment asks it); `kit-update-check`, on its update notice; the reviewer's `file_issue`, on each issue it files | The operator, by answering and re-applying `needs-triage` (or, after an agent's question, by answering and removing it); the bot, when a re-triage plans the issue; `kit-update-check` closes its notice once the copy is current. On an issue `file_issue` filed, the operator triages by hand or closes it: its author is `github-actions[bot]`, which triage never reads, so re-applying `needs-triage` starts no run |
 | `in-progress` | An agent has claimed the issue; the claim comment names it | The agent | The agent (on handing back), the bot (on a reopen) or the close |
 | `agent:approved` | Operator authority to implement the plan as written | The operator only | The bot on a re-triage; the operator |
-| `requested` | The operator asked an agent for this work directly; the issue's `### Operator request` section quotes the request, which stands in for `agent:approved` | The agent that filed the issue, never the bot | Nobody: it records where the work came from |
+| `requested` | The operator asked an agent for this work directly; the issue's `### Operator request` section quotes the request, which stands in for `agent:approved` | The agent that filed the issue, never the bot | Nobody, except the filing agent, which removes and re-adds it to record the operator's answer to triage's questions (`github-issue-file` step 7): it records where the work came from |
 
 ## The lifecycle
 

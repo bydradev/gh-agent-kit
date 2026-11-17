@@ -162,8 +162,9 @@ from the pull request, and you never add `agent:approved` yourself.
      recommendation. Add the answer, dated, under `### Operator request`
      by editing the issue body, then remove `requested` and add it again,
      so that it is later than your edit (`github-issue-e2e` refuses a
-     label older than the last edit; if both land in the same second,
-     add it again). The edit starts a re-triage, so
+     label older than the last edit; if the label lands in the same
+     second as the edit, wait a second, then remove and add it again:
+     adding a label the issue still carries records nothing). The edit starts a re-triage, so
      wait again as in step 2, for a comment newer than the edit and with
      the time limit counted from it.
    - **The issue was edited, retitled or reopened by anyone but you
