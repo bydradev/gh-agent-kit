@@ -1723,6 +1723,117 @@ jobs:
             echo "::$stop::"
             echo "::endgroup::"
           fi
+      # The repository's public-content check, for a public repository
+      # whose base ships one (.github/scripts/public-content.mjs or
+      # check_public_content.py), as the review's and triage's posts are
+      # held to it: the base's copy, read from git, never the head's. Each
+      # finding's model-written text (its category, file, description,
+      # exploit scenario and recommendation) is checked before any later
+      # step posts it or puts it in this job's log, which a public
+      # repository shows to anyone. A finding the check refuses is marked
+      # withheld: no inline comment, no line in the record or the log, and
+      # the record says how many and the kinds the check found, never the
+      # text. The scan answers with structured output, so a refused finding
+      # is withheld, not reworded. A check that cannot run withholds every
+      # finding. The check gets only PATH and PRIVATE_REPO_NAMES, and its
+      # output never reaches the log. Without a base copy the findings go as
+      # before.
+      - name: Hold the findings to the base's public-content check
+        if: ${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' || steps.scan_opencode.outcome != 'skipped') }}
+        env:
+          RESULTS: ${{ runner.temp }}/scan-results.json
+          BASE: ${{ github.event.pull_request.base.ref }}
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          # The same findings the summary lists: the results, or the
+          # candidates when the verification did not finish.
+          source=$RESULTS
+          if [ ! -s "$RESULTS" ] \
+            || ! jq -e 'type == "object" and has("findings") and .analysis_summary.review_completed == true' "$RESULTS" >/dev/null 2>&1; then
+            source="${SCAN_INPUT:-}/candidates.json"
+            if [ -z "${SCAN_INPUT:-}" ] || [ ! -s "$source" ]; then
+              echo "no scan result to check"
+              exit 0
+            fi
+          fi
+          check="" why=""
+          for f in .github/scripts/public-content.mjs .github/scripts/check_public_content.py; do
+            entry=$(git ls-tree "origin/$BASE" -- "$f") || { check=$f; why="$f could not be read from $BASE"; break; }
+            [ -n "$entry" ] || continue
+            check="$RUNNER_TEMP/public-content-check.${f##*.}"
+            mode=${entry%% *}
+            if [ "$mode" != 100644 ] && [ "$mode" != 100755 ]; then
+              why="$f on $BASE is not a regular file"
+            elif ! git show "origin/$BASE:$f" > "$check"; then
+              why="$f could not be read from $BASE"
+            fi
+            break
+          done
+          if [ -z "$check" ]; then
+            echo "the base branch ships no public-content check, so the findings go as before"
+            exit 0
+          fi
+          n=$(jq '[.findings[]?] | length' "$source")
+          if [ "$n" -eq 0 ]; then
+            echo "no findings to check"
+            exit 0
+          fi
+          interp=(node)
+          [ "${check##*.}" != py ] || interp=(python3 -I)
+          names=()
+          [ -z "${PRIVATE_REPO_NAMES:-}" ] || names=(PRIVATE_REPO_NAMES="$PRIVATE_REPO_NAMES")
+          text="$RUNNER_TEMP/public-content-text"
+          withheld=() kinds=""
+          i=0
+          while [ -z "$why" ] && [ "$i" -lt "$n" ]; do
+            jq -r --argjson i "$i" '.findings[$i]
+              | if type == "object" then [.category, .file, .description, .exploit_scenario, .recommendation] | map(. // "" | tostring) | join("\n") else tostring end' "$source" > "$text"
+            status=0
+            out=$(cd "$RUNNER_TEMP" && env -i PATH="$PATH" "${names[@]}" "${interp[@]}" "$check" --text="$text" 2>/dev/null) || status=$?
+            if [ "$status" -eq 1 ]; then
+              found=$(sed -nE 's/^::error title=Public repository content::.*, line [0-9]+: (.+)$/\1/p' <<<"$out")
+              if [ -z "$found" ]; then
+                why="exit 1 without naming a line it found"
+              else
+                withheld+=("$i")
+                kinds+="$found"$'\n'
+              fi
+            elif [ "$status" -ne 0 ]; then
+              why="exit $status"
+            fi
+            i=$((i + 1))
+          done
+          rm -f -- "$text"
+          if [ -n "$why" ]; then
+            withheld=($(seq 0 $((n - 1))))
+            [ "$n" -eq 1 ] && what="the finding's text is" || what="the text of all $n findings is"
+            echo "::warning::the repository's public-content check could not run ($why), so no finding's text is posted"
+            note="The repository's public-content check could not run ($why), so $what withheld from the inline comments, this record and the run's log; the maintainer has to look at the check."
+          elif [ "${#withheld[@]}" -gt 0 ]; then
+            # The kinds the kit's and gh-repo-bootstrapper's checks print;
+            # any other is named generically, so a check that printed what it
+            # matched cannot pass it on.
+            shown=$(sort -u <<<"${kinds%$'\n'}" | jq -Rrs '
+              ["a claude.ai link", "a Claude-Session trailer", "a project attribution marker",
+               "a session or thread ID", "a local or project-storage path",
+               "a bydradev or bydraio repository outside the public list",
+               "a bydradev repository outside the public list",
+               "an email address other than a noreply one", "a private repository name"] as $known
+              | split("\n") | map(select(. != "") | if IN($known[]) then . else "a detail the check rules out" end)
+              | unique | join("; ")')
+            k=${#withheld[@]}
+            [ "$k" -eq 1 ] && what="1 of the $n findings is" || what="$k of the $n findings are"
+            echo "the public-content check refused the text of $k of $n findings; they are withheld"
+            note="$what withheld from the inline comments, this record and the run's log: the repository's public-content check found in their text $shown. This repository is public, so the text is not posted."
+          else
+            echo "the public-content check passed all $n findings"
+            exit 0
+          fi
+          printf '%s\n' "$note" > "$RUNNER_TEMP/scan-withheld.md"
+          ids=$(printf '%s\n' "${withheld[@]}" | jq -sc .)
+          jq --argjson ids "$ids" '.findings |= [to_entries[] | if (.value | type == "object") and (.key as $k | $ids | any(.[]; . == $k)) then .value + {_withheld: true} else .value end]' \
+            "$source" > "$source.tmp"
+          mv -- "$source.tmp" "$source"
       # The outcome and findings of a completed scan, written whether or not
       # a later step (the inline comments or the record) fails, so the
       # record or the failure notice can list them. When the verification
@@ -1753,12 +1864,15 @@ jobs:
             touch "$RUNNER_TEMP/scan-unverified"
           fi
           count=$(jq '[.findings[]? | select(type == "object")] | length' "$source")
+          # A finding the public-content check withheld counts, but its text
+          # is listed neither here nor in the record.
+          shown=$(jq '[.findings[]? | select(type == "object" and (._withheld | not))] | length' "$source")
           # Every finding, cleaned as above, goes to this step's log too,
           # with workflow commands stopped, so the ones past the first 30
           # can be read there even when a later step is the one that failed.
           all=$(jq -r --arg unverified "$([ -e "$RUNNER_TEMP/scan-unverified" ] && echo true)" '
             def clean($n): tostring | gsub("[\\r\\n\\t`]+"; " ") | gsub("^ +| +$"; "") | .[0:$n];
-            [.findings[]? | select(type == "object")][]
+            [.findings[]? | select(type == "object" and (._withheld | not))][]
             | (.severity // "" | tostring | ascii_upcase | gsub("[^A-Z]"; "") | .[0:10]) as $sev
             | (.line | tonumber? // null) as $line
             | (.description // "" | clean(300)) as $what
@@ -1768,17 +1882,19 @@ jobs:
               + (if $unverified == "true" or ._filter_metadata.verified == false then " (unverified)" else "" end)
           ' "$source")
           list=$(head -n 30 <<<"$all")
-          if [ "$count" -gt 0 ]; then
+          if [ "$shown" -gt 0 ]; then
+            heading="All $count findings"
+            [ "$shown" -eq "$count" ] || heading="$shown of the $count findings (the rest withheld)"
             stop=$(openssl rand -hex 16)
-            echo "::group::All $count findings"
+            echo "::group::$heading"
             echo "::stop-commands::$stop"
             printf '%s\n' "$all"
             echo "::$stop::"
             echo "::endgroup::"
           fi
           more=""
-          [ "$count" -le 30 ] || more="
-          - and $((count - 30)) more, listed in [the run's log]($RUN_URL) under *Summarise the scan's findings*"
+          [ "$shown" -le 30 ] || more="
+          - and $((shown - 30)) more, listed in [the run's log]($RUN_URL) under *Summarise the scan's findings*"
           # What the scan did not cover, for the record and for the failure
           # notice alike. The scanner reads git's text diff with the base's
           # attributes, so a changed file git shows as binary ("-" counts in
@@ -1835,7 +1951,7 @@ jobs:
           fi
           [ -z "$coverage" ] || printf '%s\n' "$coverage" > "$RUNNER_TEMP/scan-coverage.md"
           printf '%s\n' "$count" > "$RUNNER_TEMP/scan-count"
-          if [ "$count" -gt 0 ]; then
+          if [ "$shown" -gt 0 ]; then
             printf '%s%s\n' "$list" "$more" > "$RUNNER_TEMP/scan-findings.md"
           fi
           if [ "$source" = "$RESULTS" ] && [ "$(jq '.filtering_summary.total_original_findings' "$RESULTS")" -gt 0 ]; then
@@ -1872,7 +1988,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          [ "$(jq '.findings | length' "$RESULTS")" -gt 0 ] || { echo "no findings to comment on"; exit 0; }
+          # A finding the public-content check withheld is not commented on.
+          withheld=$(jq '[.findings[] | select(type == "object" and ._withheld)] | length' "$RESULTS")
+          [ "$withheld" -eq 0 ] || echo "$withheld findings withheld by the public-content check get no inline comment"
+          [ "$(jq '[.findings[] | select(type != "object" or (._withheld | not))] | length' "$RESULTS")" -gt 0 ] || { echo "no findings to comment on"; exit 0; }
           # The key on each earlier comment's last line, where this step puts
           # it: the model's text above it cannot claim one.
           existing=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
@@ -1905,7 +2024,7 @@ jobs:
               refused=$((refused + 1))
               echo "::warning::GitHub refused an inline comment for a finding (its line is not in the diff, most likely); the record lists it"
             fi
-          done < <(jq -c '.findings[:30][]' "$RESULTS")
+          done < <(jq -c '[.findings[] | select(type != "object" or (._withheld | not))][:30][]' "$RESULTS")
           echo "inline comments: $posted posted, $skipped already on their lines, $refused refused"
       # One record comment per pull request, updated in place after each
       # completed scan; the skip step above reads it. It states the outcome
@@ -1943,7 +2062,7 @@ jobs:
           # did not cover; the check above made sure the scan completed.
           count=$(cat "$RUNNER_TEMP/scan-count")
           note=""
-          for f in scan-filtering.md scan-coverage.md; do
+          for f in scan-filtering.md scan-withheld.md scan-coverage.md; do
             if [ -s "$RUNNER_TEMP/$f" ]; then
               note="$note
           $(cat "$RUNNER_TEMP/$f")"
@@ -1953,11 +2072,15 @@ jobs:
             outcome="### Security scan: completed, no findings"
           else
             [ "$count" -eq 1 ] && noun=finding || noun=findings
-            outcome="### Security scan: completed, $count $noun
+            outcome="### Security scan: completed, $count $noun"
+            # None to list when the public-content check withheld them all.
+            if [ -s "$RUNNER_TEMP/scan-findings.md" ]; then
+              outcome="$outcome
 
           $(cat "$RUNNER_TEMP/scan-findings.md")
 
           Inline comments go only on lines of this pull request's diff, at most 30 a run and once per line and finding, so this list is where the latest scan's findings are: the first 30, each description cut at 300 characters, and the rest in the run's log."
+            fi
           fi
           body="<!-- security-scan-record -->
           $outcome
@@ -2042,10 +2165,15 @@ jobs:
             else
               what="The scanner finished for head $HEAD with $count $noun, but the run stopped after it on $(date -u +%Y-%m-%dT%H:%M:%SZ), so it is not recorded as a completed scan; [its log]($RUN_URL) says why."
             fi
-            if [ "$count" -gt 0 ]; then
+            if [ -s "$RUNNER_TEMP/scan-findings.md" ]; then
               found="
 
           $(cat "$RUNNER_TEMP/scan-findings.md")"
+            fi
+            if [ -s "$RUNNER_TEMP/scan-withheld.md" ]; then
+              found="$found
+
+          $(cat "$RUNNER_TEMP/scan-withheld.md")"
             fi
             if [ -s "$RUNNER_TEMP/scan-coverage.md" ]; then
               found="$found

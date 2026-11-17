@@ -153,7 +153,7 @@ secrets: the file holds settings only.
 | `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
 | `KIT_ISSUE_LINK_CHECK` | Setting | `on`, `off` or unset | `on`: fail a pull request whose body names no issue it closes and gives no `No issue:` reason ([The issue-link check](#the-issue-link-check)); `off` or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails before the model starts without it, naming the missing secret. It never stands in for `ANTHROPIC_API_KEY` while the provider is `anthropic` |
-| `PRIVATE_REPO_NAMES` | Secret, optional | The maintainer's private repository names, separated by commas or spaces | Read only when the repository ships a public-content check, which then also refuses a bot post naming one of them bare ([Public repository content](#public-repository-content)); elsewhere unused |
+| `PRIVATE_REPO_NAMES` | Secret, optional | The maintainer's private repository names, separated by commas or spaces | Read only when the repository ships a public-content check, which then also refuses a bot post, or withholds a security scan finding, naming one of them bare ([Public repository content](#public-repository-content)); elsewhere unused |
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
@@ -317,7 +317,9 @@ before the merge starts nothing.
     dropped are listed with its reasons in the run's log, under *Apply the
     verification*);
   - the first 20 files without a text diff, which the scan did not inspect
-    (the run's log lists them all).
+    (the run's log lists them all);
+  - on a repository that ships a public-content check, how many findings
+    the check withheld and the kinds it found in them, never their text.
 
   A run that fails, or is cancelled on the head the pull request still has
   (its time limit included), says so at the top of that comment, with a
@@ -693,7 +695,10 @@ structured output against a schema the workflow wrote; a second run in a
 fresh session judges each candidate against the code, and only the
 candidates it keeps (or gives no verdict on, marked unverified) are posted.
 The workflow posts them on the job token, every field the model wrote shown
-as plain text, so a finding cannot mention anyone, link, or add markup.
+as plain text, so a finding cannot mention anyone, link, or add markup. On
+a public repository that ships a public-content check, a finding the check
+finds something in is withheld instead ([Public repository
+content](#public-repository-content)).
 
 Before the scan, every `CLAUDE.md` and `CLAUDE.local.md` in the checkout is
 removed, so Claude Code loads no project memory (and no file a `CLAUDE.md`
@@ -781,16 +786,19 @@ The workflows also:
   skipped review never shows as a green check;
 - on a public repository that ships a public-content check, refuse any
   report, inline finding, filed issue or triage comment the check finds
-  something in ([Public repository content](#public-repository-content)).
+  something in, and withhold any security scan finding it finds something
+  in ([Public repository content](#public-repository-content)).
 
 ### Public repository content
 
 A public repository whose rules keep private repository names, claude.ai
 session links, session IDs, local paths and private email addresses out
-of everything it publishes can hold the kit's review and triage bots to the same rule. The
-model has no shell to run a check itself, so the MCP server runs it on
-every text it is about to post: the review's report, each inline finding,
-each field of an issue the reviewer files, and triage's comment. A text
+of everything it publishes can hold the kit's review and triage bots and
+its security scan to the same rule. The model has no shell to run a check
+itself, so the MCP server runs it on every text it is about to post: the
+review's report, each inline finding, each field of an issue the reviewer
+files, and triage's comment; the scan's findings are checked by its
+workflow, as the last item below says. A text
 the check finds something in is not posted; the model is told the line
 and the kind of each finding, never the matched text, and rewords.
 
@@ -829,8 +837,17 @@ unchecked.
   shows to anyone, leaves out the model's last message, its errors and
   OpenCode's log, any of which could repeat the name.
 - A repository without either file posts as before.
-- The security scan's inline findings and record comment are not checked
-  yet ([#56](https://github.com/bydradev/gh-agent-kit/issues/56)).
+- The security scan answers with structured output and posts from the
+  workflow, not through the server, so the workflow runs the base
+  branch's check itself, after the verification, on each finding's
+  model-written text (category, file, description, exploit scenario and
+  recommendation). A finding the check refuses is withheld: no inline
+  comment, no line in the record or the run's log, and the record says
+  how many were withheld and the kinds the check found, never the text.
+  It is not reworded: the scan has no second try. A check that cannot run
+  withholds every finding, with a warning in the run's log. The scan's
+  count still includes withheld findings, and the candidates the
+  verification dropped, which only the run's log lists, are not checked.
 
 ## The verdict check
 
