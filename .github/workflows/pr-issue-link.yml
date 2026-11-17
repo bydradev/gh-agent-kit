@@ -12,7 +12,8 @@ name: pr-issue-link
 # API, and an edit to it runs the check again. It runs only when
 # KIT_ISSUE_LINK_CHECK, a repository variable or a line of
 # .github/gh-agent-kit.yml (the settings job below), is "on"; "off" or
-# unset leaves it off, and any other value fails the run. Whether it is a
+# unset leaves it off, and any other value, or any other failure of the
+# settings job, fails the check. Whether it is a
 # required check is each repository's choice (the kit's setup guide).
 
 on:
@@ -187,7 +188,11 @@ jobs:
   link:
     name: pr-issue-link
     needs: settings
-    if: needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on'
+    # Also when the settings job failed: the first step then fails this
+    # job, since a skipped check counts as passed and a broken setting must
+    # not let a pull request through. Not when the settings job was skipped
+    # (an exempt pull request).
+    if: ${{ !cancelled() && (needs.settings.result == 'failure' || needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on') }}
     runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
@@ -197,6 +202,13 @@ jobs:
       group: pr-issue-link-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
+      # A failed settings job (a settings file that could not be read, or a
+      # line the kit does not read) leaves the switch unknown.
+      - name: Fail when the settings job failed
+        if: needs.settings.result == 'failure'
+        run: |
+          echo "::error::the settings job failed (its log names the setting and where it came from); the issue link was not checked"
+          exit 1
       # The body is read from the API, never from the event into an
       # expression, and is the current one when a run is re-run.
       - name: Look for a closing issue or a No issue line

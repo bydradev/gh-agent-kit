@@ -853,10 +853,13 @@ its `pr-issue-link` check fails when the body has neither
   skipped the issue (the *Work tracking* block).
 
 Text inside HTML comments, such as a pull request template's hints, and
-inside fenced code does not count. Pull requests by Dependabot and by Release Please are exempt and
-skip the check, and a required check that is skipped counts as passed
-(GitHub's "About protected branches", read 2026-11-17). Editing the body runs it
-again.
+inside fenced code does not count. Pull requests by Dependabot and by
+Release Please are exempt and skip the check, and a required check that is
+skipped counts as passed (GitHub's "About protected branches", read
+2026-11-17). So that a broken
+setting cannot pass for that, the check fails, rather than skips, when its
+settings job fails (a settings file it cannot read, or a line the kit does
+not read). Editing the body runs it again.
 
 Whether the check blocks a merge is each repository's choice: add
 `pr-issue-link` to the branch's required checks to make it one, or leave

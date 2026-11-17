@@ -403,7 +403,7 @@ test("a run whose review job was skipped does not stand for a review", (t) => {
 // A failed settings job must not leave the review or the scan skipped,
 // which branch protection reads as passing and which leaves an earlier
 // verdict or record standing: the main job runs and fails first thing.
-test("the review and the scan fail, rather than skip, when the settings job fails", () => {
+test("the review, the scan and the issue-link check fail, rather than skip, when the settings job fails", () => {
   for (const [file, job, before] of [
     [
       "pr-review.yml",
@@ -411,6 +411,7 @@ test("the review and the scan fail, rather than skip, when the settings job fail
       "Refuse a pull request event from an author or actor without write access",
     ],
     ["security-scan.yml", "security", null],
+    ["pr-issue-link.yml", "link", null],
   ]) {
     const text = workflow(file);
     const main = text.slice(text.indexOf(`\n  ${job}:\n`));

@@ -89,6 +89,5 @@ test("the job skips Dependabot's and Release Please's pull requests", () => {
     /!\(startsWith\(github\.head_ref, 'release-please--'\) &&\n\s+github\.event\.pull_request\.user\.type == 'Bot'\)/,
   );
   // The script holds no expression: what it reads comes through env.
-  const link = text.slice(text.indexOf("\n  link:\n"));
-  assert.doesNotMatch(link.slice(link.indexOf("run: |")), /\$\{\{/);
+  assert.doesNotMatch(script, /\$\{\{/);
 });
