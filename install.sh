@@ -365,13 +365,14 @@ agents_scan() {
     # A setext heading takes in its whole paragraph, so it starts at the
     # first line of that paragraph, where the block must go before it.
     prev != "" && /^ ? ? ?(-+|=+)[ \t]*$/ { print pstart, "H"; prev = ""; next }
-    # A paragraph line a setext underline can follow: not blank, indented,
-    # an ATX heading, or in a list item or a quote (from its marker to the
+    # A paragraph line a setext underline can follow: not blank, an ATX
+    # heading, indented code (four spaces or a tab, unless it continues a
+    # paragraph), or in a list item or a quote (from its marker to the
     # next blank line, so a continuation line counts as part of it).
     /^[ \t]*$/ { inlist = 0 }
     /^ ? ? ?(>|[-*+][ \t]|[0-9]+[.)][ \t])/ { inlist = 1 }
     {
-      para = !(inlist || /^[ \t]*$/ || /^[ \t]/ || /^#/)
+      para = !(inlist || /^[ \t]*$/ || /^ ? ? ?#/ || (prev == "" && /^ ? ? ?(    |\t)/))
       if (para && prev == "") pstart = NR
       prev = para ? $0 : ""
     }

@@ -539,6 +539,13 @@ check install "$t"
 { printf '%s\n\n' "$agents_md"; kit_block; printf '\nNext\nheading\n-------\n\nText.\n'; } > "$work/expected"
 check cmp -s "$work/expected" "$t/AGENTS.md"
 
+it "a setext heading indented up to three spaces ends the section, indented code does not"
+new_target
+printf '%s\n\n    code\n---\n\n   Later\n=====\n' "$agents_md" > "$t/AGENTS.md"
+check install "$t"
+{ printf '%s\n\n    code\n---\n\n' "$agents_md"; kit_block; printf '\n   Later\n=====\n'; } > "$work/expected"
+check cmp -s "$work/expected" "$t/AGENTS.md"
+
 it "a line under a list item or a quote is no setext heading"
 new_target
 printf '%s\n\n- item one\n  continued\n---\n\n> quoted\nlazy\n---\n' "$agents_md" > "$t/AGENTS.md"
