@@ -166,6 +166,12 @@ node --test tests/*.test.mjs
 bash tests/install.test.sh   # installs from committed history: commit first
 ```
 
+The workflow also checks the JavaScript and YAML files `kit-manifest.txt`
+lists with Prettier, with the settings a target formats them with
+(gh-repo-bootstrapper's Next.js settings, repeated in
+`.github/prettierrc.json`); run that step's command before pushing a change
+to one.
+
 A change to the server's tools or to `install.sh` comes with a test.
 
 ### Public repository content

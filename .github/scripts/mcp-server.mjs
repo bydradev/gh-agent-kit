@@ -20,27 +20,12 @@ const env = process.env;
 if (env.GH_TOKEN_FILE) env.GH_TOKEN = fs.readFileSync(env.GH_TOKEN_FILE, "utf8").trim();
 const repo = env.GITHUB_REPOSITORY;
 const LIMIT = 24000; // characters per tool result, under Claude Code's preview cut
-const LABELS_ADD = [
-  "bug",
-  "feature",
-  "chore",
-  "P0",
-  "P1",
-  "P2",
-  "P3",
-  "triaged",
-  "needs-operator",
-];
+const LABELS_ADD = ["bug", "feature", "chore", "P0", "P1", "P2", "P3", "triaged", "needs-operator"];
 const LABELS_RESET = ["agent:approved"];
 // needs-triage is removable (every triage ends by swapping it) but never
 // added: applying it starts another run that cancels this one.
 const LABELS_REMOVE = [...LABELS_ADD, "needs-triage"];
-const STATE_LABELS = [
-  "needs-triage",
-  "triaged",
-  "in-progress",
-  "needs-operator",
-];
+const STATE_LABELS = ["needs-triage", "triaged", "in-progress", "needs-operator"];
 const digits = (s) => typeof s === "string" && /^[0-9]+$/.test(s);
 const repoName = (s) =>
   typeof s === "string" &&

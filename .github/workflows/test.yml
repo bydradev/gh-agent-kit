@@ -35,3 +35,12 @@ jobs:
           node --test tests/*.test.mjs
       - name: Test the installer
         run: bash tests/install.test.sh
+      # Targets run Prettier over the files the kit installs into them, with
+      # gh-repo-bootstrapper's Next.js settings (templates/.prettierrc.json:
+      # printWidth 100 and trailingComma all; the rest are Prettier's
+      # defaults), which .github/prettierrc.json repeats. The template
+      # ignores *.md, so the skills are left out.
+      - name: Check the installed JavaScript and YAML with the targets' Prettier settings
+        run: |
+          files=$(grep -v -e '^#' -e '^$' kit-manifest.txt | sed 's/^seed //' | grep -E '\.(mjs|js|ya?ml)$')
+          npx --yes prettier@3.9.10 --config .github/prettierrc.json --check $files

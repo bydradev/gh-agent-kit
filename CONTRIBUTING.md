@@ -39,7 +39,10 @@ Security issues go through private reporting instead; see
 5. Run the tests (`node --test tests/*.test.mjs` and
    `bash tests/install.test.sh`, the second from committed changes) and add
    one for a change to the MCP server or the installer; the `test` check
-   runs both.
+   runs both. It also runs Prettier over the JavaScript and YAML files
+   `kit-manifest.txt` lists, with the settings targets use
+   (`.github/prettierrc.json`); run the command from the `test` workflow's
+   last step after changing one.
    On macOS, whose bash is 3.2, the workflow step tests that need bash 4
    are skipped, saying so; `STEP_BASH=/path/to/bash4` runs them (the
    tests also find Homebrew's bash).
