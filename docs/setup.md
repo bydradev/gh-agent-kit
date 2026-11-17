@@ -856,8 +856,9 @@ unchecked.
   ([#60](https://github.com/bydradev/gh-agent-kit/issues/60)). Each finding is checked on
   its own, and the record names the kinds, a private repository name
   among them: unlike the review, which a pull request's text can steer,
-  the scan reads only the diff, whose author has write access and could
-  read the secret through a workflow change anyway.
+  the scan reads only the pull request's head and diff, which reach it
+  only from an author and actor with write access, who could read the
+  secret through a workflow change anyway.
 
 ## The verdict check
 

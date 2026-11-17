@@ -100,7 +100,7 @@ test("a refused finding is withheld from the comments, the summary, the log and 
   );
   assert.equal(
     s.text("scan-withheld.md"),
-    "2 of the 3 findings are withheld from the inline comments, this record and the run's log: the repository's public-content check found in their text a local or project-storage path; a private repository name. This repository is public, so the text is not posted.\n",
+    "2 of the 3 findings are withheld from the inline comments, this record and the later steps' log: the repository's public-content check found in their text a local or project-storage path; a private repository name. This repository is public, so the text is not posted.\n",
   );
   assert.doesNotMatch(hold.stdout + hold.stderr, /notes\.txt|skunkworks/);
 
@@ -191,6 +191,15 @@ test("a check that cannot run withholds every finding, and the notice says so", 
   assert.match(body, /finished for head a+ with 2 findings/);
   assert.match(body, /could not run \(exit 2\), so the text of all 2 findings is withheld/);
   assert.doesNotMatch(body, /api\.js/);
+});
+
+test("a check that runs past its time limit cannot run", (t) => {
+  // timeout exits 124 when it stops the check; the stand-in exits so too.
+  const s = setup(t, { [MJS]: "process.exit(124);\n" });
+  s.write("scan-results.json", results([finding()]));
+  assert.equal(s.run(holdScript).status, 0);
+  assert.match(s.text("scan-withheld.md"), /could not run \(it ran past 30 seconds\), so the finding's text is withheld/);
+  assert.ok(s.read("scan-results.json").findings[0]._withheld);
 });
 
 test("an exit 1 without a finding line, and a base check that is a symlink, cannot run", (t) => {

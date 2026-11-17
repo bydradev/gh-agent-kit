@@ -1733,8 +1733,9 @@ jobs:
       # in this job's log, which a public repository shows to anyone. A
       # finding the check refuses is marked withheld: no inline comment, no
       # line in the record or in the later steps' log, and the record says
-      # how many and the kinds the check found, never the text. The scan answers with structured output, so a refused finding
-      # is withheld, not reworded. A check that cannot run withholds every
+      # how many and the kinds the check found, never the text. The scan
+      # answers with structured output, so a refused finding is withheld,
+      # not reworded. A check that cannot run withholds every
       # finding. The check gets only PATH and PRIVATE_REPO_NAMES, and its
       # output never reaches the log. Without a base copy the findings go as
       # before.
@@ -1831,7 +1832,7 @@ jobs:
             withheld=($(seq 0 $((n - 1))))
             [ "$n" -eq 1 ] && what="the finding's text is" || what="the text of all $n findings is"
             echo "::warning::the repository's public-content check could not run ($why), so no finding's text is posted"
-            note="The repository's public-content check could not run ($why), so $what withheld from the inline comments, this record and the run's log; the maintainer has to look at the check."
+            note="The repository's public-content check could not run ($why), so $what withheld from the inline comments, this record and the later steps' log; the maintainer has to look at the check."
           elif [ "${#withheld[@]}" -gt 0 ]; then
             # The kinds the kit's and gh-repo-bootstrapper's checks print;
             # any other is named generically, so a check that printed what it
@@ -1847,7 +1848,7 @@ jobs:
             k=${#withheld[@]}
             [ "$k" -eq 1 ] && what="1 of the $n findings is" || what="$k of the $n findings are"
             echo "the public-content check refused the text of $k of $n findings; they are withheld"
-            note="$what withheld from the inline comments, this record and the run's log: the repository's public-content check found in their text $shown. This repository is public, so the text is not posted."
+            note="$what withheld from the inline comments, this record and the later steps' log: the repository's public-content check found in their text $shown. This repository is public, so the text is not posted."
           else
             echo "the public-content check passed all $n findings"
             rm -f -- "$pending"
@@ -1892,11 +1893,11 @@ jobs:
           # A finding the public-content check withheld counts, but its text
           # is listed neither here nor in the record.
           shown=$(jq '[.findings[]? | select(type == "object" and (._withheld | not))] | length' "$source")
-          if [ -e "$RUNNER_TEMP/scan-content-pending" ]; then
+          if [ -e "$RUNNER_TEMP/scan-content-pending" ] && [ "$count" -gt 0 ]; then
             shown=0
             [ "$count" -eq 1 ] && what="the finding's text is" || what="the text of all $count findings is"
             echo "::warning::the public-content check did not finish, so no finding's text is listed"
-            printf '%s\n' "The repository's public-content check did not finish, so $what withheld from the inline comments, this record and the run's log; the maintainer has to look at the run." > "$RUNNER_TEMP/scan-withheld.md"
+            printf '%s\n' "The repository's public-content check did not finish, so $what withheld from the inline comments, this record and the later steps' log; the maintainer has to look at the run." > "$RUNNER_TEMP/scan-withheld.md"
           fi
           # Every finding, cleaned as above, goes to this step's log too,
           # with workflow commands stopped, so the ones past the first 30
