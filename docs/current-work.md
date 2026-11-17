@@ -8,16 +8,17 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
-### Work tracking block and issue filing (2026-11-17)
+### Target round for v0.5.x (2026-11-17)
 
-[#48](https://github.com/bydradev/gh-agent-kit/issues/48) lands in two
-pull requests. The first has `install.sh` write and check the *Work
-tracking* block, the weekly update check report it, and adds the
-`github-issue-file` skill. The second adds the flow for work the operator
-asks for directly, the label changes and the pull request issue-link check,
-and closes the issue. Targets are updated in one round after the release
-that carries both; each runs `sync-labels.sh --migrate` once in that round,
-and so does this repository after the second pull request merges.
+[#48](https://github.com/bydradev/gh-agent-kit/issues/48) shipped in v0.5.0:
+`install.sh` writes and checks the *Work tracking* block, the
+`github-issue-file` skill and the flow for work the operator asks for
+directly, the 13 labels and the issue-link check. This repository ran
+`sync-labels.sh --migrate`. In the target round, v0.5.0's
+`mcp-server.mjs` failed the Prettier check targets run
+([#52](https://github.com/bydradev/gh-agent-kit/issues/52)); the targets
+that run Prettier take the v0.5.1 patch instead, and each target runs
+`sync-labels.sh --migrate` once its update merges.
 
 ### Public release (2026-10-26, public since 2026-10-27)
 
