@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, gitRepo, root, startServer, tempDir } from "./helpers/server.mjs";
+import { ownEnvNames } from "./helpers/opencode.mjs";
 
 const CHECK = path.join(root, ".github/scripts/public-content.mjs");
 // Examples of what the check finds, built from parts so that this file's
@@ -210,7 +211,7 @@ function noisyCheck(t) {
     `import fs from "node:fs";
 const arg = process.argv.find((a) => a.startsWith("--text="));
 const text = fs.readFileSync(arg.slice(7), "utf8");
-fs.writeFileSync(${JSON.stringify(envLog)}, JSON.stringify(Object.keys(process.env)));
+fs.writeFileSync(${JSON.stringify(envLog)}, JSON.stringify(process.env));
 if (!text.includes("hush")) process.exit(0);
 console.log("matched: " + text);
 console.log("::error title=Public repository content::text x, line 1: the word hush in " + text);
@@ -235,7 +236,7 @@ test("the check's own output never reaches the model, and it gets no token", asy
   assert.equal(r.isError, true);
   assert.match(r.text, /body line 1: a detail the check rules out/);
   assert.doesNotMatch(r.text, /hush|matched:/);
-  assert.deepEqual(JSON.parse(fs.readFileSync(check.envLog, "utf8")).sort(), [
+  assert.deepEqual(ownEnvNames(JSON.parse(fs.readFileSync(check.envLog, "utf8"))), [
     "PATH",
     "PRIVATE_REPO_NAMES",
   ]);

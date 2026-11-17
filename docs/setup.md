@@ -825,8 +825,9 @@ unchecked.
   refused without the line or the kind, and the run posts nothing more:
   a refusal that said where the name was, or let the model try again,
   would let a model steered by injected text confirm guesses one post at
-  a time. The job log records it, and the review fails without its
-  report.
+  a time. The run then fails, and its job log, which a public repository
+  shows to anyone, leaves out the model's last message, its errors and
+  OpenCode's log, any of which could repeat the name.
 - A repository without either file posts as before.
 - The security scan's inline findings and record comment are not checked
   yet ([#56](https://github.com/bydradev/gh-agent-kit/issues/56)).

@@ -1217,6 +1217,13 @@ jobs:
           fi
           # The result object (a stream would be an array; keep the last result).
           result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
+          # A run the server closed on a private repository name: the model
+          # learned that a text held one, so its last message, its errors and
+          # OpenCode's log stay out of this log, which a public repository
+          # shows to anyone, and the run fails for the operator to look at.
+          closed=$(jq -r '.closed // false' "$RUNNER_TEMP/agent-kit-state.json" 2>/dev/null || echo false)
+          withheld="(withheld: the run closed on a private repository name)"
+          [ "$closed" != true ] || result=$(jq -c --arg w "$withheld" '.result = $w | .errors = [$w]' <<<"$result")
           # Claude Code prices every model as Claude, so on Go its cost
           # figure is not what Go charges; the token counts are, at the
           # model's prices on opencode.ai/docs/go.
@@ -1228,6 +1235,10 @@ jobs:
           echo "::stop-commands::$stop"
           jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
           echo "::$stop::"
+          if [ "$closed" = true ]; then
+            echo "::error::A text the run was to post held a private repository name, so it posted nothing more, and its last message and log are withheld"
+            exit 1
+          fi
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
@@ -1422,11 +1433,21 @@ jobs:
             text="OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again."
           done
           events=$(cat "$RESULT")
+          # A run the server closed on a private repository name: the model
+          # learned that a text held one, so its last message, its errors and
+          # OpenCode's log stay out of this log, which a public repository
+          # shows to anyone, and the run fails for the operator to look at.
+          closed=$(jq -r '.closed // false' "$RUNNER_TEMP/agent-kit-state.json" 2>/dev/null || echo false)
+          withheld="(withheld: the run closed on a private repository name)"
           if [ -z "$events" ]; then
-            stop=$(openssl rand -hex 16)
-            echo "::stop-commands::$stop"
-            tail -n 50 "$RUNNER_TEMP/opencode-stderr" | awk 1
-            echo "::$stop::"
+            if [ "$closed" = true ]; then
+              echo "OpenCode's log: $withheld"
+            else
+              stop=$(openssl rand -hex 16)
+              echo "::stop-commands::$stop"
+              tail -n 50 "$RUNNER_TEMP/opencode-stderr" | awk 1
+              echo "::$stop::"
+            fi
             echo "::error::OpenCode exited with status $status and no events"
             exit 1
           fi
@@ -1442,12 +1463,17 @@ jobs:
             errors: ($last | map(select(.type == "error") | .error.data.message // .error.name // "error") | join("; ")),
             result: (map(select(.type == "text") | .part.text // "") | last // "")
           }' <<<"$events")
+          [ "$closed" != true ] || summary=$(jq -c --arg w "$withheld" '.result = $w | if .errors == "" then . else .errors = $w end' <<<"$summary")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
           stop=$(openssl rand -hex 16)
           echo "::stop-commands::$stop"
           jq -r '"steps: \(.steps)\nlast step: \(.reason)\ncost_usd (Go prices): \(.cost)\ntokens: input \(.input), cache read \(.cache_read), cache write \(.cache_write), output \(.output), reasoning \(.reasoning)\nerrors: \(.errors)\nresult: \(.result | .[0:2000])"' <<<"$summary"
           echo "::$stop::"
+          if [ "$closed" = true ]; then
+            echo "::error::A text the run was to post held a private repository name, so it posted nothing more, and its last message and log are withheld"
+            exit 1
+          fi
           if [ "$status" -ne 0 ] || [ -n "$(jq -r '.errors' <<<"$summary")" ] || [ "$(jq -r '.reason' <<<"$summary")" != "stop" ]; then
             # OpenCode's log, which --print-logs puts on its stderr (each
             # retry of a refused request is a "stream error" line), with
