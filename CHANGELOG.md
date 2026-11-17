@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/bydradev/gh-agent-kit/compare/v0.4.4...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* add requested work, simpler labels and an issue-link check ([#50](https://github.com/bydradev/gh-agent-kit/issues/50)) ([3789e8a](https://github.com/bydradev/gh-agent-kit/commit/3789e8abfe0e7108f8284be7b01158744ad25512))
+* install the work tracking block and add an issue-filing skill ([#49](https://github.com/bydradev/gh-agent-kit/issues/49)) ([b40ac4f](https://github.com/bydradev/gh-agent-kit/commit/b40ac4ff4dd1d4f6ed6426b4341c6caaaf3f904a))
+
 ## [0.4.4](https://github.com/bydradev/gh-agent-kit/compare/v0.4.3...v0.4.4) (2026-11-16)
 
 
