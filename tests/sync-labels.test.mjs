@@ -78,7 +78,12 @@ test("--migrate moves every issue off a dropped label, then deletes it", (t) => 
       { match: "^api repos/acme/widgets/labels/(docs|blocked|ready) ", stdout: "" },
       {
         match: "^api --paginate repos/acme/widgets/issues\\?labels=docs&state=all&per_page=100 ",
-        json: [issue(1, "open", ["docs", "P2"]), issue(2, "closed", ["docs", "feature"])],
+        json: [
+          issue(1, "open", ["docs", "P2"]),
+          issue(2, "closed", ["docs", "feature"]),
+          // A label that only contains a type's name is not a type.
+          issue(6, "open", ["docs", "not,bug"]),
+        ],
       },
       {
         match: "^api --paginate repos/acme/widgets/issues\\?labels=blocked&state=all&per_page=100 ",
@@ -97,6 +102,8 @@ test("--migrate moves every issue off a dropped label, then deletes it", (t) => 
     "api --method POST repos/acme/widgets/issues/1/labels -f labels[]=chore --silent",
     "api --method DELETE repos/acme/widgets/issues/1/labels/docs --silent",
     "api --method DELETE repos/acme/widgets/issues/2/labels/docs --silent",
+    "api --method POST repos/acme/widgets/issues/6/labels -f labels[]=chore --silent",
+    "api --method DELETE repos/acme/widgets/issues/6/labels/docs --silent",
     "api --method DELETE repos/acme/widgets/labels/docs --silent",
     // blocked: needs-operator only on an open issue.
     "api --method POST repos/acme/widgets/issues/3/labels -f labels[]=needs-operator --silent",

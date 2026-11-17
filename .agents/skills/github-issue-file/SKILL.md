@@ -134,10 +134,12 @@ from the pull request, and you never add `agent:approved` yourself.
    without holding it for approval. Check the comments every minute or two
    for the bot's triage comment: one by `github-actions[bot]` headed
    `## Triage`, `## Triage (revised)` or `## Triage: questions`, posted
-   after the issue. Stop waiting when it appears; at once when triage is
-   off; or once the triage time limit has passed since the issue was
-   created: `KIT_TRIAGE_TIMEOUT_MINUTES` (15 unless set), plus 5 minutes
-   for the run to start. Read both settings as the workflows do: the
+   after the issue was created or, when you come back here after editing
+   it in step 3, after your latest edit (an earlier comment is the one
+   you already answered). Stop waiting when it appears; at once when
+   triage is off; or once the triage time limit has passed since that
+   creation or edit: `KIT_TRIAGE_TIMEOUT_MINUTES` (15 unless set), plus 5
+   minutes for the run to start. Read both settings as the workflows do: the
    repository variable
    (`gh api repos/<owner>/<repo>/actions/variables/<name> --jq .value`)
    wins, else the `<name>:` line of `.github/gh-agent-kit.yml` on the
@@ -162,7 +164,8 @@ from the pull request, and you never add `agent:approved` yourself.
      so that it is later than your edit (`github-issue-e2e` refuses a
      label older than the last edit; if both land in the same second,
      add it again). The edit starts a re-triage, so
-     wait again as in step 2.
+     wait again as in step 2, for a comment newer than the edit and with
+     the time limit counted from it.
    - **The issue was edited, retitled or reopened by anyone but you
      after you filed it:** the scope may no longer be the operator's.
      Show the operator the change and ask; re-apply `requested` as above

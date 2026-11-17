@@ -71,16 +71,18 @@ while IFS='|' read -r -u 3 name replacement; do
   fi
   # Every issue and pull request carrying it, open or closed, on every
   # page (the issues endpoint lists both), read in full before any change.
+  # Whether it has a type is read from the label array itself, so a label
+  # whose name merely contains "bug" or a comma is not taken for one.
   items=$(gh api --paginate "repos/$repo/issues?labels=$name&state=all&per_page=100" \
-    --jq '.[] | "\(.number) \(.state) \([.labels[].name] | join(","))"')
-  while read -r -u 4 n state names; do
+    --jq '.[] | "\(.number) \(.state) \(any(.labels[].name; . == "bug" or . == "feature" or . == "chore"))"')
+  while read -r -u 4 n state typed; do
     [ -n "$n" ] || continue
     add=$replacement
     case "$name" in
       # A closed issue keeps no open-looking state label.
       blocked) [ "$state" = open ] || add="" ;;
       # An issue that already has a type keeps it alone.
-      docs) case ",$names," in *,bug,* | *,feature,* | *,chore,*) add="" ;; esac ;;
+      docs) [ "$typed" = false ] || add="" ;;
     esac
     # The replacement first, so a failure never leaves the issue with
     # neither label.

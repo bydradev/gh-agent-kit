@@ -169,7 +169,10 @@ deployment, external mutation, or change outside that scope.
 - Before the PR, run the approval check again; the latest `## Triage`
   plan must also be the one you implemented. `needs-triage` is the
   operator asking for a fresh plan: stop and release the claim as the
-  bot's revised plan will say. If the approval is gone or stale, the
+  bot's revised plan will say. The exception is an issue approved by
+  request that still has no bot triage comment: there `needs-triage` is
+  the label it was filed with, which nothing has run to remove, so
+  continue. If the approval is gone or stale, the
   operator or the triage bot withdrew it (an edit after approval does
   that, and an issue whose body or plan no longer matches what you
   implemented is withdrawn even while `agent:approved` is still there):
