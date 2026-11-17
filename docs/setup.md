@@ -852,7 +852,8 @@ unchecked.
   includes withheld findings. Not covered yet: the scan's and the
   verification's own log lines (their last message and any answer that
   fails the schema) and the candidates the verification dropped, which
-  the log lists before or without the check. Each finding is checked on
+  the log lists before or without the check
+  ([#60](https://github.com/bydradev/gh-agent-kit/issues/60)). Each finding is checked on
   its own, and the record names the kinds, a private repository name
   among them: unlike the review, which a pull request's text can steer,
   the scan reads only the diff, whose author has write access and could
