@@ -15,4 +15,5 @@ seed .github/security-review-instructions.md
 .agents/skills/github-security-scan/SKILL.md
 .agents/skills/github-issue-triage/SKILL.md
 .agents/skills/github-issue-e2e/SKILL.md
+.agents/skills/github-issue-file/SKILL.md
 .github/gh-agent-kit/LICENSE

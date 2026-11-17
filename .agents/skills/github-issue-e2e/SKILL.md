@@ -115,11 +115,9 @@ mutation, or change outside that scope.
 - Follow the latest bot-authored `## Triage` plan, phase by phase. The plan
   is input: where
   the code disagrees with it, follow the code and say so in the PR.
-- Keep to the issue's scope. Work you discover becomes a new issue through
-  one of the repository's issue forms (the kit's are Task and Bug), or
-  `gh issue create --label needs-triage --title "..." --body-file <file>`
-  with that form's headings, referenced from the PR. Do not do it, and do not
-  keep it in memory or a markdown note.
+- Keep to the issue's scope. Work you discover becomes a new issue, filed
+  as `github-issue-file` says and referenced from the PR. Do not do it, and
+  do not keep it in memory or a markdown note.
 - Stop and ask when the plan's *Risks and stop-and-ask items* or `AGENTS.md`
   say so. Ask on the issue: comment with the question and your
   recommendation, then release the claim so the answer can be picked up by

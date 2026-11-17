@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { stubGh, tempDir } from "./helpers/server.mjs";
+import { root, stubGh, tempDir } from "./helpers/server.mjs";
 import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const compareScript = stepScript("kit-update-check.yml", "Compare the lock with the kit");
@@ -20,7 +20,9 @@ const SOURCE = "github.com/acme/kit";
 // runs git in the served repository, for a later tag or an unreleased
 // commit. With forms, the manifest lists issue forms too: v0.2.0 changes
 // one, adds one and drops one, and v0.3.0 changes only a form.
-function kitFixture(t, { moves = false, forms = false } = {}) {
+// With block, v0.2.0 adds docs/agents-md-block.md with the Work tracking
+// block between its markers (v0.1.0 has none).
+function kitFixture(t, { moves = false, forms = false, block = false, blockDoc = BLOCK_DOC } = {}) {
   const dir = tempDir(t);
   const work = path.join(dir, "kit");
   fs.mkdirSync(work);
@@ -80,6 +82,7 @@ function kitFixture(t, { moves = false, forms = false } = {}) {
   write("new.txt", "new\n");
   write("s1.md", "seed one, changed\n");
   write("s3.md", "seed three\n");
+  if (block) write("docs/agents-md-block.md", blockDoc);
   git("rm", "-q", "gone.txt", "s2.md");
   git("add", "-A");
   git("commit", "-q", "-m", "second");
@@ -115,9 +118,14 @@ function kitFixture(t, { moves = false, forms = false } = {}) {
   return { first, second, third, config, unreleased, after };
 }
 
-// A target repository's checkout with a lock, and the compare step run on it.
-function compare(t, kit, lock) {
+// A target repository's checkout with a lock (and an AGENTS.md when
+// agents is given), and the compare step run on it.
+function compare(t, kit, lock, agents) {
   const dir = tempDir(t);
+  if (agents !== undefined) {
+    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "target/AGENTS.md"), agents);
+  }
   if (lock !== null) {
     fs.mkdirSync(path.join(dir, "target/.github"), { recursive: true });
     fs.writeFileSync(
@@ -146,6 +154,14 @@ function compare(t, kit, lock) {
 }
 
 const FORMS = ".github/ISSUE_TEMPLATE";
+
+const START = "<!-- gh-agent-kit:work-tracking:start -->";
+const END = "<!-- gh-agent-kit:work-tracking:end -->";
+const BLOCK = `${START}\n\n### Work tracking\n\n- A rule.\n\n${END}\n`;
+// As in the kit: the block inside a fenced example, between prose.
+const BLOCK_DOC = `# The AGENTS.md block\n\nProse.\n\n\`\`\`markdown\n${BLOCK}\`\`\`\n`;
+const agentsWith = (block) =>
+  `# Working in this repo\n\n## Project specifics\n\n### Ours\n\nA rule.\n\n${block}`;
 
 const LOCK_AT = (ref) => ({
   source: SOURCE,
@@ -267,6 +283,109 @@ test("the compare step leaves out the kit's issue forms when the lock keeps its 
   assert.equal(kitForms.status, 0, kitForms.stderr);
   assert.equal(kitForms.stdout, `updated    ${FORMS}/bug.yml\n`);
   assert.equal(kitForms.outputs.state, "behind");
+});
+
+test("the compare step reports a missing or differing Work tracking block", { skip: needsBash4 }, (t) => {
+  const kit = kitFixture(t, { block: true });
+  const atRelease = {
+    source: SOURCE,
+    ref: kit.second,
+    dirty: false,
+    seeds: ["s1.md", "s3.md"],
+    paths: ["a.txt", "run.sh", "keep.txt", "new.txt", "s1.md", "s3.md"],
+  };
+  // The release's block, as install.sh writes it: current.
+  const same = compare(t, kit, atRelease, agentsWith(BLOCK));
+  assert.equal(same.status, 0, same.stderr);
+  assert.equal(same.stdout, "");
+  assert.equal(same.outputs.state, "current");
+  // An edit inside the markers, no AGENTS.md, an AGENTS.md without the
+  // block, or the block only inside fenced code each count.
+  const cases = [
+    [agentsWith(BLOCK.replace("A rule.", "A rule, edited.")), "updated"],
+    [undefined, "missing"],
+    [agentsWith(""), "missing"],
+    [agentsWith("```markdown\n" + BLOCK + "```\n"), "missing"],
+  ];
+  for (const [agents, verb] of cases) {
+    const r = compare(t, kit, atRelease, agents);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, `${verb.padEnd(11)}AGENTS.md (Work tracking block)\n`);
+    assert.equal(r.outputs.state, "behind");
+  }
+  // Behind a release that adds the block, it is listed after the files.
+  const behind = compare(t, kit, LOCK_AT(kit.first), agentsWith(""));
+  assert.equal(behind.status, 0, behind.stderr);
+  assert.match(behind.stdout, /^removed {4}gone\.txt\nmissing {4}AGENTS\.md \(Work tracking block\)\n$/m);
+  // Two blocks, markers out of order, or a block inside a fence that an
+  // inner fence of fewer backticks does not close are no block install.sh
+  // would accept, so they count too.
+  for (const [agents, verb] of [
+    [agentsWith(BLOCK + "\n" + BLOCK), "updated"],
+    [agentsWith(`${END}\n${START}\n`), "updated"],
+    [agentsWith("````md\n```\n" + BLOCK + "````\n"), "missing"],
+  ]) {
+    const r = compare(t, kit, atRelease, agents);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, `${verb.padEnd(11)}AGENTS.md (Work tracking block)\n`);
+  }
+  // A lock past the release is current, its block included: going back
+  // is not an update.
+  const unreleased = kit.unreleased();
+  const past = compare(
+    t,
+    kit,
+    { ...atRelease, ref: unreleased },
+    agentsWith(BLOCK.replace("A rule.", "A rule, edited.")),
+  );
+  assert.equal(past.status, 0, past.stderr);
+  assert.equal(past.stdout, "");
+  assert.equal(past.outputs.state, "current");
+});
+
+// What install.sh writes is what the compare step accepts: the kit's real
+// block, installed into AGENTS.md files with and without a final newline
+// and with a closed fence before the block's place, compares as current.
+test("the compare step finds the block install.sh writes current", { skip: needsBash4 }, (t) => {
+  const kit = kitFixture(t, { block: true, blockDoc: fs.readFileSync(path.join(root, "docs/agents-md-block.md"), "utf8") });
+  for (const agents of [
+    "# Working in this repo\n\n## Project specifics\n\n### Ours\n\nA rule.\n",
+    "# Working in this repo\n\n## Project specifics\n\nA rule.",
+    "# W\n\n## Project specifics\n\n~~~sh\n## not a heading\n~~~\n\n## Later\n\nText.\n",
+  ]) {
+    const target = tempDir(t);
+    execFileSync("git", ["init", "-q", target], { env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
+    fs.writeFileSync(path.join(target, "AGENTS.md"), agents);
+    const out = execFileSync("bash", [path.join(root, "install.sh"), target], {
+      encoding: "utf8",
+      env: { ...process.env, KIT_ALLOW_DIRTY: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+    });
+    assert.match(out, /^added {6}AGENTS\.md \(Work tracking block\)$/m);
+    const installed = fs.readFileSync(path.join(target, "AGENTS.md"), "utf8");
+    const r = compare(
+      t,
+      kit,
+      {
+        source: SOURCE,
+        ref: kit.second,
+        dirty: false,
+        seeds: ["s1.md", "s3.md"],
+        paths: ["a.txt", "run.sh", "keep.txt", "new.txt", "s1.md", "s3.md"],
+      },
+      installed,
+    );
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, "", installed);
+    assert.equal(r.outputs.state, "current");
+  }
+});
+
+test("the compare step checks no block for a release without one", (t) => {
+  const kit = kitFixture(t);
+  const r = compare(t, kit, LOCK_AT(kit.second), agentsWith(""));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.equal(r.outputs.state, "current");
 });
 
 test("the compare step finds a lock at the latest release current", (t) => {
@@ -449,7 +568,9 @@ test("the notice step opens one issue when behind and none is open", (t) => {
   assert.ok(args.includes("title=Update gh-agent-kit to v1.2.3"));
   const body = args.find((a) => a.startsWith(`body=${MARKER}\n`));
   assert.ok(body, "the body starts with the marker");
-  assert.match(body, /the kit's latest release, v1\.2\.3, has changed the files below/);
+  assert.match(body, /differs from the kit's latest release, v1\.2\.3, as listed below/);
+  assert.match(body, /cannot place the Work tracking block .* needs that edit by hand first/);
+  assert.match(body, /AGENTS\.md when its Work tracking block is missing or differs/);
   assert.match(body, /against github\.com\/acme\/kit v1\.2\.3 \(`f{40}`\)/);
   assert.match(body, /~~~text\nupdated {4}a\.txt\nadded {6}new\.txt\n~~~/);
   assert.match(body, /`git checkout v1\.2\.3`/);

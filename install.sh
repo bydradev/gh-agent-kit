@@ -8,9 +8,11 @@
 # Copies every path in kit-manifest.txt from this clone to the same path in
 # the target ("seed" paths only when the target lacks them), adds a
 # .claude/skills/<name> symlink for each skill (creating .claude/skills
-# when the target lacks it), and writes .github/gh-agent-kit.lock with this
-# clone's commit when that changed. It changes nothing else in the target:
-# commit the result on a branch and
+# when the target lacks it), writes the Work tracking block from
+# docs/agents-md-block.md into the target's AGENTS.md between its markers
+# (at the end of "## Project specifics" the first time), and writes
+# .github/gh-agent-kit.lock with this clone's commit when that changed. It
+# changes nothing else in the target: commit the result on a branch and
 # open a pull request. Re-run from a newer clone to update; the diff of the
 # kit's files is printed at the end.
 #
@@ -92,10 +94,10 @@ dirty=false
 # listed file that is not tracked, ignored or not (git status leaves an
 # ignored file out), is as uncommitted as a modified one.
 untracked=""
-for p in kit-manifest.txt "${paths[@]}"; do
+for p in kit-manifest.txt docs/agents-md-block.md "${paths[@]}"; do
   git -C "$kit" ls-files --error-unmatch -- "$p" >/dev/null 2>&1 || untracked+="?? $p"$'\n'
 done
-modified=$(git -C "$kit" status --porcelain --untracked-files=no -- kit-manifest.txt "${paths[@]}")
+modified=$(git -C "$kit" status --porcelain --untracked-files=no -- kit-manifest.txt docs/agents-md-block.md "${paths[@]}")
 if [ -n "$untracked$modified" ]; then
   if [ "${KIT_ALLOW_DIRTY:-}" = "1" ]; then
     dirty=true
@@ -235,6 +237,20 @@ done
 skills_dir() {
   [ ! -L "$target/.claude" ] && [ ! -L "$target/.claude/skills" ] && [ -d "$target/.claude/skills" ]
 }
+# The Work tracking block: the lines of docs/agents-md-block.md from its
+# start marker to its end marker, checked here so that a clone without one
+# is refused before anything in the target changes.
+block_start='<!-- gh-agent-kit:work-tracking:start -->'
+block_end='<!-- gh-agent-kit:work-tracking:end -->'
+block_file=$(mktemp)
+new_agents=$(mktemp)
+trap 'rm -f -- "$block_file" "$new_agents"' EXIT
+sed -n "\|^$block_start\$|,\|^$block_end\$|p" "$kit/docs/agents-md-block.md" > "$block_file"
+if [ "$(head -n 1 "$block_file")" != "$block_start" ] || [ "$(tail -n 1 "$block_file")" != "$block_end" ] \
+  || [ "$(grep -cxF -- "$block_start" "$block_file")" -ne 1 ]; then
+  echo "error: docs/agents-md-block.md has no single block between its markers" >&2
+  exit 2
+fi
 # Every destination, the paths to prune and the lock are checked before
 # anything is removed or copied, so a refusal leaves the target as it was.
 for p in "${paths[@]}"; do
@@ -300,6 +316,133 @@ for p in "${paths[@]}"; do
     changed "added      $p"
   fi
 done
+
+# The block goes into the target's AGENTS.md. Between existing markers it
+# replaces what is there; without markers it goes at the end of the
+# "## Project specifics" section (the section keeps its stop-and-ask items
+# first). Anything it cannot place safely is reported and left alone: no
+# AGENTS.md (or a symlink or other non-file there), not exactly one such
+# heading, markers that are not one start followed by one end, a fence
+# still open where the block would go, or a "### Work tracking" section
+# without markers, pasted by hand from an earlier release, whose
+# repository lines a replacement could lose. Headings and markers inside
+# fenced code do not count, a fence closing as CommonMark closes it. The
+# rest of the file is kept byte for byte, its mode and a missing final
+# newline included. Every such report counts as a change for --check,
+# since the block is missing or out of date. kit-update-check.yml scans
+# AGENTS.md the same way.
+agents="$target/AGENTS.md"
+agents_skip() {
+  changes=$((changes + 1))
+  echo "skipped    AGENTS.md (Work tracking block: $1)" >&2
+}
+# Prints, outside fenced code, each line's kind with its number: S (start
+# marker), E (end marker), P ("## Project specifics"), W ("### Work
+# tracking"), H (another heading of level one or two, ATX or setext);
+# and, when the file ends inside a fence, its last line with kind F (an
+# unclosed fence runs to the end, so no heading after it is seen either).
+agents_scan() {
+  awk -v s="$block_start" -v e="$block_end" '
+    {
+      l = $0
+      sub(/^ ? ? ?/, "", l)
+      c = substr(l, 1, 1)
+      n = 0
+      if (c == "`" || c == "~") while (substr(l, n + 1, 1) == c) n++
+      rest = substr(l, n + 1)
+      if (fence) {
+        if (c == fc && n >= fl && rest ~ /^[ \t]*$/) fence = 0
+        prev = ""
+        next
+      }
+      if (n >= 3 && !(c == "`" && index(rest, "`"))) { fence = 1; fc = c; fl = n; prev = ""; next }
+    }
+    $0 == s { print NR, "S" }
+    $0 == e { print NR, "E" }
+    $0 == "## Project specifics" { print NR, "P" }
+    $0 == "### Work tracking" { print NR, "W" }
+    $0 != "## Project specifics" && /^ ? ? ?##?([ \t]|$)/ { print NR, "H" }
+    prev != "" && /^ ? ? ?(-+|=+)[ \t]*$/ { print NR - 1, "H"; prev = ""; next }
+    # A paragraph line a setext underline can follow: not blank, indented,
+    # an ATX heading, or in a list item or a quote (from its marker to the
+    # next blank line, so a continuation line counts as part of it).
+    /^[ \t]*$/ { inlist = 0 }
+    /^ ? ? ?(>|[-*+][ \t]|[0-9]+[.)][ \t])/ { inlist = 1 }
+    { prev = inlist || /^[ \t]*$/ || /^[ \t]/ || /^#/ ? "" : $0 }
+    END { if (fence) print NR, "F" }
+  ' "$agents"
+}
+# Writes $1 over AGENTS.md, keeping its mode (cp -p) and, when it had
+# none, its missing final newline. Nothing in check mode.
+agents_write() {
+  local tmp
+  [ "$check" -eq 0 ] || return 0
+  tmp=$(mktemp -- "$target/.gh-agent-kit.XXXXXX")
+  if ! cp -p -- "$agents" "$tmp" || ! cat -- "$1" > "$tmp"; then
+    rm -f -- "$tmp"
+    exit 1
+  fi
+  mv -f -- "$tmp" "$agents"
+}
+# awk ends every line with a newline: drop the last one when AGENTS.md
+# had none, so that only the block's lines change.
+agents_newline() {
+  if [ -s "$agents" ] && [ -n "$(tail -c 1 -- "$agents")" ]; then
+    printf '%s' "$(cat -- "$new_agents")" > "$new_agents.tmp" && mv -f -- "$new_agents.tmp" "$new_agents"
+  fi
+}
+if [ -L "$agents" ] || [ ! -f "$agents" ]; then
+  agents_skip "no AGENTS.md file; add the block from the kit's docs/agents-md-block.md by hand"
+else
+  scan=$(agents_scan)
+  kinds() { printf '%s\n' "$scan" | awk -v k="$1" '$2 == k { print $1 }'; }
+  starts=$(kinds S); ends=$(kinds E); specifics=$(kinds P); open_fence=$(kinds F)
+  if [ -n "$starts$ends" ]; then
+    if [ "$(printf '%s\n' "$starts" | wc -l)" -ne 1 ] || [ "$(printf '%s\n' "$ends" | wc -l)" -ne 1 ] \
+      || [ -z "$starts" ] || [ -z "$ends" ] || [ "$starts" -ge "$ends" ]; then
+      agents_skip "its markers are not one start followed by one end; fix them by hand"
+    else
+      awk -v a="$starts" -v b="$ends" -v f="$block_file" '
+        NR == a { while ((getline l < f) > 0) print l }
+        NR >= a && NR <= b { next }
+        { print }
+      ' "$agents" > "$new_agents"
+      agents_newline
+      if cmp -s -- "$agents" "$new_agents"; then
+        echo "unchanged  AGENTS.md (Work tracking block)"
+      else
+        agents_write "$new_agents"
+        changed "updated    AGENTS.md (Work tracking block)"
+      fi
+    fi
+  elif [ "$(printf '%s\n' "$specifics" | grep -c .)" -ne 1 ]; then
+    agents_skip "no single \"## Project specifics\" heading to put it under"
+  elif [ -n "$(kinds W)" ]; then
+    agents_skip "a \"### Work tracking\" section without the kit's markers; move this repository's own lines to a subsection of their own, delete the section and install again"
+  else
+    # The first heading of level one or two after Project specifics ends
+    # it; a fence still open there, or at the end of the file, would take
+    # the block into code.
+    next_h=$(printf '%s\n' "$scan" | awk -v p="$specifics" '$2 == "H" && $1 > p { print $1; exit }')
+    if [ -n "$open_fence" ] && [ -z "$next_h" ]; then
+      agents_skip "a fenced code block in \"## Project specifics\" is never closed; close it and install again"
+    else
+      awk -v at="${next_h:-0}" -v f="$block_file" '
+        function emit(  l) {
+          if (last != "") print ""
+          while ((getline l < f) > 0) print l
+          done = 1
+        }
+        NR == at { emit(); print "" }
+        { print; last = $0 }
+        END { if (!done) emit() }
+      ' "$agents" > "$new_agents"
+      agents_newline
+      agents_write "$new_agents"
+      changed "added      AGENTS.md (Work tracking block)"
+    fi
+  fi
+fi
 
 # Claude Code discovers skills under .claude/skills; bootstrapped
 # repositories symlink that directory's entries to .agents/skills, where
@@ -384,12 +527,11 @@ for p in "${paths[@]}" "${prune[@]+"${prune[@]}"}"; do
   esac
 done
 echo
-echo "Changes in the target (the kit's files and skill links only):"
-git -C "$target" --no-pager diff --stat -- "${paths[@]/#/$target/}" "${prune[@]+"${prune[@]/#/$target/}"}" "${links[@]+"${links[@]}"}" "$lock" || true
+echo "Changes in the target (the kit's files, skill links and AGENTS.md only):"
+git -C "$target" --no-pager diff --stat -- "${paths[@]/#/$target/}" "${prune[@]+"${prune[@]/#/$target/}"}" "${links[@]+"${links[@]}"}" "$lock" "$agents" || true
 untracked=$(git -C "$target" ls-files --others --exclude-standard -- "${paths[@]/#/$target/}" "${links[@]+"${links[@]}"}" "$lock" 2>/dev/null || true)
 [ -z "$untracked" ] || printf 'new:\n%s\n' "$untracked"
 echo
-echo "Next: add the Work tracking block (docs/agents-md-block.md) to AGENTS.md,"
-echo "edit .github/security-review-instructions.md for this repository, run"
+echo "Next: edit .github/security-review-instructions.md for this repository, run"
 echo ".github/scripts/sync-labels.sh <owner/repo>, and set the secret and"
 echo "settings in docs/setup.md."

@@ -31,7 +31,8 @@ From a clone of this repository, checked out at the latest release
 
 The script copies the files in `kit-manifest.txt` into the target, adds a
 `.claude/skills/<name>` symlink to `.agents/skills/<name>` for each skill,
-so Claude Code finds the skills other agents read from `.agents/skills`, and
+so Claude Code finds the skills other agents read from `.agents/skills`,
+writes the *Work tracking* block into the target's `AGENTS.md` (below), and
 writes `.github/gh-agent-kit.lock` with this repository's commit. It creates
 `.claude/skills` when the target has none, but links nothing through a
 symlinked `.claude` or `.claude/skills` or when either is a file, and
@@ -50,9 +51,10 @@ To see whether a target is behind without changing it:
 
 It prints what an install would do, with the same words, and writes
 nothing: it exits 0 when the target is current, 1 when an install would
-change something (a file, a skill link, a removal or the lock) and 2 when an
-install would be refused. A script that lost its executable bit counts as
-a change, and an install reports it as `updated ... (made executable)`.
+change something (a file, a skill link, a removal, the *Work tracking*
+block or the lock) and 2 when an install would be refused. A script that
+lost its executable bit counts as a change, and an install reports it as
+`updated ... (made executable)`.
 
 The installed files are Apache-2.0. A copy of the licence is one of them,
 `.github/gh-agent-kit/LICENSE`, so a target that redistributes the files
@@ -80,13 +82,34 @@ An installer from a release without the option ignores the choice and
 writes the kit's forms, so update such a target from a release that has
 it.
 Triage does not need the kit's forms: a new issue starts it whether or not
-its form adds `needs-triage`. Name your own forms in the first bullet of
-the *Work tracking* block below, in place of the Task and Bug forms.
+its form adds `needs-triage`. The `github-issue-file` skill reads the lock
+and has an agent file with your forms' headings and labels; if a field of
+yours stands in for the kit's *Acceptance criteria* or *What should
+happen*, say which in a subsection of your own after the *Work tracking*
+block.
 
-Then add the *Work tracking* block from
-[`docs/agents-md-block.md`](agents-md-block.md) to the *Project specifics*
-section of your `AGENTS.md`, in the same pull request, so agents working in
-the repository know the rules the labels encode.
+### The Work tracking block
+
+The install writes the block in
+[`docs/agents-md-block.md`](agents-md-block.md) into the target's
+`AGENTS.md`, between its two marker comments, so agents working in the
+repository know the rules the labels encode. The first install puts it at
+the end of the *Project specifics* section; every install after that
+replaces what is between the markers and nothing else. Keep the
+repository's own additions in a subsection of their own after the end
+marker.
+
+The section ends at the next heading of level one or two. Headings and
+markers inside fenced code do not count, and the rest of the file keeps its
+bytes, its mode and a missing final newline. The install writes no block,
+says why on its output and goes on with the rest, when the target has no
+`AGENTS.md` (or a symlink there), not exactly one `## Project specifics`
+heading, markers that are not one start followed by one end, a fenced code
+block left open in the section, or a `### Work tracking` section without
+the markers, pasted by hand from an earlier release. For the last, move the
+repository's own lines to a subsection of their own, delete the section and
+install again. `--check` counts each of these, and an edited block, as a
+change, and so does the weekly update check ([Updates](#updates)).
 
 ## 2. Create the labels
 
@@ -862,10 +885,21 @@ kit's files are not checked (`install.sh --check` shows those). With the
 lock's `issue_forms` set to `own`, the kit's files in
 `.github/ISSUE_TEMPLATE/` never count.
 
-When the release is ahead, the workflow opens one issue labelled
-`needs-operator` listing those files, and edits that issue on later runs
-rather than opening another; when the lock is current again, it comments
-and closes the issue. It never updates the files itself: to update, check
+The check also reads `AGENTS.md`, unless the lock is past the release: when
+it has no *Work tracking* block, as the installer finds one (one start
+marker followed by one end marker, outside fenced code), or one that
+differs from the release's, whether the release changed the block or
+someone edited it here, it counts too. A kit release without the block's
+markers has no block to check.
+
+When the release is ahead, or the block is missing or differs, the workflow
+opens one issue labelled `needs-operator` listing those files (and
+`AGENTS.md` for the block), and edits that issue on later runs rather than
+opening another; when the copy is current again, it comments and closes the
+issue. Where an install cannot place the block (no `AGENTS.md`, or a
+hand-pasted section, as [The Work tracking
+block](#the-work-tracking-block) lists), the issue stays open until the
+file is fixed by hand. It never updates the files itself: to update, check
 out the release in a clone of the kit (`git checkout vX.Y.Z`), run
 `install.sh` from it and open a pull request with the result, as for the
 first install. The issue is opened with the job token, so it starts no
