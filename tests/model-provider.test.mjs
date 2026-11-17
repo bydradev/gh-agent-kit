@@ -119,10 +119,11 @@ for (const job of JOBS) {
     // The run step with the CLI replaced by a stub that writes the
     // variables it was started with and answers like a successful run,
     // whose last message is text.
-    const run = (t, provider, keys, text = "done") => {
+    const run = (t, provider, keys, text = "done", state) => {
       const dir = tempDir(t);
       const temp = path.join(dir, "runner-temp");
       fs.mkdirSync(path.join(temp, "scan-input"), { recursive: true });
+      if (state) fs.writeFileSync(path.join(temp, "agent-kit-state.json"), JSON.stringify(state));
       for (const f of ["scan-schema.json", "verify-schema.json", "claude-settings.json"]) {
         fs.writeFileSync(path.join(temp, f), "{}");
       }
@@ -185,6 +186,21 @@ cat "${answer}"
       assert.equal(unset.status, 0, unset.stdout + unset.stderr);
       assert.ok(!unset.args.includes("--effort"));
     });
+
+    // A run the MCP server closed on a private repository name: the model
+    // knows a text held one, so its last message stays out of the log.
+    if (job.file !== "security-scan.yml")
+      test(`${job.file}, ${name}: a run closed on a private name withholds its last message and fails`, (t) => {
+        const keys = { ANTHROPIC_API_KEY: "ak" };
+        const closed = run(t, "anthropic", keys, "It was skunkworks.", { report: false, closed: true });
+        assert.equal(closed.status, 1);
+        assert.doesNotMatch(closed.stdout, /skunkworks/);
+        assert.match(closed.stdout, /^result: \(withheld: the run closed on a private repository name\)$/m);
+        assert.match(closed.stdout, /::error::A text the run was to post held a private repository name/);
+        const open = run(t, "anthropic", keys, "It was fine.", { report: true });
+        assert.equal(open.status, 0, open.stdout + open.stderr);
+        assert.match(open.stdout, /^result: It was fine\.$/m);
+      });
 
     // The run summary carries the model's last message, which the pull
     // request or issue may have steered, so it is printed with workflow

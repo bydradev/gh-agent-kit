@@ -7,8 +7,10 @@
 // request reviewer, mode "triage" the issue bot and the sweep.
 //
 // No dependencies: the MCP stdio transport is newline-delimited JSON-RPC.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import readline from "node:readline";
 
 const mode = process.argv[2];
@@ -190,12 +192,112 @@ function fail(message) {
 // set (outside the checkout, where the model cannot write), the counts
 // outlive this process: OpenCode carries a run on after Go's capacity
 // refusal in a new CLI process, which starts a new server.
+// closed, once set, means a text held a private repository name.
 const runState = { report: false, inline: 0, issues: 0, comment: false };
 if (env.STATE_FILE && fs.existsSync(env.STATE_FILE))
   Object.assign(runState, JSON.parse(fs.readFileSync(env.STATE_FILE, "utf8")));
 function record(change) {
   Object.assign(runState, change);
   if (env.STATE_FILE) fs.writeFileSync(env.STATE_FILE, JSON.stringify(runState) + "\n");
+}
+
+// The repository's public-content check, for a public repository that ships
+// one (.github/scripts/public-content.mjs or check_public_content.py): the
+// workflow installs the base or default branch's copy root-owned and names
+// it in PUBLIC_CONTENT_CHECK, never the head's. Every text a tool posts is
+// checked first and refused when the check finds something, or when it
+// cannot run (a configured check fails closed). Unset, posts go as before.
+// The check gets only PATH and PRIVATE_REPO_NAMES (read from a file the
+// runner user alone can read, like the token), never GH_TOKEN, and its
+// output never reaches the model: a refusal names the line and one of the
+// kinds the kit's own checks print, so a check that printed what it matched
+// could not repeat it through the model. A private repository name is the
+// exception: the names are a secret the model never sees, so a refusal
+// that said which line held one, or let the model try again, would let it
+// confirm guesses one post at a time. A text holding one is refused with
+// no detail, and the run posts nothing more.
+const privateRepoNames = env.PRIVATE_REPO_NAMES_FILE
+  ? fs.readFileSync(env.PRIVATE_REPO_NAMES_FILE, "utf8").trim()
+  : "";
+const CONTENT_KINDS = new Set([
+  "a claude.ai link",
+  "a Claude-Session trailer",
+  "a project attribution marker",
+  "a session or thread ID",
+  "a local or project-storage path",
+  "a bydradev or bydraio repository outside the public list",
+  "a bydradev repository outside the public list",
+  "an email address other than a noreply one",
+]);
+const CONTENT_FINDING = /^::error title=Public repository content::.*, line ([0-9]+): (.+)$/;
+const CONTENT_SHOWN = 10;
+const PRIVATE_NAME = "a private repository name";
+const POSTS_CLOSED =
+  "the repository's public-content check found something this run may not post, so nothing was posted, and this run posts nothing more; the operator has to look at the job";
+// Why the texts must not be posted, or null. texts: [[label, text], ...].
+function contentProblem(texts) {
+  const check = env.PUBLIC_CONTENT_CHECK;
+  if (!check) return null;
+  if (runState.closed) return POSTS_CLOSED;
+  const cannot = (why) => {
+    // To the job log as well, where the operator can find it.
+    process.stderr.write(`agent-kit: the public-content check could not run (${why})\n`);
+    return `the repository's public-content check could not run (${why}), so nothing was posted; a configured check that cannot run refuses every post, and the operator has to look at it`;
+  };
+  if (!fs.existsSync(check)) return cannot("it is not installed");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-kit-content-"));
+  try {
+    const found = [];
+    for (const [label, value] of texts) {
+      const file = path.join(dir, "text");
+      fs.writeFileSync(file, value, { mode: 0o600 });
+      const python = check.endsWith(".py");
+      const r = spawnSync(
+        python ? "python3" : process.execPath,
+        [...(python ? ["-I"] : []), check, `--text=${file}`],
+        {
+          cwd: dir,
+          encoding: "utf8",
+          timeout: 30000,
+          maxBuffer: 16 * 1024 * 1024,
+          env: {
+            PATH: env.PATH || "/usr/bin:/bin",
+            ...(privateRepoNames ? { PRIVATE_REPO_NAMES: privateRepoNames } : {}),
+          },
+        },
+      );
+      if (r.status === 0) continue;
+      if (r.status !== 1)
+        return cannot(r.error ? r.error.code || "error" : r.signal || `exit ${r.status}`);
+      const hits = (r.stdout || "")
+        .split(/\r?\n/)
+        .map((l) => CONTENT_FINDING.exec(l))
+        .filter(Boolean);
+      // Exit 1 without a line it locates: a finding of another format, or
+      // a crash (Node exits 1 on an uncaught error). Either way, unposted.
+      if (hits.length === 0) return cannot("exit 1 without naming a line it found");
+      if (hits.some(([, , kind]) => kind === PRIVATE_NAME)) {
+        record({ closed: true });
+        process.stderr.write(
+          "agent-kit: a text held a private repository name, so this run posts nothing more\n",
+        );
+        return POSTS_CLOSED;
+      }
+      for (const [, line, kind] of hits)
+        found.push(
+          `${label} line ${line}: ${CONTENT_KINDS.has(kind) ? kind : "a detail the check rules out"}`,
+        );
+    }
+    if (found.length === 0) return null;
+    const shown = found.slice(0, CONTENT_SHOWN).join("; ");
+    const more = found.length > CONTENT_SHOWN ? `; and ${found.length - CONTENT_SHOWN} more` : "";
+    return (
+      `the repository's public-content check found ${found.length} problem(s), so nothing was posted: ${shown}${more}. ` +
+      "This repository is public: reword those lines as its AGENTS.md *Public repository content* says (no private repository name, claude.ai session link, session ID, local path or private email address; the check never shows the matched text) and post again."
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ---------- review mode ----------
@@ -854,7 +956,7 @@ const reviewTools = {
       if (!Number.isInteger(line) || line < 1) return fail("line must be a positive integer");
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
-      const why = stale();
+      const why = stale() || contentProblem([["body", body]]);
       if (why) return fail(why);
       const r = gh(
         [
@@ -929,15 +1031,18 @@ const reviewTools = {
       if (earlier) return text(`already filed for ${finding}: ${earlier}`);
       if (runState.issues >= ISSUE_LIMIT)
         return fail(`this run has filed ${ISSUE_LIMIT} issues; name the rest in the report`);
-      const why = stale();
+      const issueTitle = plain(title.trim());
+      const issueBody = taskBody({ outcome, acceptance, references, out_of_scope, size, finding });
+      // Each of the reviewer's fields as the body carries it; the rest of
+      // the body is the server's fixed text.
+      const fields = Object.entries({ outcome, acceptance, references, out_of_scope })
+        .filter(([, value]) => value !== undefined)
+        .map(([name, value]) => [name, plain(value)]);
+      const why = stale() || contentProblem([["title", issueTitle], ...fields]);
       if (why) return fail(why);
       const r = gh(
         ["api", "-X", "POST", `repos/${repo}/issues`, "--input", "-", "--jq", ".html_url"],
-        JSON.stringify({
-          title: plain(title.trim()),
-          body: taskBody({ outcome, acceptance, references, out_of_scope, size, finding }),
-          labels: ["needs-operator"],
-        }),
+        JSON.stringify({ title: issueTitle, body: issueBody, labels: ["needs-operator"] }),
       );
       record({ issues: runState.issues + 1 });
       filedByFinding.set(finding, `${r} (open, filed by this run)`);
@@ -971,7 +1076,7 @@ const reviewTools = {
         );
       // The workflow checks the report's head and base lines against the
       // live pull request, so a stale run must end without a report.
-      const why = stale();
+      const why = stale() || contentProblem([["body", body]]);
       if (why) return fail(why);
       const r = gh(
         [
@@ -1334,6 +1439,8 @@ const triageTools = {
       if (typeof body !== "string" || body.trim() === "")
         return fail("body must be non-empty text");
       ensureOpen();
+      const why = contentProblem([["body", body]]);
+      if (why) return fail(why);
       const r = gh(
         [
           "api",
