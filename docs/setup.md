@@ -851,16 +851,17 @@ unchecked.
   the text. It is not reworded: the scan has no second try. A check that
   cannot run, runs past 30 seconds or does not finish withholds every
   finding, with a warning in the run's log. The scan's count still
-  includes withheld findings. The scan's log is held to the same check:
-  the scan's and the verification's summaries (with the model's last
-  message, and on an error OpenCode's server log) wait in the run steps
-  and are printed by the step after each run once the check passes them,
-  and the excerpt of an answer that fails the schema and the candidates
-  the verification dropped are printed only when it passes them;
-  otherwise the log says the text is withheld and, when the check
-  refused it, the kinds. `PRIVATE_REPO_NAMES` reaches only the steps
-  that run the check, never a step that runs a model. Each finding is checked on
-  its own, and the record names the kinds, a private repository name
+  includes withheld findings. The scan's log is held to the same check.
+  In the scan's and the verification's summaries, the model's last
+  message and the run's errors (and on an error OpenCode's server log)
+  wait in the run steps and are printed by the step after each run once
+  the check passes them; the run's outcome, turns, cost and tokens are
+  printed at once. The excerpt of an answer that fails the schema and the
+  candidates the verification dropped are printed only when the check
+  passes them. Otherwise the log says the text is withheld and, when the
+  check refused it, the kinds. `PRIVATE_REPO_NAMES` reaches only the
+  steps that run the check, never a step that runs a model. Each finding
+  is checked on its own, and the record names the kinds, a private repository name
   among them: unlike the review, which a pull request's text can steer,
   the scan reads only the pull request's head and diff, which reach it
   only from an author and actor with write access, who could read the

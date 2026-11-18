@@ -161,7 +161,7 @@ for (const name of ["Run the scan", "Verify the candidate findings"]) {
     assert.doesNotMatch(run.stdout, /notes\.txt|skunkworks|^result:/m);
     assert.match(
       run.stdout,
-      /the run's log text waits for the repository's public-content check, in the next step/,
+      /the run's log text from the model waits for the repository's public-content check, in the next step/,
     );
     // The CLI ran without the secret, and so did the step.
     assert.doesNotMatch(
@@ -183,6 +183,11 @@ for (const name of ["Run the scan", "Verify the candidate findings"]) {
     const run = claudeRun(r, name, "All fine.\n::error::steered");
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.doesNotMatch(run.stdout, /All fine/);
+    // The lines the workflow writes go to the log at once.
+    assert.match(
+      run.stdout,
+      /^subtype: success\nis_error: false\nturns: 2\ncost_usd: 0\.5\ntokens: input 1, cache read 2, cache write 3, output 4\n::[0-9a-f]{32}::$/m,
+    );
     const shown = r.run(print, { HELD: r.file("run-log"), PRIVATE_REPO_NAMES: "skunkworks" });
     assert.equal(shown.status, 0, shown.stdout + shown.stderr);
     const lines = shown.stdout.split("\n");
@@ -190,11 +195,6 @@ for (const name of ["Run the scan", "Verify the candidate findings"]) {
     assert.notEqual(begin, -1, shown.stdout);
     const end = lines.indexOf(`::${lines[begin].slice("::stop-commands::".length)}::`);
     assert.deepEqual(lines.slice(begin + 1, end), [
-      "subtype: success",
-      "is_error: false",
-      "turns: 2",
-      "cost_usd: 0.5",
-      "tokens: input 1, cache read 2, cache write 3, output 4",
       "errors: ",
       "result: All fine.",
       "::error::steered",
@@ -224,6 +224,39 @@ for (const name of ["Run the scan", "Verify the candidate findings"]) {
     assert.equal(shown.stdout, "");
   });
 }
+
+test("without the guard, the hold step fails and leaves its marker, and the run and print steps fail before printing", (t) => {
+  const r = runner(t, { [MJS]: CHECK });
+  fs.rmSync(r.file("public-content-guard.sh"));
+  fs.writeFileSync(
+    r.file("scan-results.json"),
+    JSON.stringify({
+      findings: [
+        {
+          file: "app/api.js",
+          line: 1,
+          category: "x",
+          description: HOME_PATH,
+          _filter_metadata: { verified: true },
+        },
+      ],
+      analysis_summary: { review_completed: true },
+    }),
+  );
+  const hold = r.run(stepScript(FILE, "Hold the findings to the base's public-content check"), {
+    RESULTS: r.file("scan-results.json"),
+  });
+  assert.equal(hold.status, 1, hold.stdout + hold.stderr);
+  assert.ok(fs.existsSync(r.file("scan-content-pending")));
+  assert.doesNotMatch(hold.stdout, /notes\.txt/);
+  const run = claudeRun(r, "Run the scan", `Read ${HOME_PATH}.`);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.doesNotMatch(run.stdout, /notes\.txt|^result:/m);
+  fs.writeFileSync(r.file("run-log"), `result: Read ${HOME_PATH}.\n`);
+  const shown = r.run(printScan, { HELD: r.file("run-log") });
+  assert.equal(shown.status, 1, shown.stdout + shown.stderr);
+  assert.equal(shown.stdout, "");
+});
 
 test("a base check whose state is missing withholds the text", (t) => {
   const r = runner(t, { [MJS]: CHECK });

@@ -75,10 +75,14 @@ export function publicContentGuard(t, temp, baseFiles = {}) {
   for (const [f, content] of Object.entries(baseFiles)) repo.commit(f, content, `base ${f}`);
   repo.git("update-ref", "refs/remotes/origin/main", repo.git("rev-parse", "HEAD"));
   fs.mkdirSync(temp, { recursive: true });
-  const r = runStep(repo.dir, stepScript("security-scan.yml", "Find the base's public-content check"), {
-    RUNNER_TEMP: temp,
-    BASE: "main",
-  });
+  const r = runStep(
+    repo.dir,
+    stepScript("security-scan.yml", "Find the base's public-content check"),
+    {
+      RUNNER_TEMP: temp,
+      BASE: "main",
+    },
+  );
   assert.equal(r.status, 0, r.stdout + r.stderr);
   return r;
 }

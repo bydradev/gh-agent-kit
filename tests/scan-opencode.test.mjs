@@ -830,7 +830,7 @@ test("security-scan.yml, OpenCode runs: with a base check, the model's text and 
     assert.equal(refused.status, 1, refused.stdout + refused.stderr);
     assert.doesNotMatch(refused.stdout, /skunkworks|^result:|OpenCode's server log/m);
     assert.ok(!refused.stdout.includes(LOG_LINE), refused.stdout);
-    assert.match(refused.stdout, /the run's log text waits for the repository's public-content check, in the next step/);
+    assert.match(refused.stdout, /the run's log text from the model waits for the repository's public-content check, in the next step/);
     const held = path.join(refused.temp, "run-log");
     const withheld = runStep(refused.temp, stepScript(FILE, print), {
       RUNNER_TEMP: refused.temp,

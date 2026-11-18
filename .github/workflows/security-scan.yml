@@ -671,9 +671,10 @@ jobs:
       # up here while .git is in the checkout and before any model runs.
       # The steps after it source the guard this writes: the steps that run
       # a model only hold the model's text back from the log, and the steps
-      # that print it or post it (which alone get PRIVATE_REPO_NAMES, so
-      # the secret never reaches a step that runs a model) run the check on
-      # it first. A check that is there but cannot be used holds every text
+      # that print it, and the one that holds the findings for the steps
+      # that post them, run the check on it first. Only those get
+      # PRIVATE_REPO_NAMES, so the secret never reaches a step that runs a
+      # model. A check that is there but cannot be used holds every text
       # back. Without a base copy the log and the findings go as before.
       - name: Find the base's public-content check
         if: env.RUN != 'false'
@@ -777,21 +778,29 @@ jobs:
             esac
           }
 
-          # pc_emit FILE HELD, in a step that runs a model: the model's text
-          # in FILE to the log now, workflow commands stopped, when the base
-          # ships no check; otherwise appended to HELD, which the step after
+          # pc_emit FILE HELD [KEEP], in a step that runs a model: FILE to
+          # the log now, workflow commands stopped, when the base ships no
+          # check; otherwise only its first KEEP lines (those the workflow
+          # writes, with no model text: the run's outcome, turns, cost and
+          # tokens) now, and the rest appended to HELD, which the step after
           # the run prints once the check passes it.
           pc_emit() {
+            local stop keep=${3:-0}
             if [ "$(pc_state)" = none ]; then
-              local stop
               stop=$(openssl rand -hex 16)
               echo "::stop-commands::$stop"
               cat -- "$1"
               echo "::$stop::"
-            else
-              [ -e "$2" ] || echo "the run's log text waits for the repository's public-content check, in the next step"
-              cat -- "$1" >> "$2"
+              return 0
             fi
+            if [ "$keep" -gt 0 ]; then
+              stop=$(openssl rand -hex 16)
+              echo "::stop-commands::$stop"
+              head -n "$keep" -- "$1"
+              echo "::$stop::"
+            fi
+            [ -e "$2" ] || echo "the run's log text from the model waits for the repository's public-content check, in the next step"
+            tail -n +"$((keep + 1))" -- "$1" >> "$2"
           }
 
           # pc_print_held HELD: what pc_emit held back, workflow commands
@@ -1106,7 +1115,7 @@ jobs:
           cost=cost_usd
           [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
           jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result" > "$HELD.summary"
-          pc_emit "$HELD.summary" "$HELD"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
@@ -1391,7 +1400,7 @@ jobs:
           # public-content check").
           . "$RUNNER_TEMP/public-content-guard.sh"
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result" > "$HELD.summary"
-          pc_emit "$HELD.summary" "$HELD"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             # The server's log, which --print-logs puts in its output (each
             # retry of a refused request is a "stream error" line), with
@@ -1416,9 +1425,9 @@ jobs:
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi
-      # The scan run's log text (its summary with the model's last
-      # message, and on an error OpenCode's server log), which the run step
-      # held back for the base's public-content check: printed with
+      # The scan run's log text from the model (the last message and
+      # the errors in its summary, and on an error OpenCode's server log),
+      # which the run step held back for the base's public-content check: printed with
       # workflow commands stopped when the check passes it, and withheld
       # otherwise. A step of its own, so that PRIVATE_REPO_NAMES never
       # reaches a step that runs a model. Without a base check the run step
@@ -1539,7 +1548,7 @@ jobs:
           cost=cost_usd
           [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
           jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result" > "$HELD.summary"
-          pc_emit "$HELD.summary" "$HELD"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
@@ -1808,7 +1817,7 @@ jobs:
           # public-content check").
           . "$RUNNER_TEMP/public-content-guard.sh"
           jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result" > "$HELD.summary"
-          pc_emit "$HELD.summary" "$HELD"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             # The server's log, which --print-logs puts in its output (each
             # retry of a refused request is a "stream error" line), with
@@ -1833,9 +1842,9 @@ jobs:
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi
-      # The verification run's log text (its summary with the model's last
-      # message, and on an error OpenCode's server log), which the run step
-      # held back for the base's public-content check: printed with
+      # The verification run's log text from the model (the last message and
+      # the errors in its summary, and on an error OpenCode's server log),
+      # which the run step held back for the base's public-content check: printed with
       # workflow commands stopped when the check passes it, and withheld
       # otherwise. A step of its own, so that PRIVATE_REPO_NAMES never
       # reaches a step that runs a model. Without a base check the run step
@@ -1924,9 +1933,10 @@ jobs:
             echo "::endgroup::"
           fi
       # The findings, held to the public-content check that "Find the
-      # base's public-content check" found on the base. Each finding's model-written text (its category, file, description,
-      # exploit scenario and recommendation, as written and as the later
-      # steps show it) is checked before any later step posts it or puts it
+      # base's public-content check" found on the base. Each finding's
+      # model-written text (its category, file, description, exploit
+      # scenario and recommendation, as written and as the later steps
+      # show it) is checked before any later step posts it or puts it
       # in this job's log, which a public repository shows to anyone. A
       # finding the check refuses is marked withheld: no inline comment, no
       # line in the record or in the later steps' log, and the record says
