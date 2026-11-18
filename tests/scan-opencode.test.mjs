@@ -831,6 +831,12 @@ test("security-scan.yml, OpenCode runs: with a base check, the model's text and 
     assert.doesNotMatch(refused.stdout, /skunkworks|^result:|OpenCode's server log/m);
     assert.ok(!refused.stdout.includes(LOG_LINE), refused.stdout);
     assert.match(refused.stdout, /the run's log text from the model waits for the repository's public-content check, in the next step/);
+    // The lines the workflow writes go to the log at once, and the errors line does not.
+    assert.match(
+      refused.stdout,
+      /^subtype: error\nis_error: true\nturns: \d+\ncost_usd \(Go prices\): [\d.]+\ntokens: input \d+, cache read \d+, cache write \d+, output \d+, reasoning \d+\n::[0-9a-f]{32}::$/m,
+    );
+    assert.doesNotMatch(refused.stdout, /^errors:/m);
     const held = path.join(refused.temp, "run-log");
     const withheld = runStep(refused.temp, stepScript(FILE, print), {
       RUNNER_TEMP: refused.temp,
