@@ -66,13 +66,20 @@ export function runStep(dir, script, env) {
 }
 
 // The security scan's "Find the base's public-content check", run for a
-// base whose files are baseFiles (none: a base with no check), so that
-// RUNNER_TEMP (temp) holds the state and the guard the scan's later steps
-// source. Its result is the step's.
-export function publicContentGuard(t, temp, baseFiles = {}) {
+// base whose files are baseFiles (none: a base with no check) and whose
+// symlinks are baseLinks (path: target), so that RUNNER_TEMP (temp) holds
+// the state and the guard the scan's later steps source. Its result is the
+// step's.
+export function publicContentGuard(t, temp, baseFiles = {}, baseLinks = {}) {
   const repo = gitRepo(t);
   repo.commit("a.txt", "a\n", "base");
   for (const [f, content] of Object.entries(baseFiles)) repo.commit(f, content, `base ${f}`);
+  for (const [f, target] of Object.entries(baseLinks)) {
+    fs.mkdirSync(path.dirname(path.join(repo.dir, f)), { recursive: true });
+    fs.symlinkSync(target, path.join(repo.dir, f));
+    repo.git("add", "--", f);
+    repo.git("commit", "-q", "-m", `link ${f}`);
+  }
   repo.git("update-ref", "refs/remotes/origin/main", repo.git("rev-parse", "HEAD"));
   fs.mkdirSync(temp, { recursive: true });
   const r = runStep(

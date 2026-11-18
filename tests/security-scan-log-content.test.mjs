@@ -39,13 +39,14 @@ function step(name) {
   return { start, block: lines.slice(start, end).join("\n") };
 }
 
-// RUNNER_TEMP with the guard for a base holding baseFiles, and a step runner.
-function runner(t, baseFiles = {}) {
+// RUNNER_TEMP with the guard for a base holding baseFiles and the symlinks
+// baseLinks, and a step runner.
+function runner(t, baseFiles = {}, baseLinks = {}) {
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   const input = path.join(temp, "scan-input");
   fs.mkdirSync(input, { recursive: true });
-  const find = publicContentGuard(t, temp, baseFiles);
+  const find = publicContentGuard(t, temp, baseFiles, baseLinks);
   const run = (script, env = {}) =>
     runStep(dir, script, { RUNNER_TEMP: temp, SCAN_INPUT: input, ...env });
   return { dir, temp, input, find, run, file: (name) => path.join(temp, name) };
@@ -149,6 +150,15 @@ test("the guard records no check, a usable one, and one that cannot be used", (t
   assert.equal(fs.readFileSync(ready.file("public-content-check.mjs"), "utf8"), CHECK);
   // The log says which, never the check's text.
   assert.match(ready.find.stdout, /the base branch's public-content check holds the model's text/);
+  // A check that is not a regular file cannot be used, and the state says why.
+  const linked = runner(t, { "elsewhere.mjs": CHECK }, { [MJS]: "../../elsewhere.mjs" });
+  const why = `${MJS} on main is not a regular file`;
+  assert.equal(fs.readFileSync(linked.file("public-content-state"), "utf8"), `unusable\n${why}\n`);
+  assert.equal(fs.existsSync(linked.file("public-content-check.mjs")), false);
+  assert.ok(
+    linked.find.stdout.includes(`the base branch's public-content check cannot be used (${why})`),
+  );
+  assert.ok(!linked.find.stdout.includes(CHECK.split("\n").find((l) => l.trim())));
 });
 
 for (const name of ["Run the scan", "Verify the candidate findings"]) {
