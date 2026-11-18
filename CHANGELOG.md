@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0](https://github.com/bydradev/gh-agent-kit/compare/v0.5.1...v0.6.0) (2026-11-18)
+
+
+### Features
+
+* hold the bots' posts to a public repository's public-content check ([#57](https://github.com/bydradev/gh-agent-kit/issues/57)) ([1b1a92c](https://github.com/bydradev/gh-agent-kit/commit/1b1a92c34a19053bfa71df4647e296d35a5c3e33))
+* hold the security scan's findings to the public-content check ([#61](https://github.com/bydradev/gh-agent-kit/issues/61)) ([9ca8032](https://github.com/bydradev/gh-agent-kit/commit/9ca803217e7d416aeeb8b61b32dff8cd51651ce5))
+* hold the security scan's log text to the public-content check ([#66](https://github.com/bydradev/gh-agent-kit/issues/66)) ([6b517e7](https://github.com/bydradev/gh-agent-kit/commit/6b517e7a6627b65bbab2a2ea2df1f58ca83e2e64))
+
 ## [0.5.1](https://github.com/bydradev/gh-agent-kit/compare/v0.5.0...v0.5.1) (2026-11-17)
 
 
