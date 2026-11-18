@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { root, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const JOBS = [
   {
@@ -123,6 +123,7 @@ for (const job of JOBS) {
       const dir = tempDir(t);
       const temp = path.join(dir, "runner-temp");
       fs.mkdirSync(path.join(temp, "scan-input"), { recursive: true });
+      if (job.file === "security-scan.yml") publicContentGuard(t, temp);
       if (state) fs.writeFileSync(path.join(temp, "agent-kit-state.json"), JSON.stringify(state));
       for (const f of ["scan-schema.json", "verify-schema.json", "claude-settings.json"]) {
         fs.writeFileSync(path.join(temp, f), "{}");
@@ -157,6 +158,7 @@ cat "${answer}"
         RUNNER_TEMP: temp,
         SCAN_INPUT: path.join(temp, "scan-input"),
         RESULT: path.join(temp, "result.json"),
+        HELD: path.join(temp, "run-log"),
         CANDIDATES: "1",
         [job.provider]: provider,
         [job.model]: "the-model",

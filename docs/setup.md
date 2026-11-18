@@ -153,7 +153,7 @@ secrets: the file holds settings only.
 | `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
 | `KIT_ISSUE_LINK_CHECK` | Setting | `on`, `off` or unset | `on`: fail a pull request whose body names no issue it closes and gives no `No issue:` reason ([The issue-link check](#the-issue-link-check)); `off` or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails before the model starts without it, naming the missing secret. It never stands in for `ANTHROPIC_API_KEY` while the provider is `anthropic` |
-| `PRIVATE_REPO_NAMES` | Secret, optional | The maintainer's private repository names, separated by commas or spaces | Read only when the repository ships a public-content check, which then also refuses a bot post, or withholds a security scan finding, naming one of them bare ([Public repository content](#public-repository-content)); elsewhere unused |
+| `PRIVATE_REPO_NAMES` | Secret, optional | The maintainer's private repository names, separated by commas or spaces | Read only when the repository ships a public-content check, which then also refuses a bot post, or withholds a security scan finding or log text, naming one of them bare ([Public repository content](#public-repository-content)); elsewhere unused |
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
@@ -315,7 +315,8 @@ before the merge starts nothing.
     descriptions shortened, and the rest in the run's log;
   - how many candidate findings the verification run kept (the ones it
     dropped are listed with its reasons in the run's log, under *Apply the
-    verification*);
+    verification*, unless the repository's public-content check withholds
+    the list);
   - the first 20 files without a text diff, which the scan did not inspect
     (the run's log lists them all);
   - on a repository that ships a public-content check, how many findings
@@ -697,8 +698,8 @@ candidates it keeps (or gives no verdict on, marked unverified) are posted.
 The workflow posts them on the job token, every field the model wrote shown
 as plain text, so a finding cannot mention anyone, link, or add markup. On
 a public repository that ships a public-content check, a finding the check
-finds something in is withheld instead ([Public repository
-content](#public-repository-content)).
+finds something in is withheld instead, and so is the model's text in the
+run's log ([Public repository content](#public-repository-content)).
 
 Before the scan, every `CLAUDE.md` and `CLAUDE.local.md` in the checkout is
 removed, so Claude Code loads no project memory (and no file a `CLAUDE.md`
@@ -786,8 +787,8 @@ The workflows also:
   skipped review never shows as a green check;
 - on a public repository that ships a public-content check, refuse any
   report, inline finding, filed issue or triage comment the check finds
-  something in, and withhold any security scan finding it finds something
-  in ([Public repository content](#public-repository-content)).
+  something in, and withhold any security scan finding or log text it
+  finds something in ([Public repository content](#public-repository-content)).
 
 ### Public repository content
 
@@ -797,7 +798,7 @@ of everything it publishes can hold the kit's review and triage bots and
 its security scan to the same rule. The model has no shell to run a check
 itself, so the MCP server runs it on every text it is about to post: the
 review's report, each inline finding, each field of an issue the reviewer
-files, and triage's comment; the scan's findings are checked by its
+files, and triage's comment; the scan's findings and log are checked by its
 workflow, as the last item below says. A text
 the check finds something in is not posted; the model is told the line
 and the kind of each finding, never the matched text, and rewords.
@@ -823,7 +824,8 @@ unchecked.
   the repository). The review and triage workflows each run the check
   once on an empty text before the model starts and stop with an error
   naming it if that fails, so a broken check does not cost a model run;
-  the scan runs it only after the scan, below.
+  the scan looks its check up before the scan and runs it on each text
+  as it is shown, below.
 - The check runs with only `PATH` and, when the repository sets it,
   `PRIVATE_REPO_NAMES` in its environment, never the job token. Set the
   `PRIVATE_REPO_NAMES` secret to have it refuse bare private names too;
@@ -849,11 +851,15 @@ unchecked.
   the text. It is not reworded: the scan has no second try. A check that
   cannot run, runs past 30 seconds or does not finish withholds every
   finding, with a warning in the run's log. The scan's count still
-  includes withheld findings. Not covered yet: the scan's and the
-  verification's own log lines (their last message and any answer that
-  fails the schema) and the candidates the verification dropped, which
-  the log lists before or without the check
-  ([#60](https://github.com/bydradev/gh-agent-kit/issues/60)). Each finding is checked on
+  includes withheld findings. The scan's log is held to the same check:
+  the scan's and the verification's summaries (with the model's last
+  message, and on an error OpenCode's server log) wait in the run steps
+  and are printed by the step after each run once the check passes them,
+  and the excerpt of an answer that fails the schema and the candidates
+  the verification dropped are printed only when it passes them;
+  otherwise the log says the text is withheld and, when the check
+  refused it, the kinds. `PRIVATE_REPO_NAMES` reaches only the steps
+  that run the check, never a step that runs a model. Each finding is checked on
   its own, and the record names the kinds, a private repository name
   among them: unlike the review, which a pull request's text can steer,
   the scan reads only the pull request's head and diff, which reach it

@@ -12,7 +12,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { LOG_LINE, MODELS, readEnv, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const workflow = () => fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
@@ -196,12 +196,14 @@ function scan(
     served,
     timeout = "30",
     startedAgo,
+    baseFiles = {},
   } = {},
 ) {
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   const input = path.join(temp, "scan-input");
   fs.mkdirSync(input, { recursive: true });
+  publicContentGuard(t, temp, baseFiles);
   const schema = path.join(temp, "scan-schema.json");
   fs.writeFileSync(schema, JSON.stringify(SCAN_SCHEMA));
   const spec = path.join(dir, "spec.json");
@@ -282,6 +284,7 @@ if (command === "models") {
     PR: "7",
     SCHEMA: schema,
     RESULT: result,
+    HELD: path.join(temp, "run-log"),
     KIT_SECURITY_MODEL: model,
     KIT_SECURITY_EFFORT: effort,
     KIT_SECURITY_MAX_TURNS: maxTurns,
@@ -301,6 +304,7 @@ if (command === "models") {
   if (alive) process.kill(serve.pid);
   return {
     ...r,
+    temp,
     calls,
     serve,
     alive,
@@ -808,6 +812,50 @@ test("security-scan.yml, Run the scan on OpenCode: a server that does not start 
     assert.ok(begin, r.stdout);
     assert.equal(lines[at + 1], `::${begin[1]}::`);
     assert.equal(lines[at + 2], "::error::OpenCode's server did not start");
+  }
+});
+
+// With a base public-content check, the run's summary and the server's
+// log wait for the step after the run, which prints them once the check
+// passes them and withholds them otherwise.
+test("security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check", (t) => {
+  const check = fs.readFileSync(path.join(root, ".github/scripts/public-content.mjs"), "utf8");
+  const baseFiles = { ".github/scripts/public-content.mjs": check };
+  for (const [step, print] of [
+    ["Run the scan on OpenCode", "Print the scan run's log"],
+    ["Verify the candidate findings on OpenCode", "Print the verification run's log"],
+  ]) {
+    const said = { ...SESSION, messages: [SESSION.messages[0], message([{ type: "text", text: "Compared with skunkworks." }])] };
+    const refused = scan(t, { step, candidates: "3", answer: reply("Compared with skunkworks."), session: said, baseFiles });
+    assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+    assert.doesNotMatch(refused.stdout, /skunkworks|^result:|OpenCode's server log/m);
+    assert.ok(!refused.stdout.includes(LOG_LINE), refused.stdout);
+    assert.match(refused.stdout, /the run's log text waits for the repository's public-content check, in the next step/);
+    const held = path.join(refused.temp, "run-log");
+    const withheld = runStep(refused.temp, stepScript(FILE, print), {
+      RUNNER_TEMP: refused.temp,
+      HELD: held,
+      PRIVATE_REPO_NAMES: "skunkworks",
+    });
+    assert.equal(withheld.status, 0, withheld.stdout + withheld.stderr);
+    assert.doesNotMatch(withheld.stdout, /skunkworks/);
+    assert.match(withheld.stdout, /^the run's log text is withheld: the repository's public-content check found in it a private repository name$/m);
+
+    const passed = scan(t, { step, candidates: "3", answer: PROSE, baseFiles });
+    assert.equal(passed.status, 1, passed.stdout + passed.stderr);
+    const shown = runStep(passed.temp, stepScript(FILE, print), {
+      RUNNER_TEMP: passed.temp,
+      HELD: path.join(passed.temp, "run-log"),
+    });
+    assert.equal(shown.status, 0, shown.stdout + shown.stderr);
+    const lines = shown.stdout.split("\n");
+    const begin = lines[0].match(/^::stop-commands::([0-9a-f]{32})$/);
+    assert.ok(begin, shown.stdout);
+    const summary = lines.indexOf('result: {"files_reviewed":2,"findings":[]}');
+    assert.notEqual(summary, -1, shown.stdout);
+    assert.ok(lines.indexOf("OpenCode's server log, its last 50 lines:") > summary, shown.stdout);
+    assert.ok(lines.includes(LOG_LINE), shown.stdout);
+    assert.equal(lines.at(-2), `::${begin[1]}::`);
   }
 });
 

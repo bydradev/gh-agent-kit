@@ -14,6 +14,7 @@ import { runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const HOLD = "Hold the findings to the base's public-content check";
+const findScript = stepScript(FILE, "Find the base's public-content check");
 const holdScript = stepScript(FILE, HOLD);
 const summaryScript = stepScript(FILE, "Summarise the scan's findings");
 const commentScript = stepScript(FILE, "Comment on the findings' lines");
@@ -68,7 +69,14 @@ function setup(t, baseFiles = {}, headFiles = {}) {
     RUN_URL: "https://github.com/acme/widgets/actions/runs/1/attempts/1",
   };
   const run = (script, more = {}) => runStep(repo.dir, script, { ...env, ...more });
-  return { repo, temp, input, file, write, read, text, run };
+  // The hold step, after the step that finds the check, as the job runs
+  // them (the job runs that one before the scan).
+  const hold = (more = {}) => {
+    const find = run(findScript);
+    assert.equal(find.status, 0, find.stdout + find.stderr);
+    return run(holdScript, more);
+  };
+  return { repo, temp, input, file, write, read, text, run, hold };
 }
 const MJS = ".github/scripts/public-content.mjs";
 const PY = ".github/scripts/check_public_content.py";
@@ -92,7 +100,7 @@ test("a refused finding is withheld from the comments, the summary, the log and 
       finding({ line: 30, recommendation: "Compare with skunkworks." }),
     ]),
   );
-  const hold = s.run(holdScript, { PRIVATE_REPO_NAMES: "skunkworks" });
+  const hold = s.hold({ PRIVATE_REPO_NAMES: "skunkworks" });
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.deepEqual(
     s.read("scan-results.json").findings.map((f) => Boolean(f._withheld)),
@@ -155,7 +163,7 @@ test("a refused finding is withheld from the comments, the summary, the log and 
 test("a check that cannot run withholds every finding, and the notice says so", (t) => {
   const s = setup(t, { [MJS]: "process.exit(2);\n" });
   s.write("scan-results.json", results([finding(), finding({ line: 20 })]));
-  const hold = s.run(holdScript);
+  const hold = s.hold();
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.match(hold.stdout, /::warning::the repository's public-content check could not run \(exit 2\)/);
   assert.ok(s.read("scan-results.json").findings.every((f) => f._withheld));
@@ -197,7 +205,7 @@ test("a check that runs past its time limit cannot run", (t) => {
   // timeout exits 124 when it stops the check; the stand-in exits so too.
   const s = setup(t, { [MJS]: "process.exit(124);\n" });
   s.write("scan-results.json", results([finding()]));
-  assert.equal(s.run(holdScript).status, 0);
+  assert.equal(s.hold().status, 0);
   assert.match(s.text("scan-withheld.md"), /could not run \(it ran past 30 seconds\), so the finding's text is withheld/);
   assert.ok(s.read("scan-results.json").findings[0]._withheld);
 });
@@ -205,7 +213,7 @@ test("a check that runs past its time limit cannot run", (t) => {
 test("an exit 1 without a finding line, and a base check that is a symlink, cannot run", (t) => {
   const quiet = setup(t, { [MJS]: "console.log('no');\nprocess.exit(1);\n" });
   quiet.write("scan-results.json", results([finding()]));
-  assert.equal(quiet.run(holdScript).status, 0);
+  assert.equal(quiet.hold().status, 0);
   assert.match(quiet.text("scan-withheld.md"), /could not run \(exit 1 without naming a line it found\)/);
 
   const linked = setup(t, { "elsewhere.mjs": CHECK });
@@ -218,7 +226,7 @@ test("an exit 1 without a finding line, and a base check that is a symlink, cann
   linked.repo.git("update-ref", "refs/remotes/origin/main", linked.repo.git("rev-parse", "HEAD"));
   linked.repo.git("checkout", "-q", "feature");
   linked.write("scan-results.json", results([finding()]));
-  assert.equal(linked.run(holdScript).status, 0);
+  assert.equal(linked.hold().status, 0);
   assert.match(linked.text("scan-withheld.md"), /could not run \(\.github\/scripts\/public-content\.mjs on main is not a regular file\)/);
   assert.ok(linked.read("scan-results.json").findings[0]._withheld);
 });
@@ -227,7 +235,7 @@ test("a check only the head has is ignored, and the findings go as before", (t) 
   const s = setup(t, {}, { [MJS]: "process.exit(1);\n" });
   const before = results([finding()]);
   s.write("scan-results.json", before);
-  const hold = s.run(holdScript);
+  const hold = s.hold();
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.match(hold.stdout, /the base branch ships no public-content check, so the findings go as before/);
   assert.deepEqual(s.read("scan-results.json"), before);
@@ -251,7 +259,7 @@ test("a base's Python check runs with python3 -I and only PATH and PRIVATE_REPO_
   ].join("\n");
   const s = setup(t, { [PY]: py });
   s.write("scan-results.json", results([finding({ description: "hush" }), finding({ line: 20 })]));
-  const hold = s.run(holdScript, { PRIVATE_REPO_NAMES: "skunkworks", GH_TOKEN: "job-token" });
+  const hold = s.hold({ PRIVATE_REPO_NAMES: "skunkworks", GH_TOKEN: "job-token" });
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.deepEqual(
     s.read("scan-results.json").findings.map((f) => Boolean(f._withheld)),
@@ -269,7 +277,7 @@ test("when the verification did not finish, the candidates are checked", (t) => 
     path.join(s.input, "candidates.json"),
     JSON.stringify({ findings: [finding({ file: HOME_PATH }), finding({ line: 20 })] }),
   );
-  const hold = s.run(holdScript);
+  const hold = s.hold();
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   const candidates = JSON.parse(fs.readFileSync(path.join(s.input, "candidates.json"), "utf8"));
   assert.deepEqual(
@@ -286,7 +294,7 @@ test("findings the check passes are left as they were", (t) => {
   const s = setup(t, { [MJS]: CHECK });
   const before = results([finding(), finding({ line: 20 })]);
   s.write("scan-results.json", before);
-  const hold = s.run(holdScript);
+  const hold = s.hold();
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.match(hold.stdout, /the public-content check passed all 2 findings/);
   assert.deepEqual(s.read("scan-results.json"), before);
@@ -303,7 +311,7 @@ test("a token the comment or the record would rebuild by taking out a backtick i
       finding({ line: 30 }),
     ]),
   );
-  const hold = s.run(holdScript, { PRIVATE_REPO_NAMES: "skunkworks" });
+  const hold = s.hold({ PRIVATE_REPO_NAMES: "skunkworks" });
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.deepEqual(
     s.read("scan-results.json").findings.map((f) => Boolean(f._withheld)),
@@ -324,7 +332,7 @@ test("a check step that did not finish leaves the summary listing no finding's t
   assert.match(summary.stdout, /::warning::the public-content check did not finish/);
   assert.match(s.text("scan-withheld.md"), /did not finish, so the text of all 2 findings is withheld/);
   // A step that finishes takes the marker down.
-  const hold = s.run(holdScript);
+  const hold = s.hold();
   assert.equal(hold.status, 0, hold.stdout + hold.stderr);
   assert.ok(!fs.existsSync(s.file("scan-content-pending")));
 });

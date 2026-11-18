@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const settingsScript = stepScript(FILE, "Read the scan settings");
@@ -30,6 +30,7 @@ function runner(t) {
   const temp = path.join(dir, "runner-temp");
   const input = path.join(temp, "scan-input");
   fs.mkdirSync(input, { recursive: true });
+  publicContentGuard(t, temp);
   const envFile = path.join(dir, "github-env");
   fs.writeFileSync(envFile, "");
   const run = (script, env = {}) => {
