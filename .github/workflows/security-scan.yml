@@ -664,6 +664,165 @@ jobs:
           if ! git cat-file -e "origin/$BASE:.github/security-review-instructions.md" 2>/dev/null; then
             rm -f -- .github/security-review-instructions.md
           fi
+      # The repository's public-content check, for a public repository
+      # whose base ships one (.github/scripts/public-content.mjs or
+      # check_public_content.py), as the review's and triage's posts are
+      # held to it: the base's copy, read from git, never the head's, looked
+      # up here while .git is in the checkout and before any model runs.
+      # The steps after it source the guard this writes: the steps that run
+      # a model only hold the model's text back from the log, and the steps
+      # that print it, and the one that holds the findings for the steps
+      # that post them, run the check on it first. Only those get
+      # PRIVATE_REPO_NAMES, so the secret never reaches a step that runs a
+      # model. A check that is there but cannot be used holds every text
+      # back. Without a base copy the log and the findings go as before.
+      - name: Find the base's public-content check
+        if: env.RUN != 'false'
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          check="" why=""
+          for f in .github/scripts/public-content.mjs .github/scripts/check_public_content.py; do
+            entry=$(git ls-tree "origin/$BASE" -- "$f") || { check=$f; why="$f could not be read from $BASE"; break; }
+            [ -n "$entry" ] || continue
+            check="$RUNNER_TEMP/public-content-check.${f##*.}"
+            mode=${entry%% *}
+            if [ "$mode" != 100644 ] && [ "$mode" != 100755 ]; then
+              why="$f on $BASE is not a regular file"
+            elif ! git show "origin/$BASE:$f" > "$check"; then
+              why="$f could not be read from $BASE"
+            fi
+            break
+          done
+          state="$RUNNER_TEMP/public-content-state"
+          if [ -z "$check" ]; then
+            printf 'none\n' > "$state"
+            echo "the base branch ships no public-content check, so the model's text goes to the log and the findings as before"
+          elif [ -n "$why" ]; then
+            printf 'unusable\n%s\n' "$why" > "$state"
+            echo "the base branch's public-content check cannot be used ($why), so the model's text is held back from the log and the findings"
+          else
+            printf 'ready\n%s\n' "$check" > "$state"
+            echo "the base branch's public-content check holds the model's text before the log and the findings show it"
+          fi
+          cat > "$RUNNER_TEMP/public-content-guard.sh" <<'GUARD'
+          # Written by "Find the base's public-content check" and sourced by
+          # the steps that show the model's text.
+
+          # none, ready or unusable; nothing when the state cannot be read.
+          pc_state() {
+            sed -n 1p "$RUNNER_TEMP/public-content-state" 2>/dev/null || true
+          }
+
+          # pc_check FILE: status 0 when the base's check passes the text in
+          # FILE or the base ships none, 1 when it refuses it (PC_FOUND holds
+          # the kinds it named, a line each), 2 when it cannot run (PC_WHY
+          # says why). The check gets only PATH and, when it is set,
+          # PRIVATE_REPO_NAMES, and 30 seconds; its output never reaches the
+          # log.
+          pc_check() {
+            PC_FOUND="" PC_WHY=""
+            local state check out status=0
+            state=$(pc_state)
+            check=$(sed -n 2p "$RUNNER_TEMP/public-content-state" 2>/dev/null || true)
+            case $state in
+              none) return 0 ;;
+              ready) ;;
+              unusable) PC_WHY=$check; return 2 ;;
+              *) PC_WHY="the step that looks it up left no state"; return 2 ;;
+            esac
+            local interp=(node) names=()
+            [ "${check##*.}" != py ] || interp=(python3 -I)
+            [ -z "${PRIVATE_REPO_NAMES:-}" ] || names=(PRIVATE_REPO_NAMES="$PRIVATE_REPO_NAMES")
+            out=$(cd "$RUNNER_TEMP" && timeout 30 env -i PATH="$PATH" "${names[@]}" "${interp[@]}" "$check" --text="$1" 2>/dev/null) || status=$?
+            case $status in
+              0) return 0 ;;
+              1)
+                PC_FOUND=$(sed -nE 's/^::error title=Public repository content::.*, line [0-9]+: (.+)$/\1/p' <<<"$out")
+                [ -z "$PC_FOUND" ] || return 1
+                PC_WHY="exit 1 without naming a line it found"
+                return 2
+                ;;
+              124) PC_WHY="it ran past 30 seconds"; return 2 ;;
+              *) PC_WHY="exit $status"; return 2 ;;
+            esac
+          }
+
+          # The kinds on stdin, a line each, as one list: those the kit's and
+          # gh-repo-bootstrapper's checks print, and any other named
+          # generically, so a check that printed what it matched cannot pass
+          # it on.
+          pc_kinds() {
+            sort -u | jq -Rrs '
+              ["a claude.ai link", "a Claude-Session trailer", "a project attribution marker",
+               "a session or thread ID", "a local or project-storage path",
+               "a bydradev or bydraio repository outside the public list",
+               "a bydradev repository outside the public list",
+               "an email address other than a noreply one", "a private repository name"] as $known
+              | split("\n") | map(select(. != "") | if IN($known[]) then . else "a detail the check rules out" end)
+              | unique | join("; ")'
+          }
+
+          # pc_shown TEXT: TEXT when the check passes it, otherwise a note
+          # that it is withheld and why.
+          pc_shown() {
+            local f s=0
+            f=$(mktemp "$RUNNER_TEMP/public-content-text.XXXXXX")
+            printf '%s' "$1" > "$f"
+            pc_check "$f" || s=$?
+            rm -f -- "$f"
+            case $s in
+              0) printf '%s' "$1" ;;
+              1) printf "(withheld: the repository's public-content check found in it %s)" "$(pc_kinds <<<"$PC_FOUND")" ;;
+              *) printf "(withheld: the repository's public-content check could not run: %s)" "$PC_WHY" ;;
+            esac
+          }
+
+          # pc_emit FILE HELD [KEEP], in a step that runs a model: FILE to
+          # the log now, workflow commands stopped, when the base ships no
+          # check; otherwise only its first KEEP lines (those the workflow
+          # writes, with no model text: the run's outcome, turns, cost and
+          # tokens) now, and the rest appended to HELD, which the step after
+          # the run prints once the check passes it.
+          pc_emit() {
+            local stop keep=${3:-0}
+            if [ "$(pc_state)" = none ]; then
+              stop=$(openssl rand -hex 16)
+              echo "::stop-commands::$stop"
+              cat -- "$1"
+              echo "::$stop::"
+              return 0
+            fi
+            if [ "$keep" -gt 0 ]; then
+              stop=$(openssl rand -hex 16)
+              echo "::stop-commands::$stop"
+              head -n "$keep" -- "$1"
+              echo "::$stop::"
+            fi
+            [ -e "$2" ] || echo "the run's log text from the model waits for the repository's public-content check, in the next step"
+            tail -n +"$((keep + 1))" -- "$1" >> "$2"
+          }
+
+          # pc_print_held HELD: what pc_emit held back, workflow commands
+          # stopped, when the check passes it; otherwise a line saying it is
+          # withheld.
+          pc_print_held() {
+            [ -s "$1" ] || return 0
+            local s=0 stop
+            pc_check "$1" || s=$?
+            case $s in
+              0)
+                stop=$(openssl rand -hex 16)
+                echo "::stop-commands::$stop"
+                awk 1 "$1"
+                echo "::$stop::"
+                ;;
+              1) echo "the run's log text is withheld: the repository's public-content check found in it $(pc_kinds <<<"$PC_FOUND")" ;;
+              *) echo "::warning::the repository's public-content check could not run ($PC_WHY), so the run's log text is withheld" ;;
+            esac
+            rm -f -- "$1"
+          }
+          GUARD
       # A larger change would cost more than the repository allows, and past
       # GitHub's limits (300 files or 20,000 lines in a pull request's diff;
       # docs.github.com, Repository limits, read 2026-10-21) the pull
@@ -891,6 +1050,7 @@ jobs:
         name: Run the scan
         if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code'
         env:
+          HELD: ${{ runner.temp }}/scan-run-log
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Keep the key out of the processes Claude Code starts.
@@ -948,12 +1108,14 @@ jobs:
           result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
-          stop=$(openssl rand -hex 16)
-          echo "::stop-commands::$stop"
+          # On a base with a public-content check it waits for the check,
+          # which the step after this one runs (see "Find the base's
+          # public-content check").
+          . "$RUNNER_TEMP/public-content-guard.sh"
           cost=cost_usd
           [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
-          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
-          echo "::$stop::"
+          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result" > "$HELD.summary"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
@@ -980,6 +1142,7 @@ jobs:
         name: Run the scan on OpenCode
         if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'
         env:
+          HELD: ${{ runner.temp }}/scan-run-log
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
@@ -1232,20 +1395,22 @@ jobs:
           result=$(cat "$RESULT")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
-          stop=$(openssl rand -hex 16)
-          echo "::stop-commands::$stop"
-          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
-          echo "::$stop::"
+          # On a base with a public-content check it waits for the check,
+          # which the step after this one runs (see "Find the base's
+          # public-content check").
+          . "$RUNNER_TEMP/public-content-guard.sh"
+          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result" > "$HELD.summary"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             # The server's log, which --print-logs puts in its output (each
             # retry of a refused request is a "stream error" line), with
             # workflow commands stopped as above; awk ends its last line, so
-            # the token below starts a line of its own.
-            stop=$(openssl rand -hex 16)
-            echo "::stop-commands::$stop"
-            echo "OpenCode's server log, its last 50 lines:"
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
-            echo "::$stop::"
+            # the closing token starts a line of its own.
+            {
+              echo "OpenCode's server log, its last 50 lines:"
+              tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            } > "$HELD.server"
+            pc_emit "$HELD.server" "$HELD"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
@@ -1260,18 +1425,37 @@ jobs:
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi
+      # The scan run's log text from the model (the last message and
+      # the errors in its summary, and on an error OpenCode's server log),
+      # which the run step held back for the base's public-content check: printed with
+      # workflow commands stopped when the check passes it, and withheld
+      # otherwise. A step of its own, so that PRIVATE_REPO_NAMES never
+      # reaches a step that runs a model. Without a base check the run step
+      # printed it, and this step prints nothing.
+      - name: Print the scan run's log
+        if: ${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' || steps.scan_opencode.outcome != 'skipped') }}
+        env:
+          HELD: ${{ runner.temp }}/scan-run-log
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          . "$RUNNER_TEMP/public-content-guard.sh"
+          pc_print_held "$HELD"
       # The scan's structured output, checked field by field (Claude
       # Code's CLI, or on OpenCode the step that ran the scan, checks it
       # against the schema; this does not rely on either), with an id
       # for each candidate (F1, F2, ...), written where the verification
       # run reads it. A run with no structured output (the model
       # declined, or its answer did not fit the schema) did not complete
-      # a scan.
+      # a scan. The excerpt of an answer that does not fit, the model's
+      # text, reaches the log only once the base's public-content check
+      # passes it.
       - name: Collect the scan's candidate findings
         if: env.RUN != 'false'
         env:
           RESULT: ${{ runner.temp }}/scan-result.json
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
         run: |
+          . "$RUNNER_TEMP/public-content-guard.sh"
           result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
           if ! jq -e '
             .structured_output
@@ -1285,7 +1469,7 @@ jobs:
                 and (.severity | IN("HIGH", "MEDIUM", "LOW"))
                 and ([.category, .description, .exploit_scenario, .recommendation] | all(type == "string"))
                 and (.confidence | type == "number" and . >= 0 and . <= 1))' <<<"$result" >/dev/null; then
-            echo "::error::the scan's answer is not the structured output the schema asks for, so no scan completed: $(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)"
+            echo "::error::the scan's answer is not the structured output the schema asks for, so no scan completed: $(pc_shown "$(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)")"
             exit 1
           fi
           jq '.structured_output
@@ -1303,6 +1487,7 @@ jobs:
         name: Verify the candidate findings
         if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code' && env.CANDIDATES != '' && env.CANDIDATES != '0'
         env:
+          HELD: ${{ runner.temp }}/verify-run-log
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
@@ -1356,12 +1541,14 @@ jobs:
             exit 1
           fi
           result=$(jq -c '(if type == "array" then map(select(.type == "result")) | last else . end)' "$RESULT")
-          stop=$(openssl rand -hex 16)
-          echo "::stop-commands::$stop"
+          # On a base with a public-content check it waits for the check,
+          # which the step after this one runs (see "Find the base's
+          # public-content check").
+          . "$RUNNER_TEMP/public-content-guard.sh"
           cost=cost_usd
           [ "$KIT_SECURITY_PROVIDER" != opencode-go ] || cost="cost_usd (Claude prices, not Go's)"
-          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result"
-          echo "::$stop::"
+          jq -r --arg cost "$cost" '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\n\($cost): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens)\nerrors: \(.errors // [] | join("; "))\nresult: \((.result // "") | .[0:2000])"' <<<"$result" > "$HELD.summary"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error' <<<"$result")" != "false" ] || [ "$(jq -r '.subtype' <<<"$result")" != "success" ]; then
             echo "::error::Claude Code's run ended in error (exit status $status)"
             exit 1
@@ -1372,6 +1559,7 @@ jobs:
         name: Verify the candidate findings on OpenCode
         if: env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode' && env.CANDIDATES != '' && env.CANDIDATES != '0'
         env:
+          HELD: ${{ runner.temp }}/verify-run-log
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
@@ -1624,20 +1812,22 @@ jobs:
           result=$(cat "$RESULT")
           # The model's last message, with workflow commands stopped: text the
           # pull request steered could otherwise annotate or mask the log.
-          stop=$(openssl rand -hex 16)
-          echo "::stop-commands::$stop"
-          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result"
-          echo "::$stop::"
+          # On a base with a public-content check it waits for the check,
+          # which the step after this one runs (see "Find the base's
+          # public-content check").
+          . "$RUNNER_TEMP/public-content-guard.sh"
+          jq -r '"subtype: \(.subtype)\nis_error: \(.is_error)\nturns: \(.num_turns)\ncost_usd (Go prices): \(.total_cost_usd)\ntokens: input \(.usage.input_tokens), cache read \(.usage.cache_read_input_tokens), cache write \(.usage.cache_creation_input_tokens), output \(.usage.output_tokens), reasoning \(.usage.reasoning_tokens)\nerrors: \(.errors | join("; "))\nresult: \(.result | .[0:2000])"' <<<"$result" > "$HELD.summary"
+          pc_emit "$HELD.summary" "$HELD" 5
           if [ "$(jq -r '.is_error' <<<"$result")" != "false" ]; then
             # The server's log, which --print-logs puts in its output (each
             # retry of a refused request is a "stream error" line), with
             # workflow commands stopped as above; awk ends its last line, so
-            # the token below starts a line of its own.
-            stop=$(openssl rand -hex 16)
-            echo "::stop-commands::$stop"
-            echo "OpenCode's server log, its last 50 lines:"
-            tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
-            echo "::$stop::"
+            # the closing token starts a line of its own.
+            {
+              echo "OpenCode's server log, its last 50 lines:"
+              tail -n 50 "$RUNNER_TEMP/opencode-serve.log" | awk 1
+            } > "$HELD.server"
+            pc_emit "$HELD.server" "$HELD"
             echo "::error::OpenCode's run ended in error or without an answer that fits the schema (curl status $status)"
             exit 1
           fi
@@ -1652,6 +1842,21 @@ jobs:
             echo "::error::OpenCode's run reached the turn limit (KIT_SECURITY_MAX_TURNS=$KIT_SECURITY_MAX_TURNS)"
             exit 1
           fi
+      # The verification run's log text from the model (the last message and
+      # the errors in its summary, and on an error OpenCode's server log),
+      # which the run step held back for the base's public-content check: printed with
+      # workflow commands stopped when the check passes it, and withheld
+      # otherwise. A step of its own, so that PRIVATE_REPO_NAMES never
+      # reaches a step that runs a model. Without a base check the run step
+      # printed it, and this step prints nothing.
+      - name: Print the verification run's log
+        if: ${{ always() && env.RUN != 'false' && (steps.verify.outcome != 'skipped' || steps.verify_opencode.outcome != 'skipped') }}
+        env:
+          HELD: ${{ runner.temp }}/verify-run-log
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
+        run: |
+          . "$RUNNER_TEMP/public-content-guard.sh"
+          pc_print_held "$HELD"
       # Back for the record step and the checkout action's cleanup, whether
       # or not the runs succeeded.
       - name: Put .git back in the checkout
@@ -1665,13 +1870,17 @@ jobs:
       # the verification gave no verdict is kept and marked unverified, so a
       # skipped verdict cannot hide a finding. A verdict for an id that is
       # not a candidate is ignored. Each dropped candidate goes to this
-      # step's log with the verification's reason, workflow commands stopped.
+      # step's log with the verification's reason, workflow commands
+      # stopped, once the base's public-content check passes the list, as
+      # does the excerpt of an answer that does not fit.
       - name: Apply the verification
         if: env.RUN != 'false'
         env:
           RESULT: ${{ runner.temp }}/verify-result.json
           RESULTS: ${{ runner.temp }}/scan-results.json
+          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
         run: |
+          . "$RUNNER_TEMP/public-content-guard.sh"
           candidates="$SCAN_INPUT/candidates.json"
           if [ "$(jq '.findings | length' "$candidates")" -eq 0 ]; then
             jq '. + {filtering_summary: {total_original_findings: 0, excluded_findings: 0, kept_findings: 0}}' "$candidates" > "$RESULTS"
@@ -1685,7 +1894,7 @@ jobs:
               and all(.verdicts[];
                 type == "object" and (.id | type == "string") and (.keep | type == "boolean")
                 and (.confidence | type == "number") and (.reason | type == "string"))' <<<"$result" >/dev/null; then
-            echo "::error::the verification's answer is not the structured output the schema asks for: $(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)"
+            echo "::error::the verification's answer is not the structured output the schema asks for: $(pc_shown "$(jq -c '.structured_output // "none"' <<<"$result" | head -c 400)")"
             exit 1
           fi
           # The verdicts go through a file: an argument has a size limit.
@@ -1719,17 +1928,15 @@ jobs:
             stop=$(openssl rand -hex 16)
             echo "::group::Candidates the verification dropped"
             echo "::stop-commands::$stop"
-            printf '%s\n' "$dropped"
+            printf '%s\n' "$(pc_shown "$dropped")"
             echo "::$stop::"
             echo "::endgroup::"
           fi
-      # The repository's public-content check, for a public repository
-      # whose base ships one (.github/scripts/public-content.mjs or
-      # check_public_content.py), as the review's and triage's posts are
-      # held to it: the base's copy, read from git, never the head's. Each
-      # finding's model-written text (its category, file, description,
-      # exploit scenario and recommendation, as written and as the later
-      # steps show it) is checked before any later step posts it or puts it
+      # The findings, held to the public-content check that "Find the
+      # base's public-content check" found on the base. Each finding's
+      # model-written text (its category, file, description, exploit
+      # scenario and recommendation, as written and as the later steps
+      # show it) is checked before any later step posts it or puts it
       # in this job's log, which a public repository shows to anyone. A
       # finding the check refuses is marked withheld: no inline comment, no
       # line in the record or in the later steps' log, and the record says
@@ -1743,7 +1950,6 @@ jobs:
         if: ${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' || steps.scan_opencode.outcome != 'skipped') }}
         env:
           RESULTS: ${{ runner.temp }}/scan-results.json
-          BASE: ${{ github.event.pull_request.base.ref }}
           PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
         run: |
           # Until this step finishes, the summary lists no finding's text: a
@@ -1764,20 +1970,10 @@ jobs:
               exit 0
             fi
           fi
-          check="" why=""
-          for f in .github/scripts/public-content.mjs .github/scripts/check_public_content.py; do
-            entry=$(git ls-tree "origin/$BASE" -- "$f") || { check=$f; why="$f could not be read from $BASE"; break; }
-            [ -n "$entry" ] || continue
-            check="$RUNNER_TEMP/public-content-check.${f##*.}"
-            mode=${entry%% *}
-            if [ "$mode" != 100644 ] && [ "$mode" != 100755 ]; then
-              why="$f on $BASE is not a regular file"
-            elif ! git show "origin/$BASE:$f" > "$check"; then
-              why="$f could not be read from $BASE"
-            fi
-            break
-          done
-          if [ -z "$check" ]; then
+          # Without the guard (it cannot be missing after a scan ran) the
+          # step fails here and the marker stays: no finding is listed.
+          . "$RUNNER_TEMP/public-content-guard.sh"
+          if [ "$(pc_state)" = none ]; then
             echo "the base branch ships no public-content check, so the findings go as before"
             rm -f -- "$pending"
             exit 0
@@ -1788,12 +1984,8 @@ jobs:
             rm -f -- "$pending"
             exit 0
           fi
-          interp=(node)
-          [ "${check##*.}" != py ] || interp=(python3 -I)
-          names=()
-          [ -z "${PRIVATE_REPO_NAMES:-}" ] || names=(PRIVATE_REPO_NAMES="$PRIVATE_REPO_NAMES")
           text="$RUNNER_TEMP/public-content-text"
-          withheld=() kinds=""
+          why="" withheld=() kinds=""
           i=0
           while [ -z "$why" ] && [ "$i" -lt "$n" ]; do
             # Each field as the model wrote it, and as the inline comment
@@ -1811,19 +2003,12 @@ jobs:
                   | join("\n")
                 else tostring end' "$source" > "$text"
             status=0
-            out=$(cd "$RUNNER_TEMP" && timeout 30 env -i PATH="$PATH" "${names[@]}" "${interp[@]}" "$check" --text="$text" 2>/dev/null) || status=$?
+            pc_check "$text" || status=$?
             if [ "$status" -eq 1 ]; then
-              found=$(sed -nE 's/^::error title=Public repository content::.*, line [0-9]+: (.+)$/\1/p' <<<"$out")
-              if [ -z "$found" ]; then
-                why="exit 1 without naming a line it found"
-              else
-                withheld+=("$i")
-                kinds+="$found"$'\n'
-              fi
-            elif [ "$status" -eq 124 ]; then
-              why="it ran past 30 seconds"
+              withheld+=("$i")
+              kinds+="$PC_FOUND"$'\n'
             elif [ "$status" -ne 0 ]; then
-              why="exit $status"
+              why=$PC_WHY
             fi
             i=$((i + 1))
           done
@@ -1834,17 +2019,7 @@ jobs:
             echo "::warning::the repository's public-content check could not run ($why), so no finding's text is posted"
             note="The repository's public-content check could not run ($why), so $what withheld from the inline comments, this record and the later steps' log; the maintainer has to look at the check."
           elif [ "${#withheld[@]}" -gt 0 ]; then
-            # The kinds the kit's and gh-repo-bootstrapper's checks print;
-            # any other is named generically, so a check that printed what it
-            # matched cannot pass it on.
-            shown=$(sort -u <<<"${kinds%$'\n'}" | jq -Rrs '
-              ["a claude.ai link", "a Claude-Session trailer", "a project attribution marker",
-               "a session or thread ID", "a local or project-storage path",
-               "a bydradev or bydraio repository outside the public list",
-               "a bydradev repository outside the public list",
-               "an email address other than a noreply one", "a private repository name"] as $known
-              | split("\n") | map(select(. != "") | if IN($known[]) then . else "a detail the check rules out" end)
-              | unique | join("; ")')
+            shown=$(pc_kinds <<<"${kinds%$'\n'}")
             k=${#withheld[@]}
             [ "$k" -eq 1 ] && what="1 of the $n findings is" || what="$k of the $n findings are"
             echo "the public-content check refused the text of $k of $n findings; they are withheld"

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { root } from "./server.mjs";
+import { gitRepo, root } from "./server.mjs";
 
 // The run: block of the step with this name in .github/workflows/<file>,
 // without its indentation. The name may follow the step's id.
@@ -63,4 +63,26 @@ export function runStep(dir, script, env) {
     timeout: 60000,
     env: { PATH: process.env.PATH, HOME: dir, ...env },
   });
+}
+
+// The security scan's "Find the base's public-content check", run for a
+// base whose files are baseFiles (none: a base with no check), so that
+// RUNNER_TEMP (temp) holds the state and the guard the scan's later steps
+// source. Its result is the step's.
+export function publicContentGuard(t, temp, baseFiles = {}) {
+  const repo = gitRepo(t);
+  repo.commit("a.txt", "a\n", "base");
+  for (const [f, content] of Object.entries(baseFiles)) repo.commit(f, content, `base ${f}`);
+  repo.git("update-ref", "refs/remotes/origin/main", repo.git("rev-parse", "HEAD"));
+  fs.mkdirSync(temp, { recursive: true });
+  const r = runStep(
+    repo.dir,
+    stepScript("security-scan.yml", "Find the base's public-content check"),
+    {
+      RUNNER_TEMP: temp,
+      BASE: "main",
+    },
+  );
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  return r;
 }
