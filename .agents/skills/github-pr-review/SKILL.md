@@ -91,8 +91,10 @@ for a change of base branch, `edited-title` for a change of title alone, or
    *reviewed* lines, regardless of which event started this run.
 
    Check the current title against the change and any changed closing references
-   against the issues the body now closes. Include concurrent edits in the same
-   report. Use the following rules:
+   against the issues the body now closes. An added closing reference preserves
+   the reviewed outcome only if its requirements were already assessed, as with
+   a duplicate issue. New or unverifiable requirements need a full review of
+   the current PR. Include concurrent edits in the same report.
 
    - **Head or base moved.** Call `range_diff` with the reviewed and current
      heads (the same SHA if only the base moved), and the full *Base reviewed*
