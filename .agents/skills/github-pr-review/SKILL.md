@@ -99,8 +99,9 @@ for a change of base branch, `edited-title` for a change of title alone, or
      SHA as `old_base` if the base branch or commit changed. Its result compares
      the patches and commit messages. If the base already contains every head
      commit, report that the PR now changes nothing and assess its criteria.
-     If the old range was empty, the delta is unavailable, or the patch changed,
-     run a full follow-up against the current base.
+     If the old range was empty or the delta is unavailable, review the whole
+     current PR. For a changed patch, apply the follow-up rules to its delta
+     against the reviewed change, using the current base.
    - **Before carrying any review forward**, read the prior round's *Coverage*
      and *Limits*, tracing an addendum or carried-forward assessment to the
      report it used. Confirm that review covered the affected areas, the current
@@ -108,8 +109,8 @@ for a change of base branch, `edited-title` for a change of title alone, or
      unchanged. When the base moved, use `show` at both base SHAs to compare
      the code or configuration the patch depends on, including callers
      and dependencies outside the PR diff. If any condition fails or the
-     evidence is unavailable, run the full follow-up and revisit the affected
-     areas under `review-guidelines`.
+     evidence is unavailable, open a follow-up round and review the whole
+     current PR, including the earlier gaps and findings.
    - **When those conditions hold**, unchanged patches and messages (including
      a content-identical rebase) qualify for a same-round addendum. Keep the
      earlier findings and their statuses. If only commit messages changed,
@@ -187,10 +188,11 @@ for a change of base branch, `edited-title` for a change of title alone, or
    too. An issue the token could not read, or whose text came withheld,
    gets one line saying so (step 1). Every round's report carries the
    section for its head; a follow-up may carry a mark over from the last
-   round, saying so (`as R1`), when the delta does not touch what the mark
-   cites. An addendum carries it for the issues a changed closing
-   reference added, and a rebase-only addendum leaves it out. A pull
-   request that closes no issue has none.
+   round (`as R1`) only when the cited evidence still holds under step 2's
+   coverage, outcome and base checks. Reassess any mark they call into question
+   or whose evidence the delta touches. An addendum includes the section for
+   newly added closing references, even on a rebase. Otherwise omit it from
+   addenda and from reports on a PR that closes no issue.
 
 ## Never
 
