@@ -115,11 +115,11 @@ change, and so does the weekly update check ([Updates](#updates)).
 
 - **File ownership.** Change this block and kit-owned workflows, MCP server,
   skills and label script upstream in gh-agent-kit, including issue forms when
-  `issue_forms` is `kit`. The [lock file](#the-lock-file) records the installed commit. Each repository owns
-  its [security review instructions](#the-scans-instructions-file).
+  `issue_forms` is `kit`. The [lock file](#the-lock-file) records the installed commit.
+  Each repository owns its [security review instructions](#the-scans-instructions-file).
 - **Workflow pins.** Merge Dependabot bumps through the normal PR process.
   The next [kit update](#updates) restores the release's pins.
-- **Settings and labels.** Put `KIT_*` settings in repository variables or the
+- **Settings and labels.** Put `KIT_*` settings in repository variables or
   [`.github/gh-agent-kit.yml`](#the-settings-file). Store secrets in Actions secrets.
   After adding a label to the `github-issue-triage` table, run
   [the label sync script](#2-create-the-labels).

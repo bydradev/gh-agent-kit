@@ -243,7 +243,7 @@ GitHub Issues are the backlog. Keep dated status and issue links in `docs/curren
   under *Handling findings*.
 
 Keep these rules in sync with the [installed block](docs/agents-md-block.md).
-For kit ownership, settings, label changes and review reruns, use the
+For kit ownership, settings, label definitions and review reruns, use the
 [maintenance guide](docs/setup.md#maintaining-an-installation).
 
 ### Code review rules

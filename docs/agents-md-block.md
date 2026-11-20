@@ -49,7 +49,7 @@ GitHub Issues are the backlog. Keep dated status and issue links in `docs/curren
   under *Handling findings*.
 
 Run `install.sh` only when the operator asks. Before changing kit files,
-settings or labels, or rerunning a review, read the
+settings or label definitions, or rerunning a review, read the
 [kit maintenance guide](https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md#maintaining-an-installation).
 
 <!-- gh-agent-kit:work-tracking:end -->
