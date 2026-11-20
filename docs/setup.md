@@ -111,6 +111,22 @@ repository's own lines to a subsection of their own, delete the section and
 install again. `--check` counts each of these, and an edited block, as a
 change, and so does the weekly update check ([Updates](#updates)).
 
+### Maintaining an installation
+
+- **File ownership.** Change this block and kit-owned workflows, MCP server,
+  skills and label script upstream in gh-agent-kit, including issue forms when
+  `issue_forms` is `kit`. The [lock file](#the-lock-file) records the installed commit. Each repository owns
+  its [security review instructions](#the-scans-instructions-file).
+- **Workflow pins.** Merge Dependabot bumps through the normal PR process.
+  The next [kit update](#updates) restores the release's pins.
+- **Settings and labels.** Put `KIT_*` settings in repository variables or the
+  [`.github/gh-agent-kit.yml`](#the-settings-file). Store secrets in Actions secrets.
+  After adding a label to the `github-issue-triage` table, run
+  [the label sync script](#2-create-the-labels).
+- **Review reruns.** Follow `github-issue-e2e` for the kit's own reviewers.
+  In a repository with Codex reviews enabled, comment `@codex review` for code
+  review or `@codex security review` for security review when available.
+
 ## 2. Create the labels
 
 From your repository:
