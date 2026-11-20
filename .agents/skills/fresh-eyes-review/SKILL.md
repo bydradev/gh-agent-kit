@@ -1,24 +1,24 @@
 ---
 name: fresh-eyes-review
-description: >-
-  Use before declaring substantial work complete or a branch or pull request ready for review, after review fixes cause material changes, or when handling the findings of any review. Covers who reviews, what to hand the reviewer, how to verify, fix or dispute findings, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family. The reviewer follows `review-guidelines`.
+description: Use before completing substantial work, readying a branch or PR for review, or handling review findings.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=49847dd7c9d3e470232d59d51932922b025104ffd3959c47cb33a96bc4221dad -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=316e5788c82ebc9fea1c7934a2b76cc2015a2d34e9c31084283875d4824190a8 -->
 
 # Independent fresh-eyes review
 
-A different agent or reviewer from the one that implemented the work reviews
-substantial changes at two gates: after a substantial implementation phase,
-before it is considered complete, and before a branch or pull request is
-declared ready for review; not every small edit or push. When model choice is
-available, prefer a stronger reasoning model and, where practical, another
-model family. Hand it the user's requested outcome, the relevant requirements
-and specifications, the diff or changed files with their base and head
-commits, and the validation results (for a follow-up review, also the last
-report and the commits since). It assesses the change independently, not by
-the implementer's conclusions, and follows the `review-guidelines` skill
-(`.agents/skills/review-guidelines/SKILL.md`) for what to check, severities,
-finding IDs, statuses and the report format.
+For substantial work, use a different agent or person from the implementer.
+Review each substantial phase before completion and the whole change before
+declaring the branch or PR ready. One review serves both when it covers the
+whole change at the proposed base and head for the same requested outcome.
+Get an independent follow-up on later material changes, including review
+fixes. A small edit that leaves the assessment valid needs no new round.
+For rebases and other follow-ups, apply `review-guidelines`.
+
+Prefer a stronger reasoning model and, where practical, another model family.
+Give the reviewer the requested outcome, requirements, diff or changed files,
+base and head commits, and validation results. For follow-ups, include the last
+report and subsequent commits. The reviewer assesses the evidence independently
+using `review-guidelines` (`.agents/skills/review-guidelines/SKILL.md`).
 
 ## Handling findings
 
@@ -39,11 +39,8 @@ requested outcome: a finding is a claim, whatever its source or severity.
 - Severity is the reviewer's estimate: dispute it with evidence, never quietly
   downgrade it.
 
-Resolve valid blocking findings (`review-guidelines` says which P0 and P1
-findings block) before declaring the work complete.
-
-If resolving review findings results in material changes, perform another
-independent fresh-eyes review of those changes before completion.
+Resolve valid blocking findings before completion or PR readiness.
+`review-guidelines` defines which P0 and P1 findings block.
 
 After three review rounds with blocking findings still open, stop and escalate
 to the operator rather than starting another round: list the open findings,
