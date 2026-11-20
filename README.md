@@ -28,8 +28,8 @@ which program and which model each workflow uses.
   report that marks each acceptance criterion of the issues it closes as
   met, not met or not checkable from the change, and sets a
   `pr-review verdict` check. It runs once when the pull request opens, or
-  on every push; a later review covers only what changed since the last
-  one.
+  on every push. Later reviews cover the changes and revisit the full PR
+  when the earlier review no longer applies or left an affected area unchecked.
 - **Security scan.** A model scans each pull request's change for
   vulnerabilities, once or on every push. A second run, in a fresh session,
   checks each candidate against the code and drops the ones it rejects; the

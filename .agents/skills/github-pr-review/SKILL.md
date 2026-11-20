@@ -88,54 +88,43 @@ for a change of base branch, `edited-title` for a change of title alone, or
    as Codex, are *Earlier findings* under that reviewer's name, as
    `review-guidelines` says. With no report of yours, run an initial
    review (R1). Otherwise compare the pull request with the last report's
-   *reviewed* lines:
+   *reviewed* lines, regardless of which event started this run.
 
-   - **The head or the base moved.** The head moved on `synchronize` or
-     any run on a head unlike *Head reviewed*; the base moved on
-     `edited-base` or any run whose base branch or commit is unlike *Base
-     reviewed* (a base push raises no event, so this run may be the first
-     to see it). Call `range_diff` with the last reviewed head as
-     `old_head` and the current head as `new_head` (the same commit twice
-     when only the base moved) and, when the base moved, the *Base
-     reviewed* commit (its full sha) as `old_base`; `diff` alone shows
-     only the diff against the current base. Its answer decides the round:
-     - *... so only which commits the base holds changed*: the
-       rebase-only addendum.
-     - *... but commit messages changed*: the code is the same, so review
-       only those messages (given in full, merge commits included, then
-       the series) as a follow-up round.
-     - *... the base already contains every commit of ...*: the pull
-       request now changes nothing; say so in the report rather than
-       reviewing an empty diff.
-     - *... the last reviewed head added nothing to its base ...*, or an
-       error ending *run the full follow-up* (a head force-pushed since
-       the report, or an `old_base` the tool could not fetch): the full
-       follow-up.
-     - Otherwise the `git range-diff` output, read as usual: a series
-       with no content change (a rebase) gets the rebase-only addendum; a
-       content change gets the full follow-up, diffing the last reviewed
-       head against the current one; a diff the base change altered (a
-       retarget, or a base that now holds part of the head) gets the full
-       follow-up against the current base, even with the head unchanged.
-   - **An edit** (`edited`, `edited-title`, or a title unlike *Title
-     reviewed*; a later edit can displace a queued one, so the event's
-     own change is not the whole story): compare the current closing
-     references, title and base with the *reviewed* lines and address
-     each that differs. Closing references: re-check the requested
-     outcome against the issues the body now closes. Title: check it
-     still describes the diff and the requested outcome, as
-     `review-guidelines` asks of a title. Base: as above. Post one
-     `## Review R<n> addendum: <verdict>` with the results or, when this
-     run also opens a follow-up round, put them in that round's report.
-   - **A dispatch** (the operator asked for another look): run the
-     follow-up steps on the conversation instead of the code, verifying
-     each open finding's replies and evidence, and post that as the next
-     round.
-   - **Any other run** whose head is the last reviewed head and whose
-     diff is unchanged: the rebase-only addendum `review-guidelines`
-     defines ("No content change since `R<n>`"), under the same heading so
-     the workflow's report check sees it. Never post that addendum for a
-     head whose content changed.
+   Check the current title against the change and any changed closing references
+   against the issues the body now closes. An added closing reference preserves
+   the reviewed outcome only if its requirements were already assessed, as with
+   a duplicate issue. New or unverifiable requirements need a full review of
+   the current PR. Include concurrent edits in the same report.
+
+   - **Head or base moved.** Call `range_diff` with the reviewed and current
+     heads (the same SHA if only the base moved), and the full *Base reviewed*
+     SHA as `old_base` if the base branch or commit changed. Its result compares
+     the patches and commit messages. If the base already contains every head
+     commit, report that the PR now changes nothing and assess its criteria.
+     If the old range was empty or the delta is unavailable, review the whole
+     current PR. For a changed patch, apply the follow-up rules to its delta
+     against the reviewed change, using the current base.
+   - **Before carrying any review forward**, read the prior round's *Coverage*
+     and *Limits*, tracing an addendum or carried-forward assessment to the
+     report it used. Confirm that review covered the affected areas, the current
+     request still matches the reviewed outcome, and relevant base behaviour is
+     unchanged. When the base moved, use `show` at both base SHAs to compare
+     the code or configuration the patch depends on, including callers
+     and dependencies outside the PR diff. If any condition fails or the
+     evidence is unavailable, open a follow-up round and review the whole
+     current PR, including the earlier gaps and findings.
+   - **When those conditions hold**, unchanged patches and messages (including
+     a content-identical rebase) qualify for a same-round addendum. Keep the
+     earlier findings and their statuses. If only commit messages changed,
+     review the changed messages in full in the next round.
+   - **Dispatch** requests a follow-up round even on an unchanged head.
+     Check replies and evidence for open findings. Include that work in any
+     full follow-up the rules above require.
+   - **Report once.** Include title and closing-reference checks in the
+     follow-up if one is due. Otherwise post `## Review R<n> addendum: <verdict>`
+     with their results and, for a qualifying rebase or unchanged rerun,
+     “No content change since R*n*”.
+
 3. **Post findings inline.** For each finding, create one inline comment on
    the reviewed line with the `inline_comment` tool (the path and the
    new-side line as `diff` shows them), starting with the ID, severity
@@ -201,10 +190,11 @@ for a change of base branch, `edited-title` for a change of title alone, or
    too. An issue the token could not read, or whose text came withheld,
    gets one line saying so (step 1). Every round's report carries the
    section for its head; a follow-up may carry a mark over from the last
-   round, saying so (`as R1`), when the delta does not touch what the mark
-   cites. An addendum carries it for the issues a changed closing
-   reference added, and a rebase-only addendum leaves it out. A pull
-   request that closes no issue has none.
+   round (`as R1`) only when the cited evidence still holds under step 2's
+   coverage, outcome and base checks. Reassess any mark they call into question
+   or whose evidence the delta touches. An addendum includes the section for
+   newly added closing references, even on a rebase. Otherwise omit it from
+   addenda and from reports on a PR that closes no issue.
 
 ## Never
 

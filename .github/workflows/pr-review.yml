@@ -754,8 +754,8 @@ jobs:
       # because a base push raises no pull request event and may change
       # the diff (it does when the merge base with the head moves): this
       # is the first run after it that can notice, and it runs on any tip
-      # move, which is deliberate, since the reviewer then decides from
-      # the diff whether an addendum or a full round is due. The comparison is against the last
+      # move. The reviewer checks the prior coverage, outcome and relevant
+      # base behaviour before carrying a verdict forward. Compare against the last
       # report, not the edit's own before and after: an edited run waits
       # behind a review in flight, and a later edit replaces it in the
       # queue, so only the surviving run's view of the pull request counts,
