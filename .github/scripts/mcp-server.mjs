@@ -210,7 +210,7 @@ function record(change) {
 // The check gets only PATH and PRIVATE_REPO_NAMES (read from a file the
 // runner user alone can read, like the token), never GH_TOKEN, and its
 // output never reaches the model: a refusal names the line and one of the
-// kinds the kit's own checks print, so a check that printed what it matched
+// kinds the kit recognizes, so a check that printed what it matched
 // could not repeat it through the model. A private repository name is the
 // exception: the names are a secret the model never sees, so a refusal
 // that said which line held one, or let the model try again, would let it

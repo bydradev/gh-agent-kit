@@ -748,10 +748,8 @@ jobs:
             esac
           }
 
-          # The kinds on stdin, a line each, as one list: those the kit's and
-          # gh-repo-bootstrapper's checks print, and any other named
-          # generically, so a check that printed what it matched cannot pass
-          # it on.
+          # Report recognized kinds, including those from older target checks.
+          # Replace unknown kinds so a check cannot echo matched text.
           pc_kinds() {
             sort -u | jq -Rrs '
               ["a claude.ai link", "a Claude-Session trailer", "a project attribution marker",
