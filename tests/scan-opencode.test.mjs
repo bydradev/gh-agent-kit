@@ -819,7 +819,7 @@ test("security-scan.yml, Run the scan on OpenCode: a server that does not start 
 // log wait for the step after the run, which prints them once the check
 // passes them and withholds them otherwise.
 test("security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check", (t) => {
-  const check = fs.readFileSync(path.join(root, ".github/scripts/public-content.mjs"), "utf8");
+  const check = fs.readFileSync(path.join(root, "tests/fixtures/name-list-check.mjs"), "utf8");
   const baseFiles = { ".github/scripts/public-content.mjs": check };
   for (const [step, print] of [
     ["Run the scan on OpenCode", "Print the scan run's log"],

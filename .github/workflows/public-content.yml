@@ -36,14 +36,12 @@ jobs:
       # The pull request's text is read from the event file, not passed
       # through step env, which the runner prints in the job log; the
       # script prints only where each finding is and its kind, never the
-      # text. PRIVATE_REPO_NAMES is empty for a fork's pull request, which
-      # GitHub does not give it; the script then says it skipped bare names.
+      # text.
       - name: Check the pull request's title, body and commits
         if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
         run: |
           title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
           jq -j '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/body.md"
@@ -57,7 +55,6 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
-          PRIVATE_REPO_NAMES: ${{ secrets.PRIVATE_REPO_NAMES }}
         run: |
           if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             range="$BEFORE..$AFTER"

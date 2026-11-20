@@ -293,7 +293,7 @@ function contentProblem(texts) {
     const more = found.length > CONTENT_SHOWN ? `; and ${found.length - CONTENT_SHOWN} more` : "";
     return (
       `the repository's public-content check found ${found.length} problem(s), so nothing was posted: ${shown}${more}. ` +
-      "This repository is public: reword those lines as its AGENTS.md *Public repository content* says (no private repository name, claude.ai session link, session ID, local path or private email address; the check never shows the matched text) and post again."
+      "Reword those lines according to this repository's public-content policy and post again. The check withholds the matched text."
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

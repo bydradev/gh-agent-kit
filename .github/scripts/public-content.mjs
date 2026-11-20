@@ -3,15 +3,12 @@
 // AGENTS.md *Public repository content* rules out. claude.ai session,
 // project, artifact and chat links, Claude-Session trailers, session and
 // thread IDs, paths from an agent's machine or project storage, email
-// addresses other than noreply ones, bydradev/ and bydraio/ repositories
-// other than the public ones, and the bare names listed in the
-// PRIVATE_REPO_NAMES environment variable (comma- or whitespace-separated; a
-// repository secret in CI, an environment variable in a cloud environment).
+// addresses other than noreply ones.
 // gh-repo-bootstrapper's .github/scripts/check_public_content.py is the same
 // check in Python: keep the two in step.
 //
 // It reports only where a match is and what kind it is, never the matched
-// text, so its output cannot repeat a private name or act as a workflow
+// text, so its output cannot repeat private text or act as a workflow
 // command.
 //
 //   public-content.mjs --range=BASE..HEAD   commit messages in a range
@@ -32,16 +29,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-
-const PUBLIC_REPOSITORIES = new Set([
-  "gh-repo-bootstrapper",
-  "gh-agent-kit",
-  "github-agent-kit",
-  "gh-actions-dashboard",
-]);
-// The made-up repository gh-repo-bootstrapper's template tests serve from a
-// mock GitHub API.
-const PLACEHOLDER_REPOSITORIES = new Set(["fixture"]);
 
 // Any claude.ai link with a path is found, so a new link format is too; only
 // the generic footer link https://claude.ai/code, the Claude Code installer
@@ -69,11 +56,6 @@ const PATTERNS = [
     ),
   ],
 ];
-// bydraio is the maintainer's earlier account name. The owner takes the bare
-// names' boundary rather than \b, so an underscore before it (Markdown
-// emphasis, _bydradev/name_) does not hide a reference.
-const OWNER_REPO = /(?<![A-Za-z0-9-])(?:bydradev|bydraio)\/([A-Za-z0-9._-]+)/gi;
-
 // An address is found unless it is a noreply one, at an example domain, or
 // the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 // login, not a person's. A backslash before it is an escape such as `\n`.
@@ -96,7 +78,7 @@ export const EXEMPT_FILES = new Set([
   "tests/public-content.test.mjs",
 ]);
 // A changed file's path is printed only when it has no finding and only these
-// characters, so it cannot repeat a private name or start a workflow command.
+// characters, so it cannot repeat private text or start a workflow command.
 const PRINTABLE_PATH = /^[\w./+@-]+$/;
 
 // The two lines a Claude project thread must put at the top of a pull
@@ -106,20 +88,6 @@ const ATTRIBUTION = [
   /^<!-- claude-projects-attribution: \{"github_login":"[A-Za-z0-9-]+"\} -->$/,
   /^_Requested by \*\*[^*\n]+\*\* · \[project thread\]\(https:\/\/claude\.ai\/code\/project\/chan_[A-Za-z0-9]+\?thread=cmsg_[A-Za-z0-9]+\)_$/,
 ];
-
-export function privateNames(value) {
-  return (value ?? "")
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .map((name) => [
-      name,
-      new RegExp(
-        // An underscore is a boundary, so Markdown emphasis (_name_) is found.
-        `(?<![A-Za-z0-9-])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9])`,
-        "i",
-      ),
-    ]);
-}
 
 function privateAddress(local, domain) {
   local = local.toLowerCase();
@@ -132,7 +100,7 @@ function privateAddress(local, domain) {
 }
 
 // [line number, kind] for each finding in text, in order.
-export function scan(text, names, allowAttribution = false) {
+export function scan(text, allowAttribution = false) {
   const lines = text.split(/\r?\n/);
   const skip =
     allowAttribution &&
@@ -144,20 +112,6 @@ export function scan(text, names, allowAttribution = false) {
   lines.forEach((line, index) => {
     if (index < skip) return;
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
-    for (const match of line.matchAll(OWNER_REPO)) {
-      // Trailing dots end a sentence. Trailing underscores close emphasis
-      // only when an underscore opened it earlier in the line; otherwise they
-      // are part of the name, so bydradev/gh-agent-kit_ is another repository.
-      const emphasised = /(?:^|\W)_/.test(line.slice(0, match.index));
-      const repository = match[1]
-        .replace(emphasised ? /[._]+$/ : /\.+$/, "")
-        .replace(/\.git$/, "")
-        .toLowerCase();
-      if (!PUBLIC_REPOSITORIES.has(repository) && !PLACEHOLDER_REPOSITORIES.has(repository)) {
-        kinds.push("a bydradev or bydraio repository outside the public list");
-        break;
-      }
-    }
     if (
       line !== DEPENDABOT_FOOTER &&
       [...line.matchAll(EMAIL)].some(
@@ -166,7 +120,6 @@ export function scan(text, names, allowAttribution = false) {
       )
     )
       kinds.push("an email address other than a noreply one");
-    if (names.some(([, pattern]) => pattern.test(line))) kinds.push("a private repository name");
     for (const kind of kinds) found.push([index + 1, kind]);
   });
   return found;
@@ -234,7 +187,7 @@ function changedFiles(range) {
   return out;
 }
 
-export function main(argv, env = process.env, print = console.log) {
+export function main(argv, print = console.log) {
   const sources = [];
   const pending = [];
   for (const arg of argv) {
@@ -262,13 +215,9 @@ export function main(argv, env = process.env, print = console.log) {
         sources.push([`commit ${sha.slice(0, 7)}`, message, false]);
   }
 
-  const names = privateNames(env.PRIVATE_REPO_NAMES);
-  if (names.length === 0)
-    print("PRIVATE_REPO_NAMES is not set, so bare private repository names were not checked.");
-
   const findings = [];
   for (const [source, text, allow] of sources)
-    for (const [line, kind] of scan(text, names, allow))
+    for (const [line, kind] of scan(text, allow))
       findings.push(`${source}, line ${line}: ${kind}`);
   let files = 0;
   for (const [option, value] of pending) {
@@ -276,14 +225,14 @@ export function main(argv, env = process.env, print = console.log) {
     for (const [commit, place, file, added] of changedFiles(value)) {
       if (EXEMPT_FILES.has(file)) continue;
       files += 1;
-      const inName = scan(file, names).map(([, kind]) => kind);
+      const inName = scan(file).map(([, kind]) => kind);
       const source =
         inName.length || !PRINTABLE_PATH.test(file)
           ? `commit ${commit.slice(0, 7)}, changed file ${place} (name not shown)`
           : `commit ${commit.slice(0, 7)}, file ${file}`;
       for (const kind of inName) findings.push(`${source}, name: ${kind}`);
       for (const [number, line] of added)
-        for (const [, kind] of scan(line, names))
+        for (const [, kind] of scan(line))
           findings.push(`${source}, line ${number}: ${kind}`);
     }
   }

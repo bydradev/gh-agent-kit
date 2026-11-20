@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { ghCalls, gitRepo, root, startServer, tempDir } from "./helpers/server.mjs";
 import { ownEnvNames } from "./helpers/opencode.mjs";
 
+const TARGET_CHECK = path.join(root, "tests/fixtures/name-list-check.mjs");
 const CHECK = path.join(root, ".github/scripts/public-content.mjs");
 // Examples of what the check finds, built from parts so that this file's
 // own lines pass the repository's check.
@@ -19,7 +20,6 @@ const LINK = at("https://claude.", "ai/code/", "session", "_0123456789abcdefABCD
 const HOME_PATH = at("/ho", "me/dra/notes.txt");
 const PROJECT_PATH = at("/m", "nt/project-files/x");
 const ADDRESS = at("someone", "@", "gmail.com");
-const PRIVATE_REPO = at("bydradev", "/secret-thing");
 const CHAT = at("claude.", "ai/chat/abc");
 
 const REPORT = (base, head, extra = "") =>
@@ -118,13 +118,13 @@ test("inline_comment and file_issue are checked, file_issue field by field", asy
     finding: "R1-01",
     title: `Mention ${ADDRESS} in the docs`,
     outcome: "Done.",
-    acceptance: `- [ ] one\n- [ ] see ${PRIVATE_REPO}`,
+    acceptance: `- [ ] one\n- [ ] see ${HOME_PATH}`,
   };
   const filed = await server.call("file_issue", issue);
   assert.equal(filed.isError, true);
   assert.match(
     filed.text,
-    /title line 1: an email address other than a noreply one; acceptance line 2: a bydradev or bydraio repository outside the public list/,
+    /title line 1: an email address other than a noreply one; acceptance line 2: a local or project-storage path/,
   );
   assert.equal(posts(server).length, 0);
   const ok = await server.call("file_issue", {
@@ -158,12 +158,12 @@ test("a repository without a check posts as before", async (t) => {
 
 test("a bare private name is refused only when PRIVATE_REPO_NAMES reaches the check", async (t) => {
   const body = "## Triage\n\nLike skunkworks does.";
-  const without = await startServer(t, triage({ PUBLIC_CONTENT_CHECK: CHECK }));
+  const without = await startServer(t, triage({ PUBLIC_CONTENT_CHECK: TARGET_CHECK }));
   assert.equal((await without.call("comment", { body })).isError, false);
   const names = namesFile(t, "other, skunkworks\n");
   const withNames = await startServer(
     t,
-    triage({ PUBLIC_CONTENT_CHECK: CHECK, PRIVATE_REPO_NAMES_FILE: names }),
+    triage({ PUBLIC_CONTENT_CHECK: TARGET_CHECK, PRIVATE_REPO_NAMES_FILE: names }),
   );
   const r = await withNames.call("comment", { body });
   assert.equal(r.isError, true);
@@ -179,7 +179,7 @@ test("a private name says nothing of where it was and closes the run's posts, ac
   const state = path.join(tempDir(t), "state.json");
   const env = {
     ...f.env,
-    PUBLIC_CONTENT_CHECK: CHECK,
+    PUBLIC_CONTENT_CHECK: TARGET_CHECK,
     PRIVATE_REPO_NAMES_FILE: namesFile(t, "skunkworks"),
     STATE_FILE: state,
   };

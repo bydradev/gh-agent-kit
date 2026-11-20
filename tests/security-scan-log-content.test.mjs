@@ -15,6 +15,7 @@ import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs"
 
 const FILE = "security-scan.yml";
 const WORKFLOW = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
+const TARGET_CHECK = fs.readFileSync(path.join(root, "tests/fixtures/name-list-check.mjs"), "utf8");
 const CHECK = fs.readFileSync(path.join(root, ".github/scripts/public-content.mjs"), "utf8");
 const MJS = ".github/scripts/public-content.mjs";
 // What the check finds, built from parts so this file passes it.
@@ -165,7 +166,7 @@ for (const name of ["Run the scan", "Verify the candidate findings"]) {
   const print = name === "Run the scan" ? printScan : printVerify;
 
   test(`${name}: with a base check, the model's last message waits for the check, and is withheld when it refuses it`, (t) => {
-    const r = runner(t, { [MJS]: CHECK });
+    const r = runner(t, { [MJS]: TARGET_CHECK });
     const run = claudeRun(r, name, `Read ${HOME_PATH} and skunkworks.`);
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.doesNotMatch(run.stdout, /notes\.txt|skunkworks|^result:/m);
@@ -350,7 +351,7 @@ test("the verification's schema failure and dropped candidates reach the log onl
       ],
     });
 
-  const refused = setup({ [MJS]: CHECK }, verdicts("Same as in skunkworks."));
+  const refused = setup({ [MJS]: TARGET_CHECK }, verdicts("Same as in skunkworks."));
   assert.equal(refused.status, 0, refused.stdout + refused.stderr);
   assert.doesNotMatch(refused.stdout, /skunkworks|- F2 /);
   assert.match(
@@ -372,7 +373,7 @@ test("the verification's schema failure and dropped candidates reach the log onl
     /^- F2 HIGH command_injection in app\/api\.js:40: Same as in skunkworks\.$/m,
   );
 
-  const bad = setup({ [MJS]: CHECK }, result({ verdicts: "see skunkworks" }));
+  const bad = setup({ [MJS]: TARGET_CHECK }, result({ verdicts: "see skunkworks" }));
   assert.equal(bad.status, 1, bad.stdout + bad.stderr);
   assert.match(
     bad.stdout,

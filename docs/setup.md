@@ -153,7 +153,7 @@ secrets: the file holds settings only.
 | `KIT_UPDATE_CHECK` | Setting | `on`, `off` or unset | `on`: the weekly update check ([Updates](#updates)); `off` or unset: off |
 | `KIT_ISSUE_LINK_CHECK` | Setting | `on`, `off` or unset | `on`: fail a pull request whose body names no issue it closes and gives no `No issue:` reason ([The issue-link check](#the-issue-link-check)); `off` or unset: off |
 | `OPENCODE_API_KEY` | Secret, optional | An OpenCode API key from a workspace with a Go subscription | Needed only with `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or `KIT_TRIAGE_PROVIDER` set to `opencode-go`; that run fails before the model starts without it, naming the missing secret. It never stands in for `ANTHROPIC_API_KEY` while the provider is `anthropic` |
-| `PRIVATE_REPO_NAMES` | Secret, optional | The maintainer's private repository names, separated by commas or spaces | Read only when the repository ships a public-content check, which then also refuses a bot post, or withholds a security scan finding or log text, naming one of them bare ([Public repository content](#public-repository-content)); elsewhere unused |
+| `PRIVATE_REPO_NAMES` | Secret, optional | Names for a target checker that filters repository references | Passed to the repository's [public-content check](#public-repository-content) if set |
 
 The workflows' models, effort, budgets and size limits are settings too,
 so a repository tunes cost without editing the kit's files. Each is
@@ -792,10 +792,8 @@ The workflows also:
 
 ### Public repository content
 
-A public repository whose rules keep private repository names, claude.ai
-session links, session IDs, local paths and private email addresses out
-of everything it publishes can hold the kit's review and triage bots and
-its security scan to the same rule. The model has no shell to run a check
+A repository can apply its own public-content policy to bot posts and
+security scan findings and logs. The model has no shell to run a check
 itself, so the MCP server runs it on every text it is about to post: the
 review's report, each inline finding, each field of an issue the reviewer
 files, and triage's comment; the scan's findings and log are checked by its
@@ -810,7 +808,7 @@ not ship either file. The check must take `--text=FILE`, exit 0 when the
 text is clean and 1 when it finds something, and print each finding as
 `::error title=Public repository content::<where>, line <n>: <kind>`;
 the model is shown the line number and the kind when it is one of the
-kinds those two checks print, and a generic kind otherwise. Any other
+kinds the kit recognizes, and a generic kind otherwise. Any other
 exit, an exit 1 without such a line, or a check that is configured but
 missing refuses the post too, so a broken check never lets text through
 unchecked.
@@ -827,12 +825,10 @@ unchecked.
   the scan looks its check up before the scan and runs it on each text
   as it is shown, below.
 - The check runs with only `PATH` and, when the repository sets it,
-  `PRIVATE_REPO_NAMES` in its environment, never the job token. Set the
-  `PRIVATE_REPO_NAMES` secret to have it refuse bare private names too;
-  the workflows pass it to the server in a file only the runner user can
-  read, not on the model's command line. Without the secret, the check's
-  other patterns still apply.
-- The names are a secret the model never sees, so a text holding one is
+  `PRIVATE_REPO_NAMES` in its environment. Set the optional secret only
+  if your checker uses it. The workflows pass it to the server in a file
+  only the runner user can read.
+- When a checker reports `a private repository name`, the text is
   refused without the line or the kind, and the run posts nothing more:
   a refusal that said where the name was, or let the model try again,
   would let a model steered by injected text confirm guesses one post at
