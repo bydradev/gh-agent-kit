@@ -8,20 +8,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
-import { EXEMPT_FILES, main, privateNames, scan } from "../.github/scripts/public-content.mjs";
+import { EXEMPT_FILES, main, scan } from "../.github/scripts/public-content.mjs";
 
-// Made-up names: the real list lives in a secret, never in this repository.
-const NAMES = "sunrise-app, Orchard";
 const ATTRIBUTION =
   '<!-- claude-projects-attribution: {"github_login":"someone"} -->\n' +
   "_Requested by **Sam** · [project thread](https://claude.ai/code/project/" +
   "chan_0123456789abcdefABCDEF?thread=cmsg_0123456789abcdefABCDEF)_\n";
 
-const OWNER = "a bydradev or bydraio repository outside the public list";
 const EMAIL = "an email address other than a noreply one";
 
-const kinds = (text, allow = false, names = NAMES) =>
-  scan(text, privateNames(names), allow).map(([, kind]) => kind);
+const kinds = (text, allow = false) =>
+  scan(text, allow).map(([, kind]) => kind);
 
 test("finds each kind", () => {
   const cases = {
@@ -45,14 +42,6 @@ test("finds each kind", () => {
     "/var/folders/xy/T/tmp.1234": "a local or project-storage path",
     "on /Volumes/Work/GitHub": "a local or project-storage path",
     "Plan: `~/GitHub/.omo/plans/x.md`": "a local or project-storage path",
-    "see bydradev/secret-thing#12": OWNER,
-    "https://github.com/bydradev/example-private": OWNER,
-    "moved from bydraio/old-private-app": OWNER,
-    "from _bydradev/secret-thing_": OWNER,
-    "from __bydradev/secret-thing__.": OWNER,
-    "see _bydradev/gh-agent-kit_ and bydradev/secret-thing": OWNER,
-    "https://github.com/bydradev/gh-agent-kit_": OWNER,
-    "a snake_case bydradev/gh-agent-kit_": OWNER,
     "Signed-off-by: Sam <sam@mailbox.test>": EMAIL,
     "write to Sam.Lee+github@corp.Mailbox.test.": EMAIL,
     "[mail](mailto:sam@mailbox.test)": EMAIL,
@@ -60,10 +49,6 @@ test("finds each kind", () => {
     "see https://github.com/acme or sam@mailbox.test": EMAIL,
     "https://host.test/u/sam@mailbox.test": EMAIL,
     "https://user:password@github.com/acme/repo by sam@mailbox.test": EMAIL,
-    "ported from sunrise-app's baseline": "a private repository name",
-    "as ORCHARD does": "a private repository name",
-    "from _sunrise-app_": "a private repository name",
-    "from __Orchard__": "a private repository name",
   };
   for (const [text, kind] of Object.entries(cases)) assert.ok(kinds(text).includes(kind), text);
 });
@@ -77,15 +62,7 @@ test("lets public text through", () => {
     "https://user:password@github.com/acme/repo and https://user@github.com/acme/repo",
     '"https://:password@github.com/acme/repo", "https://api.github.com@evil.test/items"',
     "git+ssh://deploy@git.mailbox.test/acme.git",
-    "bydradev/gh-agent-kit#72 and https://github.com/bydradev/gh-repo-bootstrapper.git",
-    "see bydradev/gh-actions-dashboard#12",
-    "the old name bydradev/github-agent-kit. still redirects",
-    "from _bydradev/gh-agent-kit_ and __bydraio/gh-repo-bootstrapper__.",
-    "[_bydradev/gh-actions-dashboard_](https://github.com/bydradev/gh-actions-dashboard)",
-    "_https://github.com/bydradev/gh-agent-kit.git_",
-    "notbydradev/secret-thing and x-bydraio/secret-thing are other owners",
     "a session_id field, a chan_ prefix",
-    "orchards, sunrise-apps and the-sunrise-app",
     "/home/runner/work is the runner's checkout",
     "/home/linuxbrew/.linuxbrew/bin/brew and GET /users/octocat",
     "https://example.com/mnt/data and https://claude.ai/code.",
@@ -106,8 +83,6 @@ test("lets public text through", () => {
     // The rule's own text names the prefixes and markers it rules out.
     "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
     "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",
-    // The mock API's repository in gh-repo-bootstrapper's template tests.
-    "GET /repos/bydradev/fixture/dependabot/alerts",
   ])
     assert.deepEqual(kinds(text), [], text);
 });
@@ -125,39 +100,44 @@ test("allows only the exact public footer", () => {
     "sam@mailbox.test " + footer, footer + "\r", footer + "\u2028",
     footer + "\v", footer + "\x85", footer + "\x00"];
   for (const text of near) assert.ok(kinds(text).includes(EMAIL));
-  for (const forbidden of ["sam@mailbox.test", "Claude-Session: x", "from sunrise-app",
-    "bydradev/secret-thing", "/Users/sam/x"]) {
+  for (const forbidden of ["sam@mailbox.test", "Claude-Session: x", "/Users/sam/x"]) {
     assert.deepEqual(kinds(footer + "\n" + forbidden), kinds(forbidden));
     assert.deepEqual(kinds(forbidden + "\n" + footer), kinds(forbidden));
     assert.ok(kinds(footer + " " + forbidden).length);
   }
-  assert.deepEqual(kinds(footer, false, "dependabot"), ["a private repository name"]);
 });
 
 test("reports line numbers", () => {
-  assert.deepEqual(scan("ok\n\nClaude-Session: x\n", []), [[3, "a Claude-Session trailer"]]);
+  assert.deepEqual(scan("ok\n\nClaude-Session: x\n"), [[3, "a Claude-Session trailer"]]);
 });
 
 test("allows the attribution block only at the top of a body", () => {
   assert.deepEqual(kinds(`${ATTRIBUTION}\n## What changes\n`, true), []);
   assert.ok(kinds(ATTRIBUTION).includes("a project attribution marker"));
   assert.ok(kinds(`Intro\n${ATTRIBUTION}`, true).includes("a claude.ai link"));
-  assert.deepEqual(kinds(`${ATTRIBUTION}\nfrom sunrise-app\n`, true), [
-    "a private repository name",
-  ]);
+  assert.deepEqual(kinds(`${ATTRIBUTION}\nsam@mailbox.test\n`, true), [EMAIL]);
 });
 
-test("reads names from a comma- or space-separated list", () => {
-  assert.deepEqual(
-    privateNames(" a,b\nc  ").map(([name]) => name),
-    ["a", "b", "c"],
-  );
-  assert.deepEqual(kinds("from sunrise-app", false, ""), []);
+test("accepts repository references with or without the former name list", () => {
+  const env = { ...process.env };
+  delete env.PRIVATE_REPO_NAMES;
+  for (const setting of [env, { ...env, PRIVATE_REPO_NAMES: "fixture-project" }]) {
+    const out = execFileSync(
+      process.execPath,
+      [
+        path.join(root, ".github/scripts/public-content.mjs"),
+        "--title=fixture-project, bydradev/fixture-project and bydraio/fixture-project",
+      ],
+      { env: setting, encoding: "utf8" },
+    );
+    assert.match(out, /No private details found/);
+    assert.doesNotMatch(out, /PRIVATE_REPO_NAMES/);
+  }
 });
 
-function run(argv, names = NAMES) {
+function run(argv) {
   const lines = [];
-  const code = main(argv, { PRIVATE_REPO_NAMES: names }, (line) => lines.push(line));
+  const code = main(argv, (line) => lines.push(line));
   return [code, lines.join("\n")];
 }
 
@@ -165,27 +145,26 @@ test("never prints the matched text", (t) => {
   const body = path.join(tempDir(t), "body.md");
   fs.writeFileSync(
     body,
-    "Ported from sunrise-app.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n" +
+    "Revised the notes.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n" +
       "Signed-off-by: Sam <sam@mailbox.test>\n",
   );
-  const [code, out] = run(["--title=fix: port the sunrise-app fix", `--pr-body=${body}`]);
+  const [code, out] = run(["--title=fix: use /Users/sam/x", `--pr-body=${body}`]);
   assert.equal(code, 1, out);
   assert.match(
     out,
-    /::error title=Public repository content::title, line 1: a private repository name/,
+    /::error title=Public repository content::title, line 1: a local or project-storage path/,
   );
   assert.match(out, /body, line 2: a claude\.ai link/);
   assert.match(out, /body, line 3: an email address other than a noreply one/);
-  assert.doesNotMatch(out, /sunrise|session_01|mailbox/);
+  assert.doesNotMatch(out, /Users|session_01|mailbox/);
 });
 
-test("passes clean text and says when no names are set", (t) => {
+test("passes clean text", (t) => {
   const body = path.join(tempDir(t), "body.md");
   fs.writeFileSync(body, `${ATTRIBUTION}\n## What changes\n\nNothing private.\n`);
-  const [code, out] = run(["--title=docs: say what changes", `--pr-body=${body}`], "");
+  const [code, out] = run(["--title=docs: say what changes", `--pr-body=${body}`]);
   assert.equal(code, 0, out);
   assert.doesNotMatch(out, /::error/);
-  assert.match(out, /PRIVATE_REPO_NAMES is not set/);
 });
 
 test("refuses no argument, an unknown one or --files without a range", () => {
@@ -283,7 +262,7 @@ test("checks the lines a range adds to files", (t) => {
     "feat: add",
     {
       "notes.md": "old\nfrom /home/alice/old\nnew line\nsee /Users/sam/GitHub\n",
-      "docs/sunrise-app.md": "Signed-off-by: Sam <sam@mailbox.test>\n",
+      "docs/cmsg_0123456789abcdefABCDEF.md": "Signed-off-by: Sam <sam@mailbox.test>\n",
       "logo.png": Buffer.from("\x89PNG\x00/Users/sam/x\n", "latin1"),
       // The check's own script and tests hold the patterns they find.
       ".github/scripts/public-content.mjs": "// /Users/sam/x\n",
@@ -304,13 +283,13 @@ test("checks the lines a range adds to files", (t) => {
   // A file whose name has a finding is not named but numbered as
   // `git show --name-only` lists it; its lines are still checked.
   for (const finding of [
-    "name: a private repository name",
+    "name: a session or thread ID",
     "line 1: an email address other than a noreply one",
   ])
     assert.ok(out.includes(`commit ${head}, changed file 2 (name not shown), ${finding}`), out);
   // Not the old line, the removed file, the image or the exempt files.
   assert.equal(out.match(/::error/g).length, 3, out);
-  assert.doesNotMatch(out, /sunrise|sam/i);
+  assert.doesNotMatch(out, /cmsg_|sam/i);
 });
 
 test("reads files commit by commit", (t) => {
@@ -397,7 +376,7 @@ test("every tracked file passes", () => {
     if (!stat?.isFile()) continue;
     const data = fs.readFileSync(file);
     if (data.includes(0)) continue;
-    for (const [line, kind] of scan(`${name}\n${data.toString("utf8")}`, []))
+    for (const [line, kind] of scan(`${name}\n${data.toString("utf8")}`))
       found.push(`${name}:${line - 1}: ${kind}`); // line 0 is the name
   }
   assert.deepEqual(found, []);
@@ -450,26 +429,25 @@ test("the pull request step checks the title, the body and each commit", (t) => 
   const env = {
     RUNNER_TEMP: dir,
     GITHUB_EVENT_PATH: event,
-    PRIVATE_REPO_NAMES: NAMES,
     BASE: base,
     HEAD: head,
   };
   const pr = (title, body) =>
     fs.writeFileSync(event, JSON.stringify({ pull_request: { title, body } }));
-  pr("fix: two", `${ATTRIBUTION}\nfrom Orchard\n`);
+  pr("fix: two", `${ATTRIBUTION}\nsee sam@mailbox.test\n`);
   let result = runStep(dir, script, env);
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  assert.match(result.stdout, /body, line 4: a private repository name/);
+  assert.match(result.stdout, /body, line 4: an email address/);
   assert.match(result.stdout, /commit [0-9a-f]{7}, line 3: a Claude-Session trailer/);
   assert.match(
     result.stdout,
     /commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path/,
   );
-  assert.doesNotMatch(result.stdout, /Orchard|session_01/);
-  pr("fix: Orchard", ATTRIBUTION);
+  assert.doesNotMatch(result.stdout, /mailbox|session_01/);
+  pr("fix: use /Users/sam/x", ATTRIBUTION);
   result = runStep(dir, script, { ...env, BASE: head });
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  assert.match(result.stdout, /title, line 1: a private repository name/);
+  assert.match(result.stdout, /title, line 1: a local or project-storage path/);
   pr("fix: two", ATTRIBUTION);
   result = runStep(dir, script, { ...env, BASE: head });
   assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -540,7 +518,7 @@ test("no workflow this repository owns puts event text in an expression", () => 
 test("the push step checks the pushed commits, or the one commit when before is unknown", (t) => {
   const { dir, git, base, head } = scratch(t);
   const script = stepScript("public-content.yml", "Check the pushed commits");
-  let result = runStep(dir, script, { BEFORE: base, AFTER: head, PRIVATE_REPO_NAMES: NAMES });
+  let result = runStep(dir, script, { BEFORE: base, AFTER: head });
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /a Claude-Session trailer/);
   assert.match(
@@ -550,14 +528,12 @@ test("the push step checks the pushed commits, or the one commit when before is 
   result = runStep(dir, script, {
     BEFORE: "0000000000000000000000000000000000000000",
     AFTER: git("rev-parse", "HEAD"),
-    PRIVATE_REPO_NAMES: NAMES,
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   // A root commit.
   result = runStep(dir, script, {
     BEFORE: "0000000000000000000000000000000000000000",
     AFTER: base,
-    PRIVATE_REPO_NAMES: NAMES,
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });

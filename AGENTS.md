@@ -176,15 +176,11 @@ A change to the server's tools or to `install.sh` comes with a test.
 
 ### Public repository content
 
-This repository is public. This narrows *Commits* and *Pull requests*:
-files, commit messages, PR and issue titles and bodies, comments, review
-replies and release notes name only public repositories (this one,
-`bydradev/gh-repo-bootstrapper`, `bydradev/gh-actions-dashboard` and
-third-party upstreams).
+This public repository narrows *Commits* and *Pull requests*. Keep private
+personal details out of files, commits, issues, PRs, comments and release
+notes. For cross-repository work, follow the task's instructions on what to
+name in public.
 
-- Call any other repository of the maintainer "a private repository" or "a
-  target repository", with no name, number or link; say what it showed, not
-  where.
 - No claude.ai links but the generic `https://claude.ai/code` (no sessions,
   projects, artifacts or chats) and no session, project or thread IDs. A
   commit keeps its `Co-Authored-By:` trailer but carries no
@@ -214,9 +210,7 @@ third-party upstreams).
 - Before pushing, and before posting a PR body or a comment, run
   `node .github/scripts/public-content.mjs` with `--range=` and `--files=`
   (`origin/main..HEAD`), `--title=`, `--pr-body=` or `--text=`. `--files=`
-  checks the lines the commits add to files, except in the check's own
-  script and tests. It reads the private names from `PRIVATE_REPO_NAMES`
-  when the environment sets it, and never prints what it matched. The
+  checks added lines except in the check's own script and tests. The
   `public-content` workflow runs it on every PR and every push to `main`,
   after the text is already on GitHub: when it fails, reword, and never
   bypass or weaken it. Neither file is in `kit-manifest.txt`, so no target
@@ -268,7 +262,5 @@ dated status and links to issues rather than restating them.
 
 ### Code review rules
 
-- A PR's title, body, commits and files name no private repository and carry
-  no claude.ai link, `Claude-Session:` trailer or email address but a
-  noreply one, except the exact public footer defined in *Public repository
+- Review the PR title, body, commits and files against *Public repository
   content*.

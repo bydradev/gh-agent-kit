@@ -20,6 +20,7 @@ const summaryScript = stepScript(FILE, "Summarise the scan's findings");
 const commentScript = stepScript(FILE, "Comment on the findings' lines");
 const recordScript = stepScript(FILE, "Record the completed scan");
 const noticeScript = stepScript(FILE, "Record that the scan did not complete");
+const TARGET_CHECK = fs.readFileSync(path.join(root, "tests/fixtures/name-list-check.mjs"), "utf8");
 const CHECK = fs.readFileSync(path.join(root, ".github/scripts/public-content.mjs"), "utf8");
 // What the check finds, built from parts so this file passes it.
 const at = (...parts) => parts.join("");
@@ -91,7 +92,7 @@ test("the step runs where the summary does, after the verification and before th
 });
 
 test("a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not", (t) => {
-  const s = setup(t, { [MJS]: CHECK });
+  const s = setup(t, { [MJS]: TARGET_CHECK });
   s.write(
     "scan-results.json",
     results([
@@ -302,7 +303,7 @@ test("findings the check passes are left as they were", (t) => {
 });
 
 test("a token the comment or the record would rebuild by taking out a backtick is refused", (t) => {
-  const s = setup(t, { [MJS]: CHECK });
+  const s = setup(t, { [MJS]: TARGET_CHECK });
   s.write(
     "scan-results.json",
     results([
