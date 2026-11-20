@@ -877,6 +877,11 @@ predates that, keeps the verdict of the report before it):
 | Changes required | `failure` |
 | Operator decision needed, or none stated | `action_required` |
 
+After a rebase, the reviewer carries the verdict forward only when the patch
+and messages match, the earlier review covered the affected areas, and the
+requested outcome and relevant base behaviour are unchanged. If coverage
+or applicability is uncertain, the reviewer runs a full follow-up.
+
 The check is set in progress on the head as soon as the run decides to
 review (after its skip checks), so a new review of a head that already has
 a verdict (after a title, base or closing-reference edit, or on a dispatch)
