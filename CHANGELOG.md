@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/bydradev/gh-agent-kit/compare/v0.6.0...v0.7.0) (2026-11-20)
+
+
+### Features
+
+* shorten the installed work-tracking block ([8d5fe9b](https://github.com/bydradev/gh-agent-kit/commit/8d5fe9b23558277915d0c56161d664326aa14ab2))
+
+
+### Bug Fixes
+
+* check prior coverage before carrying a review verdict forward ([5ed1c33](https://github.com/bydradev/gh-agent-kit/commit/5ed1c33bfe3bf3c5a34a7379e597e6b9782d62cf))
+* let target checkers define repository-name policy ([abe2513](https://github.com/bydradev/gh-agent-kit/commit/abe25132a0998461e800664a283d5d3daf6e4f2a))
+
 ## [0.6.0](https://github.com/bydradev/gh-agent-kit/compare/v0.5.1...v0.6.0) (2026-11-18)
 
 
