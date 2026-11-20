@@ -1,9 +1,9 @@
 ---
 name: review-guidelines
 description: >-
-  Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
+  Use for an initial or follow-up review of someone else's pull request, branch or diff.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=b02ffe00b114a86224a34e3d3d655db59269c0c05cc3de2c53fea446a6b86616 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=f95b90f5c3e614dadeacb05bad44dc800e0aeab3dcf2465a829e9ed425296111 -->
 
 # Review guidelines
 
@@ -76,13 +76,17 @@ A follow-up runs when commits arrive after a report, or when someone asks for
 another review. It checks the earlier findings and the new code, not the whole
 change again.
 
-1. **Find the last report.** Note its round, the head commit it reviewed, and
-   each finding that is *Open* or *Partly fixed*.
+1. **Find the last report.** Note its round, reviewed head and each *Open*
+   or *Partly fixed* finding. For coverage carried forward from an earlier
+   review, read that review's *Coverage* and *Limits*.
 2. **Isolate the delta.** Diff the last reviewed head against the new head;
    after a rewrite, separate the author's changes with `git range-diff`, and
    read a base merge with `git show --remerge-diff <merge>`. Without git, ask
    whoever started the review for the delta; if it cannot be isolated, run a
-   full review.
+   full review. For a rebase alone, stop with an addendum ("No content
+   change since R*n*", with the new head) only when `git range-diff` shows
+   unchanged author commits, the prior review covered the whole change,
+   and the requested outcome and relevant base behaviour are unchanged.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -102,12 +106,12 @@ change again.
 7. **Keep identity stable.** Earlier findings keep their IDs. Change a
    severity only with a stated reason, such as new evidence or wider exposure.
 
-Run a full review as well as steps 1, 3, 5 and 7, and say why, when:
+Run a full review alongside steps 1, 3, 5 and 7, and say why, when:
 
 - the delta rewrites most of a changed file, changes the approach, or adds
   files in a high-risk area;
 - the requested outcome changed;
-- the last report listed areas it could not review;
+- an area affected by the overall change is still unreviewed;
 - the base branch changed behaviour this change depends on;
 - the last report cannot be found, or its head commit is unreachable.
 
@@ -131,110 +135,86 @@ open findings and what each round changed.
   matches their stamp are template output, not local edits. Check that
   `## Project specifics` survived, that no repository rule was dropped, and
   that kept action pins are listed.
-- **Rebase only.** When `git range-diff` shows no change to the author's
-  commits, post an addendum to the last round ("No content change since
-  R*n*", with the new head). It is not a new round.
 
 ## Focus areas
 
-Check each area that applies.
+**Correctness.** Trace the requested outcome through boundaries and errors.
+Check empty, single, many, maximum, zero, negative, missing, null and duplicate
+inputs. Check Unicode, time zones, daylight saving, leap years, units, rounding
+and currency where relevant. Verify calculations against documented conventions
+and sources, including behaviour on retries.
 
-**Correctness.** The behaviour matches the requested outcome. Boundaries:
-empty, one, many and maximum; zero, negative, missing and null values;
-duplicates; Unicode; time zones and daylight saving; leap years; units,
-rounding and currency. Error paths, retries and idempotency. Calculations
-follow the repository's documented conventions and cited sources.
+**Access control.** Check server-side authorization at each entry point and
+each resource lookup. Fail closed on expired tokens, outages or unknown
+membership. Check caches, shared state and logs for cross-user disclosure.
 
-**Access control.** Every new entry point (route, action, job, webhook, CLI
-flag) checks on the server who may use it. When a check cannot complete
-(expired token, API down, membership unknown), access fails closed. Per-user
-data does not cross users through caches, shared state or logs, and an ID that
-selects a resource is checked against the caller's access on every use.
+**Security.** Validate untrusted input at entry and encode it for its destination
+(SQL, shell, paths, HTML, URLs, headers, templates or regex). Block internal
+destinations through redirects too. Keep secrets out of code, clients, logs,
+errors, build output and fixtures. Check session, token and OAuth expiry,
+replay, fixation and CSRF. Use maintained crypto and parsers. Keep untrusted
+data away from unsafe deserialisation and dynamic execution.
 
-**Security.** Untrusted input is validated where it enters and encoded where it
-leaves: SQL, shell, file paths, HTML, URLs, headers, templates and regular
-expressions. URLs from users or feeds cannot reach private or internal
-addresses, including through redirects. Secrets stay out of code, client
-bundles, logs, error messages, build artefacts and fixtures. Sessions, tokens
-and OAuth state expire and resist replay, fixation and CSRF. Cryptography and
-parsing use maintained libraries, and unsafe deserialisation or dynamic code
-execution never sees untrusted data.
+**Privacy.** Check that collection, storage, analytics, tracking and transmission
+are intended, documented and consistent with privacy promises. Keep personal
+data out of logs and errors.
 
-**Privacy.** New collection, storage, analytics, tracking or transmission of
-user data is intended and documented. Logs and errors carry no personal data.
-The product's stated privacy promises, such as "everything stays in the
-browser", still hold.
+**Reliability.** Bound network calls with timeouts and retries with backoff.
+Mark partial, stale or cached results accurately. Paginate to the end or
+report the interruption. Honour cancellation, prevent stale async writes and
+release resources on every path. Check retry idempotency.
 
-**Reliability.** Network calls have timeouts; retries are bounded and back off.
-Partial failure is visible: incomplete, stale or cached data is never shown as
-complete and current, and pagination reaches the end or says it stopped. An
-asynchronous result cannot overwrite newer state, and cancellation is honoured.
-Resources are released on every path.
+**Data and migrations.** Check that users’ existing files, settings, caches and
+local storage still load. Check migration order, rollback or forward recovery,
+locks, backfills and required columns without defaults on large tables.
+Parameterise queries, index new access paths, make multi-step writes atomic
+and exercise database behaviour against a real database.
 
-**Data and migrations.** Schema and storage changes work on existing data and
-have a rollback or forward-fix path. Migrations are ordered and safe on large
-tables (locks, `NOT NULL` without a default, backfills). Queries are
-parameterised, multi-step writes are atomic, and new queries have the indexes
-they need. Tests that matter run against a real database, not only mocks. Data
-users already hold (local storage, caches, saved files, settings) still loads.
+**Interfaces.** Preserve compatibility for APIs, flags, config, formats, URLs
+and events, or document the break and mark it with `!` or a `BREAKING CHANGE` footer.
 
-**Interfaces.** Changes to public APIs, CLI flags, configuration keys, file
-formats, URLs and events stay compatible, or are marked breaking (`!` or a
-`BREAKING CHANGE` footer) and documented.
+**Tests.** Exercise changed behaviour, boundaries and failures with realistic
+fixtures and assertions that would fail without the change. Check that snapshot
+and golden-file diffs contain only intended changes. Watch for flaky timing, network or ordering. Reject
+skipped, weakened or deleted checks used to get green.
 
-**Tests.** Tests exercise the changed behaviour, including failure paths and
-boundaries, and would fail without the change. Fixtures are realistic. No test
-or check is skipped, loosened or deleted to get green. Updated snapshots and
-golden files show only intended changes. Watch for flaky timing, network and
-ordering.
+**CI and workflows.** Pin actions to full SHAs and minimise permissions.
+Never check out, build or run PR code in `pull_request_target` or
+`workflow_run` jobs. Treat PR artefacts as untrusted. Keep attacker-controlled
+expressions out of `run:` and `github-script` scripts. Pass short values
+(numbers, refs, SHAs) through `env:`, but a script reads free text such as a
+title, body or comment from the event file (`$GITHUB_EVENT_PATH`, or
+`context.payload` in `github-script`) because the runner prints each step's
+env values in its log. Keep job timeouts and required check names. Reject
+conditions or `continue-on-error` that hide failures.
 
-**CI and workflows.** Actions are pinned to a full commit SHA, and
-`permissions:` is least privilege. `pull_request_target` and `workflow_run`
-jobs never check out, build or run pull request code, and treat artefacts from
-pull request runs as untrusted. No `${{ github.event.* }}` or other
-attacker-controlled value is interpolated into `run:` or a `github-script`
-`script:`. A short value such as a number, ref or SHA goes through `env:`, but
-a script reads free text such as a title, body or comment from the event file
-(`$GITHUB_EVENT_PATH`, or `context.payload` in `github-script`), because the
-runner prints each step's env values in its log, where a later edit of the
-text never reaches. Jobs keep timeouts, and no `continue-on-error` or
-always-false `if:` hides a failure. Job and check names that branch protection
-requires do not change.
+**Dependencies.** Check need, maintenance, licence, size and runtime cost.
+Update manifests and lockfiles together through the package manager.
 
-**Dependencies.** Each new dependency is needed, maintained, compatibly
-licensed, and proportionate in size and runtime cost. Manifests and lockfiles
-change together, through the package manager.
+**Performance.** Check time and space complexity at realistic input sizes.
+Quantify the cost of N+1 queries, unbounded work or memory, blocking main
+or request threads, and client bundle growth.
 
-**Performance.** Complexity suits realistic input sizes. No N+1 queries,
-unbounded loops or memory, or blocking work on a main or request thread.
-Client bundle growth is justified. Report performance only with a plausible
-scale and cost.
+**User experience and accessibility.** Check keyboard access, visible focus, labels,
+roles, reading order, contrast, reduced motion, themes, text scaling and
+localisation. Check loading, empty and error states and their copy. Require
+rendered evidence for visual changes and follow any repository screenshot-review process.
 
-**User experience and accessibility.** Keyboard access and visible focus,
-labels and roles, screen reader order, contrast, reduced motion, theme
-support, text scaling and localisation. Loading, empty and error states exist,
-and copy is accurate. Visual changes have rendered evidence and pass the
-repository's screenshot-review process.
+**Docs and claims.** Check README, docs and comments against changed behaviour.
+Platform, API and dependency claims need a dated primary source.
 
-**Docs and claims.** README, docs and comments match the new behaviour. Claims
-about a platform, API or dependency cite a primary source and a date. No stale
-instructions remain.
+**Maintainability.** Give the concrete cost of duplication, dead code,
+misleading names, needless complexity or drift from surrounding code.
 
-**Maintainability.** Duplication, dead code, misleading names, needless
-complexity, and drift from surrounding code. Report it only with a concrete
-cost.
+**Changes written by AI.** Verify APIs, flags and options against pinned versions.
+Check tests against requirements, refactors and renames across callers, and
+claimed checks against actual runs.
 
-**Changes written by AI.** APIs, flags and options exist in the pinned
-versions. Tests check the requirement, not the implementation's current
-output. Renames and refactors are complete. Comments and PR text do not claim
-checks that did not run.
-
-**Repository conventions.** The PR title is a Conventional Commit whose type,
-like the body's `User-visible:` answer, is true to the diff, and the change is
-one change. Outside a template adoption, generated `AGENTS.md` sections and
-files stamped `gh-repo-bootstrapper: template-owned` stay unchanged:
-repository rules go in `## Project specifics`, and template changes belong in
-the template. The required check set is not weakened.
+**Repository conventions.** Check that the PR makes one change and its
+Conventional Commit type and `User-visible:` answer match the diff. Outside
+adoption, preserve generated `AGENTS.md` sections and template-owned files.
+Put local rules in `## Project specifics` and change templates at source.
+Preserve required checks.
 
 ## What counts as a finding
 
@@ -326,32 +306,22 @@ sections, except *Coverage* and *Limits*, which every report has.
 
 ### Findings
 
-| ID | Severity | Area | Where | Summary |
-| --- | --- | --- | --- | --- |
-| R2-01 | P1 | Reliability | `lib/sync.ts:88-104` | Last partial page reported as complete |
-
-#### R2-01 P1 Reliability: last partial page reported as complete
-
-- **Trigger:** <input, state or sequence>
-- **Impact:** <what goes wrong, for whom>
-- **Evidence:** <path traced, output, or source>
-- **Suggested fix:** <optional>
-- **Origin, confidence:** introduced, high
+- **R2-01 P1 Reliability** · `lib/sync.ts:88-104` · introduced, high.
+  Traced both refresh calls to the unconditional write at line 104. When the
+  older request finishes last, it replaces the current total with stale data.
+  Check the request ID before writing.
 
 ### Earlier findings
 
-| ID | Severity | Status | Note |
-| --- | --- | --- | --- |
-| R1-01 | P1 | Fixed | `abc1234`; `sync.test.ts` "stops at the last page" |
+- **R1-01 P1 Fixed** · Verified at `abc1234` by the last-page test.
 
 ### Coverage
 
-Checked: Correctness, Access control, Reliability, Tests, CI and workflows.
-Not applicable: Data and migrations, User experience and accessibility.
+Checked: <areas examined>. Not applicable: <areas outside this change>.
 
 ### Limits
 
-Not run: <suites>. Assumed: <assumptions the findings rely on>.
+<Unreviewed areas, skipped checks, assumptions and unverified handoff claims.>
 
 ### Questions and notes
 

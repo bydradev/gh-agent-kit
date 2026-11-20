@@ -1,16 +1,34 @@
 ---
 name: pull-requests
 description: >-
-  Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
+  Use before committing or preparing, editing, readying, unblocking or merging a pull request. Covers commit attribution and Release Please squash messages.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=c736753231f9d3f70b2b89cacc6aa6b11b800415879d8078d32a3648dd521045 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=ca61266512056bbff0f2074ecda4f3861a0b9b423716a1dbbe5681f3e62f1fa7 -->
 
 # Pull requests (squash-merge + Release Please)
+
+## Commits
+
+Use [Conventional Commits](https://www.conventionalcommits.org):
+`type(scope): subject`. Scope is optional. Use `feat`, `fix`, `chore`,
+`docs`, `refactor`, `perf`, `test`, `build`, `ci` or `revert` and a lowercase
+imperative subject with no trailing period.
+
+For a commit an AI tool materially wrote or changed, keep its harness's
+`Co-Authored-By:` trailer naming the actual model. If absent, add
+`Co-Authored-By: <Tool> (<model>) <address>` with the running model.
+Tool addresses: Codex `noreply@openai.com`, Antigravity CLI
+`224641728+gemini-cli-robot@users.noreply.github.com`, OpenCode
+`noreply@opencode.ai`, OMP `noreply@omp.sh`, OMO `noreply@omo.dev`.
 
 ## Standard pull requests
 
 Standard PRs are squash-merged and parsed by Release Please, so write them
 merge-ready:
+
+- **Attribution:** end the PR body with a `---` rule and one footer,
+  `*Prepared with the assistance of <Tool> (<model>).*`, replacing any harness
+  footer. Keep co-author trailers in commits only.
 
 - **Title:** one Conventional Commit subject naming one concrete change, not a
   label summarizing several bundled changes (e.g. not
@@ -27,19 +45,11 @@ merge-ready:
   or a `BREAKING CHANGE:` footer). `no`: docs readers get as soon as it
   merges, CI, tests, refactors and tooling, typed `docs`, `chore`,
   `refactor`, `test`, `build` or `ci`. The required title check reads the
-  body as Release Please does, so an extra entry of a released type or a
-  `BREAKING-CHANGE:` token anywhere in the body also means `yes`, except a
-  bare one with only footers after it (an empty footer), which fails either
-  answer unless something else releases. It also fails a body Release Please
-  would misread: a release or `Release-As:` version that only a closing
-  footer gives, a line that GitHub's 72-column rewrap would start with a call
-  such as `f(x`, a scope with no text or a parenthesis inside it, a
-  `<details>` tag in a released entry. Its message
-  names the fix; follow it rather than rewording around it. Keep the
-  `BEGIN_COMMIT_OVERRIDE` marker out of prose (Release Please replaces the
-  commit with what follows it), and write a `Release-As:` version as
-  numbers, such as `Release-As: 1.2.0`. Editing the body re-runs the check.
-  Release Please and Dependabot PRs are not checked.
+  body too: include released extra entries and breaking-change notes in
+  your decision. Keep `BEGIN_COMMIT_OVERRIDE` out of prose, give breaking
+  footers a description, and use a numeric `Release-As:` version. Follow
+  the check's diagnostic for formatting errors. Editing the body reruns it.
+  Release Please and Dependabot PRs are exempt from this check.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
@@ -78,7 +88,7 @@ merge-ready:
   message after merging (`git log -1 --format=%B`): a dropped entry line is
   otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
-  wrote or changed, and names the tool and model as `AGENTS.md` specifies.
+  wrote or changed, as described under *Commits*.
   Carry the squashed commits' trailers into the merge message with their
   addresses unchanged. Merging a change you did not write, such as a
   Dependabot PR, adds no trailer. Never take the address for a trailer or
