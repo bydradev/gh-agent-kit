@@ -89,28 +89,11 @@ for (const job of JOBS) {
     }
 
     for (const [env, message] of [
-      [
-        { PROVIDER: "openai" },
-        new RegExp(`${job.provider} must be anthropic, opencode-go or unset`),
-      ],
-      [
-        { PROVIDER: "anthropic", MODEL: "minimax-m3" },
-        new RegExp(`${job.model} must be a Claude model name`),
-      ],
-      [
-        { PROVIDER: "opencode-go", MODEL: "Bad Model" },
-        new RegExp(`${job.model} must be an OpenCode Go model id`),
-      ],
-      [
-        { PROVIDER: "opencode-go", MODEL: "muse-spark-1.3-contributor" },
-        /Contributor model, which trains on prompts/,
-      ],
-      [
-        { PROVIDER: "anthropic", EFFORT: "extreme" },
-        new RegExp(
-          `the setting ${job.effort} must be low, medium, high, xhigh or max, not 'extreme'`,
-        ),
-      ],
+      [{ PROVIDER: "openai" }, new RegExp(`${job.provider} must be anthropic, opencode-go or unset`)],
+      [{ PROVIDER: "anthropic", MODEL: "minimax-m3" }, new RegExp(`${job.model} must be a Claude model name`)],
+      [{ PROVIDER: "opencode-go", MODEL: "Bad Model" }, new RegExp(`${job.model} must be an OpenCode Go model id`)],
+      [{ PROVIDER: "opencode-go", MODEL: "muse-spark-1.3-contributor" }, /Contributor model, which trains on prompts/],
+      [{ PROVIDER: "anthropic", EFFORT: "extreme" }, new RegExp(`the setting ${job.effort} must be low, medium, high, xhigh or max, not 'extreme'`)],
     ]) {
       const bad = settings(t, job, env);
       assert.equal(bad.status, 1, JSON.stringify(env));
@@ -121,13 +104,9 @@ for (const job of JOBS) {
   // Each run step's env: maps both keys from the repository's secrets; the
   // tests below set them directly, so this is what checks the mapping.
   test(`${job.file}: every run step maps both keys from the secrets`, () => {
-    const lines = fs
-      .readFileSync(path.join(root, ".github/workflows", job.file), "utf8")
-      .split("\n");
+    const lines = fs.readFileSync(path.join(root, ".github/workflows", job.file), "utf8").split("\n");
     for (const name of job.runs) {
-      const start = lines.findIndex(
-        (l) => l.trim() === `- name: ${name}` || l.trim() === `name: ${name}`,
-      );
+      const start = lines.findIndex((l) => l.trim() === `- name: ${name}` || l.trim() === `name: ${name}`);
       assert.notEqual(start, -1, name);
       const run = lines.findIndex((l, i) => i > start && /^\s+run: \|$/.test(l));
       const block = lines.slice(start, run).map((l) => l.trim());
@@ -160,12 +139,7 @@ for (const job of JOBS) {
         is_error: false,
         num_turns: 2,
         total_cost_usd: 0.5,
-        usage: {
-          input_tokens: 11,
-          cache_read_input_tokens: 22,
-          cache_creation_input_tokens: 33,
-          output_tokens: 44,
-        },
+        usage: { input_tokens: 11, cache_read_input_tokens: 22, cache_creation_input_tokens: 33, output_tokens: 44 },
         result: text,
       };
       // reply: fields over the successful answer, or null for no output.
@@ -221,20 +195,11 @@ exit ${exit}
     if (job.file !== "security-scan.yml")
       test(`${job.file}, ${name}: a run closed on a private name withholds its last message and fails`, (t) => {
         const keys = { ANTHROPIC_API_KEY: "ak" };
-        const closed = run(t, "anthropic", keys, "It was skunkworks.", {
-          report: false,
-          closed: true,
-        });
+        const closed = run(t, "anthropic", keys, "It was skunkworks.", { report: false, closed: true });
         assert.equal(closed.status, 1);
         assert.doesNotMatch(closed.stdout, /skunkworks/);
-        assert.match(
-          closed.stdout,
-          /^result: \(withheld: the run closed on a private repository name\)$/m,
-        );
-        assert.match(
-          closed.stdout,
-          /::error::A text the run was to post held a private repository name/,
-        );
+        assert.match(closed.stdout, /^result: \(withheld: the run closed on a private repository name\)$/m);
+        assert.match(closed.stdout, /::error::A text the run was to post held a private repository name/);
         const open = run(t, "anthropic", keys, "It was fine.", { report: true });
         assert.equal(open.status, 0, open.stdout + open.stderr);
         assert.match(open.stdout, /^result: It was fine\.$/m);
@@ -245,26 +210,10 @@ exit ${exit}
     test(`${job.file}, ${name}: a run that ends in error, or with no result, fails`, (t) => {
       const keys = { ANTHROPIC_API_KEY: "ak" };
       for (const [why, options, message] of [
-        [
-          "a non-zero exit",
-          { exit: 1 },
-          /::error::Claude Code's run ended in error \(exit status 1\)/,
-        ],
-        [
-          "is_error",
-          { reply: { is_error: true } },
-          /::error::Claude Code's run ended in error \(exit status 0\)/,
-        ],
-        [
-          "a turn limit",
-          { reply: { subtype: "error_max_turns" } },
-          /::error::Claude Code's run ended in error/,
-        ],
-        [
-          "no result",
-          { reply: null, exit: 1 },
-          /::error::Claude Code exited with status 1 and no result/,
-        ],
+        ["a non-zero exit", { exit: 1 }, /::error::Claude Code's run ended in error \(exit status 1\)/],
+        ["is_error", { reply: { is_error: true } }, /::error::Claude Code's run ended in error \(exit status 0\)/],
+        ["a turn limit", { reply: { subtype: "error_max_turns" } }, /::error::Claude Code's run ended in error/],
+        ["no result", { reply: null, exit: 1 }, /::error::Claude Code exited with status 1 and no result/],
       ]) {
         const r = run(t, "anthropic", keys, "done", { report: true }, options);
         assert.equal(r.status, 1, `${why}: ${r.stdout}${r.stderr}`);
@@ -276,12 +225,7 @@ exit ${exit}
     // request or issue may have steered, so it is printed with workflow
     // commands stopped.
     test(`${job.file}, ${name}: the model's text cannot run workflow commands`, (t) => {
-      const r = run(
-        t,
-        "anthropic",
-        { ANTHROPIC_API_KEY: "ak" },
-        "Done.\n::error::steered\n::add-mask::x",
-      );
+      const r = run(t, "anthropic", { ANTHROPIC_API_KEY: "ak" }, "Done.\n::error::steered\n::add-mask::x");
       assert.equal(r.status, 0, r.stdout + r.stderr);
       const lines = r.stdout.split("\n");
       const begin = lines.findIndex((l) => /^::stop-commands::[0-9a-f]{32}$/.test(l));
@@ -323,10 +267,7 @@ exit ${exit}
     test(`${job.file}, ${name}: OpenCode Go without its key fails before the CLI starts`, (t) => {
       const r = run(t, "opencode-go", { ANTHROPIC_API_KEY: "ak", OPENCODE_API_KEY: "" });
       assert.equal(r.status, 1);
-      assert.match(
-        r.stdout,
-        new RegExp(`${job.provider} is opencode-go but the OPENCODE_API_KEY secret is not set`),
-      );
+      assert.match(r.stdout, new RegExp(`${job.provider} is opencode-go but the OPENCODE_API_KEY secret is not set`));
       assert.equal(r.env, null);
     });
 
@@ -338,10 +279,7 @@ exit ${exit}
       assert.equal(withGo.status, 1);
       assert.match(
         withGo.stdout,
-        new RegExp(
-          `${missing}, or set ${job.provider} to opencode-go to use the OPENCODE_API_KEY secret instead$`,
-          "m",
-        ),
+        new RegExp(`${missing}, or set ${job.provider} to opencode-go to use the OPENCODE_API_KEY secret instead$`, "m"),
       );
       assert.equal(withGo.env, null);
       const neither = run(t, "anthropic", {});
