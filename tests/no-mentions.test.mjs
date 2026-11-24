@@ -107,8 +107,12 @@ test("the report check compares the reviewed lines without the zero-width spaces
     "/opt/agent-kit/mcp-server.mjs",
     path.join(root, ".github/scripts/mcp-server.mjs"),
   );
-  const check = (pull, title) => {
-    const body = [report(f, title), "", "<!-- pr-review run 1001.1 -->"].join("\n");
+  const check = (pull, title, baseName = "main") => {
+    const body = [
+      report(f, title).replace(`Base reviewed: main at`, `Base reviewed: ${baseName} at`),
+      "",
+      "<!-- pr-review run 1001.1 -->",
+    ].join("\n");
     const dir = tempDir(t);
     const stub = stubGh(dir, [
       {
@@ -138,6 +142,18 @@ test("the report check compares the reviewed lines without the zero-width spaces
   const other = check({ ...f.pull, title: "feat: thank @someone" }, `feat: thank @${Z}dra`);
   assert.equal(other.status, 1, other.stdout + other.stderr);
   assert.match(other.stdout, /title \[feat: thank @dra\] vs \[feat: thank @someone\]/);
+  // A title that opens with a zero-width space and a space keeps that
+  // space: the value is taken from its line before the spaces are dropped.
+  const leading = check({ ...f.pull, title: `${Z} @demo` }, `${Z} @${Z}demo`);
+  assert.equal(leading.status, 0, leading.stdout + leading.stderr);
+  // A base branch whose name holds a zero-width space matches itself.
+  const branch = `release/2026${Z}Q4`;
+  const based = check(
+    { ...f.pull, base: { ...f.pull.base, ref: branch } },
+    `feat: thank @${Z}dra`,
+    branch,
+  );
+  assert.equal(based.status, 0, based.stdout + based.stderr);
 });
 
 test("post_report refuses a Title reviewed line that is not the pull request's title", async (t) => {
@@ -301,4 +317,13 @@ test("an inline comment quiets mentions in every code block, a suggestion's too"
     assert.notDeepEqual(quiet, lines, what);
     assert.equal(got[i], quiet.join("\n"), what);
   });
+});
+
+test("inline_comment tells the model to describe a change to a line holding an @ in words", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const { result } = await server.request("tools/list", {});
+  const { description } = result.tools.find((tool) => tool.name === "inline_comment");
+  assert.match(description, /@/);
+  assert.match(description, /in words/);
 });

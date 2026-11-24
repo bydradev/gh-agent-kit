@@ -476,22 +476,24 @@ jobs:
           # name is in the path: each segment URL-encoded, the slashes kept
           # (a name may hold a character the URL would cut it at).
           base_now=$(gh api --method GET "repos/$REPO/git/ref/heads/$(jq -rn --arg b "$BASE" '$b | split("/") | map(@uri) | join("/")')" --jq .object.sha)
-          # The server puts a zero-width space after each @ it posts, so a
-          # mention in the title notifies no one; the comparisons drop it,
-          # from the title too, which may hold one copied from a filed
-          # issue's.
-          zwsp=$(printf '\342\200\213')
-          last=${last//"$zwsp"/}
-          title_now=${TITLE//"$zwsp"/}
           reviewed=$(printf '%s\n' "$last" | grep '^Closes reviewed:' || true)
           base_reviewed=$(printf '%s\n' "$last" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//' || true)
           title_reviewed=$(printf '%s\n' "$last" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//' || true)
+          # The server puts a zero-width space after each @ it posts, so a
+          # mention in the title notifies no one. Each value is compared
+          # without them, once taken from its line, on both sides: the
+          # title or base branch may hold one already.
+          zwsp=$(printf '\342\200\213')
+          base_reviewed=${base_reviewed//"$zwsp"/}
+          title_reviewed=${title_reviewed//"$zwsp"/}
+          base_cmp=${BASE//"$zwsp"/}
+          title_now=${TITLE//"$zwsp"/}
           head_reviewed=$(printf '%s\n' "$last" | grep '^Head reviewed:' | sed 's/^Head reviewed:[[:space:]]*//' || true)
           if [ -z "$reviewed" ] || [ -z "$base_reviewed" ] || [ -z "$title_reviewed" ] || [ -z "$head_reviewed" ]; then
             echo "no earlier report records what it reviewed against; reviewing"
           elif [ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]; then
             echo "the head is $HEAD but the last report reviewed $head_reviewed (that review may have failed); reviewing"
-          elif [ "$base_reviewed" != "$BASE at $base_now" ]; then
+          elif [ "$base_reviewed" != "$base_cmp at $base_now" ]; then
             echo "the base is $BASE at $base_now but the last report reviewed against $base_reviewed; reviewing"
           elif [ "$title_reviewed" != "$title_now" ]; then
             echo "the title differs from the one the last report reviewed; reviewing"
@@ -838,22 +840,24 @@ jobs:
           # name is in the path: each segment URL-encoded, the slashes kept
           # (a name may hold a character the URL would cut it at).
           base_now=$(gh api --method GET "repos/$REPO/git/ref/heads/$(jq -rn --arg b "$BASE" '$b | split("/") | map(@uri) | join("/")')" --jq .object.sha)
-          # The server puts a zero-width space after each @ it posts, so a
-          # mention in the title notifies no one; the comparisons drop it,
-          # from the title too, which may hold one copied from a filed
-          # issue's.
-          zwsp=$(printf '\342\200\213')
-          last=${last//"$zwsp"/}
-          title_now=${TITLE//"$zwsp"/}
           reviewed=$(printf '%s\n' "$last" | grep '^Closes reviewed:' || true)
           base_reviewed=$(printf '%s\n' "$last" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//' || true)
           title_reviewed=$(printf '%s\n' "$last" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//' || true)
+          # The server puts a zero-width space after each @ it posts, so a
+          # mention in the title notifies no one. Each value is compared
+          # without them, once taken from its line, on both sides: the
+          # title or base branch may hold one already.
+          zwsp=$(printf '\342\200\213')
+          base_reviewed=${base_reviewed//"$zwsp"/}
+          title_reviewed=${title_reviewed//"$zwsp"/}
+          base_cmp=${BASE//"$zwsp"/}
+          title_now=${TITLE//"$zwsp"/}
           head_reviewed=$(printf '%s\n' "$last" | grep '^Head reviewed:' | sed 's/^Head reviewed:[[:space:]]*//' || true)
           if [ -z "$reviewed" ] || [ -z "$base_reviewed" ] || [ -z "$title_reviewed" ] || [ -z "$head_reviewed" ]; then
             echo "no earlier report records what it reviewed against; reviewing"
           elif [ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]; then
             echo "the head is $HEAD but the last report reviewed $head_reviewed (that review may have failed); reviewing"
-          elif [ "$base_reviewed" != "$BASE at $base_now" ]; then
+          elif [ "$base_reviewed" != "$base_cmp at $base_now" ]; then
             echo "the base is $BASE at $base_now but the last report reviewed against $base_reviewed; reviewing"
           elif [ "$title_reviewed" != "$title_now" ]; then
             echo "the title differs from the one the last report reviewed; reviewing"
@@ -1556,10 +1560,9 @@ jobs:
             exit 1
           fi
           # The server puts a zero-width space after each @ it posts, so a
-          # mention in the title notifies no one; the comparisons drop it,
-          # from the pull request's side too (below).
+          # mention in the title notifies no one; the base and title values
+          # are compared without them, on both sides (below).
           zwsp=$(printf '\342\200\213')
-          reports=${reports//"$zwsp"/}
           closes=$(printf '%s\n' "$reports" | grep -cE '^Closes reviewed: (none|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+)*)$' || true)
           bases=$(printf '%s\n' "$reports" | grep -cE '^Base reviewed: [^[:space:]]+ at [0-9a-f]{40}$' || true)
           titles=$(printf '%s\n' "$reports" | grep -cE '^Title reviewed: .+$' || true)
@@ -1599,6 +1602,8 @@ jobs:
           got_closes=$(printf '%s\n' "$reports" | grep '^Closes reviewed:' | sed 's/^Closes reviewed:[[:space:]]*//' | tr ',' '\n' | tr -d ' ' | grep -v '^none$' | sed -E "s#^$repo_re\##\##I" | sort -u | tr '\n' ' ' || true)
           got_base=$(printf '%s\n' "$reports" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//')
           got_title=$(printf '%s\n' "$reports" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//')
+          got_base=${got_base//"$zwsp"/}; want_base=${want_base//"$zwsp"/}
+          got_title=${got_title//"$zwsp"/}
           got_head=$(printf '%s\n' "$reports" | grep '^Head reviewed:' | sed 's/^Head reviewed:[[:space:]]*//')
           if [ "$got_closes" != "$want_closes" ] || [ "$got_base" != "$want_base" ] || [ "$got_title" != "$want_title" ] || [ "$got_head" != "$want_head" ]; then
             echo "::error::the report's reviewed lines do not describe the pull request: closes [$got_closes] vs [$want_closes], base [$got_base] vs [$want_base], title [$got_title] vs [$want_title], head [$got_head] vs [$want_head]"

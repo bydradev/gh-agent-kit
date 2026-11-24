@@ -105,6 +105,25 @@ test("post_report is refused, unposted, while the check finds something, and pos
   assert.equal(posts(server).length, 1);
 });
 
+test("zero-width spaces neither hide a detail from the check nor join one into allowed text", async (t) => {
+  const f = review(t, { PUBLIC_CONTENT_CHECK: CHECK });
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const z = String.fromCharCode(0x200b);
+  for (const body of [
+    // Hidden: an address split by a zero-width space.
+    at("someone", "@", z, "gmail.com"),
+    // Joined: without the space, these read as a URL's user information
+    // and as the one claude.ai link allowed, so the text as written counts.
+    at("https", z, "://someone", "@", "gmail.com"),
+    at("https://claude.", "ai/co", z, "de"),
+  ]) {
+    const r = await server.call("inline_comment", { path: "b.txt", line: 1, body });
+    assert.equal(r.isError, true, JSON.stringify(body));
+    assert.match(r.text, /^the repository's public-content check found 1 problem\(s\)/, r.text);
+  }
+  assert.equal(posts(server).length, 0);
+});
+
 test("inline_comment and file_issue are checked, file_issue field by field", async (t) => {
   const f = review(t, { PUBLIC_CONTENT_CHECK: CHECK });
   const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });

@@ -277,7 +277,7 @@ function stepMeta(text, name) {
   let section = "";
   for (let i = start + 1; i < lines.length && !/^\s+- (name|uses):/.test(lines[i]); i++) {
     const l = lines[i];
-    if (/^ {8}if: /.test(l)) (section = "if"), (meta.if = l.replace(/^ {8}if: (>-)?/, ""));
+    if (/^ {8}if: /.test(l)) ((section = "if"), (meta.if = l.replace(/^ {8}if: (>-)?/, "")));
     else if (/^ {8}env:$/.test(l)) section = "env";
     else if (/^ {8}\S/.test(l)) section = "";
     else if (section === "if") meta.if += " " + l.trim();
@@ -295,12 +295,18 @@ test("the early steps run only on a first attempt's no-op-shaped edit, and the s
     "(env.KIT_REVIEW_MODE == 'push' || env.KIT_REVIEW_MODE == 'open')";
   const guard = stepMeta(text, "Defer the early skip while another review is in flight");
   assert.equal(guard.if, edit);
-  const early = stepMeta(text, "Skip a body edit that changed no closing reference, before the review job");
+  const early = stepMeta(
+    text,
+    "Skip a body edit that changed no closing reference, before the review job",
+  );
   assert.equal(early.if, `steps.inflight.outcome == 'success' && env.DEFER != 'true' && ${edit}`);
   // The job copy reads PR from the job's env; the early copy sets it itself.
   const job = stepMeta(text, "Skip a body edit that changed no closing reference");
   assert.deepEqual([...early.env].sort(), [...job.env, "PR"].sort());
-  assert.match(text, /\n {6}- name: Defer the early skip while another review is in flight\n {8}id: inflight\n {8}continue-on-error: true\n/);
+  assert.match(
+    text,
+    /\n {6}- name: Defer the early skip while another review is in flight\n {8}id: inflight\n {8}continue-on-error: true\n/,
+  );
 });
 
 test("the last report's title is compared without the server's zero-width spaces", (t) => {
@@ -311,6 +317,9 @@ test("the last report's title is compared without the server's zero-width spaces
   for (const [title, reported] of [
     ["fix: thank @dra", `fix: thank @${z}dra`],
     [`fix: thank @${z}dra`, `fix: thank @${z}${z}dra`],
+    // Taken from its line before the spaces are dropped, so a leading
+    // space after one survives.
+    [`${z} @demo`, `${z} @${z}demo`],
   ]) {
     const { out, env } = bodyEdit(t, { title, body: "Fixes #5", reported: { title: reported } });
     assert.match(out, /nothing to review/, title);

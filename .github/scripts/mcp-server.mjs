@@ -248,11 +248,22 @@ function contentProblem(texts) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-kit-content-"));
   try {
     const found = [];
-    for (const [label, value] of texts) {
+    // Each text as the model wrote it, and again without zero-width
+    // spaces when it holds any, so the model cannot hide an address or a
+    // link behind one. Removing them can also join text into a form the
+    // check lets through (a URL's user information), so the text as
+    // written is always checked too.
+    const versions = texts.flatMap(([label, value]) =>
+      value.includes("\u200b")
+        ? [
+            [label, value],
+            [label, value.replaceAll("\u200b", "")],
+          ]
+        : [[label, value]],
+    );
+    for (const [label, value] of versions) {
       const file = path.join(dir, "text");
-      // Without the zero-width spaces noMentions puts after each @, or the
-      // model puts anywhere, so neither hides an address from the check.
-      fs.writeFileSync(file, value.replaceAll("\u200b", ""), { mode: 0o600 });
+      fs.writeFileSync(file, value, { mode: 0o600 });
       const python = check.endsWith(".py");
       const r = spawnSync(
         python ? "python3" : process.execPath,
@@ -291,6 +302,8 @@ function contentProblem(texts) {
         );
     }
     if (found.length === 0) return null;
+    // A finding in both versions of a text is one finding.
+    found.splice(0, found.length, ...new Set(found));
     const shown = found.slice(0, CONTENT_SHOWN).join("; ");
     const more = found.length > CONTENT_SHOWN ? `; and ${found.length - CONTENT_SHOWN} more` : "";
     return (
@@ -347,19 +360,18 @@ const noMentions = (t) => t.replace(MENTION, "$1\u200b");
 // escaped in every form GitHub renders: an ATX "#" after any indent,
 // quote or list marker, a setext underline ("---" or "===" under a line,
 // quoted or indented too), and an <h1> to <h6> tag.
-function plain(t) {
+function unforged(t) {
   let out = t;
   for (let prev; prev !== out;) {
     prev = out;
     out = out.replace(/<!--|--!?>/g, "");
   }
-  return noMentions(
-    out
-      .replace(/^([ \t>*+\-0-9.)]*)#/gm, "$1\\#")
-      .replace(/^([ \t>]*)(=+|-+)([ \t]*)$/gm, "$1\\$2$3")
-      .replace(/<(\/?h[1-6])/gi, "&lt;$1"),
-  );
+  return out
+    .replace(/^([ \t>*+\-0-9.)]*)#/gm, "$1\\#")
+    .replace(/^([ \t>]*)(=+|-+)([ \t]*)$/gm, "$1\\$2$3")
+    .replace(/<(\/?h[1-6])/gi, "&lt;$1");
 }
+const plain = (t) => noMentions(unforged(t));
 // The body of a filed issue in the Task form's layout (its headings, as
 // GitHub renders a submitted form), for the operator, who triages it by
 // hand or closes it: the triage bot never reads it, since its author is
@@ -1072,12 +1084,14 @@ const reviewTools = {
         return fail(`this run has filed ${ISSUE_LIMIT} issues; name the rest in the report`);
       const issueTitle = plain(title.trim());
       const issueBody = taskBody({ outcome, acceptance, references, out_of_scope, size, finding });
-      // Each of the reviewer's fields as the body carries it; the rest of
-      // the body is the server's fixed text.
+      // Each of the reviewer's fields as the body carries it, before its
+      // mentions are quieted (the check reads text as the model wrote it,
+      // as for the other posts); the rest of the body is the server's
+      // fixed text.
       const fields = Object.entries({ outcome, acceptance, references, out_of_scope })
         .filter(([, value]) => value !== undefined)
-        .map(([name, value]) => [name, plain(value)]);
-      const why = stale() || contentProblem([["title", issueTitle], ...fields]);
+        .map(([name, value]) => [name, unforged(value)]);
+      const why = stale() || contentProblem([["title", unforged(title.trim())], ...fields]);
       if (why) return fail(why);
       const r = gh(
         ["api", "-X", "POST", `repos/${repo}/issues`, "--input", "-", "--jq", ".html_url"],
