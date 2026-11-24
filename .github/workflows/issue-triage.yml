@@ -1272,10 +1272,15 @@ jobs:
   # job, so the token that can start a workflow run (actions: write) is
   # never in a job where a model runs. Each number was checked by the
   # server against the sweep's list and the issue's state when it was
-  # queued; this job runs no model and starts one run per number. A
+  # queued, and by the step that passed it on against the list; the
+  # issue's state is checked again here, since minutes can pass between
+  # the two. This job runs no model and starts one run per number. A
   # dispatch on the job token starts a run, where a label it adds would
   # not ("Triggering a workflow from a workflow" in GitHub's docs: only
   # workflow_dispatch and repository_dispatch events, read 2026-10-29).
+  # Re-running this job after a partial failure would start every queued
+  # issue again, and a second run cancels the first in its concurrency
+  # group, so the error names the issues to start by hand instead.
   dispatch:
     name: issue-triage dispatch
     needs: triage
@@ -1285,6 +1290,7 @@ jobs:
     permissions:
       actions: write
       contents: read
+      issues: read
     steps:
       - name: Start a triage run for each issue the sweep queued
         env:
@@ -1297,6 +1303,24 @@ jobs:
             case "$n" in
               *[!0-9]*) echo "::error::'$n' is not an issue number"; exit 1 ;;
             esac
+            # The sweep's eligibility, as the list step and the server
+            # read it: open, and needs-triage, no state label, or an
+            # in-progress claim idle for 7 days.
+            if ! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels | map(.name)) as $l
+                | if .state != "open" then "is \(.state)"
+                  elif ($l | index("needs-triage")) != null
+                    or ($l - ["needs-triage","triaged","in-progress","needs-operator"] | length) == ($l | length)
+                    or (($l | index("in-progress")) != null and (now - (.updated_at | fromdate)) > 7 * 86400)
+                  then "eligible"
+                  else "now carries \($l | map(select(. == "triaged" or . == "in-progress" or . == "needs-operator")) | join(", "))"
+                  end'); then
+              failed="$failed #$n"
+              continue
+            fi
+            if [ "$now" != "eligible" ]; then
+              echo "not dispatched: #$n $now, since the sweep queued it"
+              continue
+            fi
             if gh workflow run issue-triage.yml --repo "$REPO" --ref "$GITHUB_REF_NAME" -f "issue=$n"; then
               echo "dispatched issue-triage.yml for #$n on $GITHUB_REF_NAME"
             else
@@ -1304,6 +1328,6 @@ jobs:
             fi
           done
           if [ -n "$failed" ]; then
-            echo "::error::could not dispatch triage for$failed"
+            echo "::error::could not dispatch triage for$failed; start each with 'gh workflow run issue-triage.yml -f issue=<n>' or leave it to the next sweep, since re-running this job starts every queued issue again"
             exit 1
           fi

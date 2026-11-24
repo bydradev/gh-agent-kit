@@ -175,7 +175,9 @@ has no single issue to be scoped to. It lists and dispatches.
    for 7 days, none authored by a bot. Nothing in an issue adds to it.
 2. For each number in it, start a run of its own with the `dispatch`
    tool, which queues `issue-triage.yml` for that one issue on this
-   branch (the workflow starts the queued runs when the sweep ends) and
+   branch (the workflow starts the queued runs when the sweep ends,
+   checking each issue's state again first; a sweep cancelled before then
+   starts none, and the next sweep lists them again) and
    refuses a number outside the list or one it already queued; it
    reports `not dispatched` for an issue closed or claimed since the
    list was made, which counts as handled. That run is scoped to

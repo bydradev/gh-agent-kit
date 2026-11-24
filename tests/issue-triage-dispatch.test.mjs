@@ -90,30 +90,71 @@ function dispatch(t, queue, rules) {
 }
 
 const run = (n) => `workflow run issue-triage.yml --repo acme/widgets --ref main -f issue=${n}`;
+const read = (n) => `api repos/acme/widgets/issues/${n} --jq`;
+const DAY = 86400000;
+const issue = (n, labels = ["needs-triage"], { state = "open", updated = Date.now() } = {}) => ({
+  match: `^api repos/acme/widgets/issues/${n} `,
+  json: {
+    number: n,
+    state,
+    labels: labels.map((name) => ({ name })),
+    updated_at: new Date(updated).toISOString().replace(/\.\d+Z$/, "Z"),
+  },
+});
+const calls = (r) => r.calls.map((c) => (c.startsWith("api ") ? c.split(" --jq")[0] + " --jq" : c));
 
 test("issue-triage.yml: the dispatch job starts one run per queued issue", (t) => {
-  const r = dispatch(t, "8 12 ", [{ match: "^workflow run ", stdout: "" }]);
+  const r = dispatch(t, "8 12 ", [
+    issue(8),
+    issue(12, []),
+    { match: "^workflow run ", stdout: "" },
+  ]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(r.calls, [run(8), run(12)]);
+  assert.deepEqual(calls(r), [read(8), run(8), read(12), run(12)]);
   assert.match(r.stdout, /dispatched issue-triage.yml for #8 on main/);
   assert.match(r.stdout, /dispatched issue-triage.yml for #12 on main/);
 });
 
+test("issue-triage.yml: the dispatch job leaves an issue that changed since it was queued", (t) => {
+  const r = dispatch(t, "8 12 15 21 30", [
+    issue(8, ["triaged", "bug"]),
+    issue(12, [], { state: "closed" }),
+    issue(15, ["in-progress"]),
+    issue(21, ["needs-operator"]),
+    issue(30, ["in-progress"], { updated: Date.now() - 8 * DAY }),
+    { match: "^workflow run ", stdout: "" },
+  ]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(calls(r), [read(8), read(12), read(15), read(21), read(30), run(30)]);
+  assert.match(r.stdout, /not dispatched: #8 now carries triaged, since the sweep queued it/);
+  assert.match(r.stdout, /not dispatched: #12 is closed, since the sweep queued it/);
+  assert.match(r.stdout, /not dispatched: #15 now carries in-progress, since/);
+  assert.match(r.stdout, /not dispatched: #21 now carries needs-operator, since/);
+  assert.match(r.stdout, /dispatched issue-triage.yml for #30 on main/);
+});
+
 test("issue-triage.yml: the dispatch job tries every issue, then fails naming those it could not start", (t) => {
-  const r = dispatch(t, "8 12 15", [
+  const r = dispatch(t, "8 12 15 17", [
     { match: "issue=12$", stderr: "HTTP 502\n", status: 1 },
+    { match: "^api repos/acme/widgets/issues/17 ", stderr: "HTTP 502\n", status: 1 },
+    issue(8),
+    issue(12),
+    issue(15),
     { match: "^workflow run ", stdout: "" },
   ]);
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.deepEqual(r.calls, [run(8), run(12), run(15)]);
-  assert.match(r.stdout, /::error::could not dispatch triage for #12$/m);
+  assert.deepEqual(calls(r), [read(8), run(8), read(12), run(12), read(15), run(15), read(17)]);
+  assert.match(
+    r.stdout,
+    /::error::could not dispatch triage for #12 #17; start each with 'gh workflow run issue-triage.yml -f issue=<n>' or leave it to the next sweep, since re-running this job starts every queued issue again$/m,
+  );
 });
 
 test("issue-triage.yml: the dispatch job refuses anything but issue numbers", (t) => {
-  const r = dispatch(t, "8 -f", [{ match: "^workflow run ", stdout: "" }]);
+  const r = dispatch(t, "8 -f", [issue(8), { match: "^workflow run ", stdout: "" }]);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /::error::'-f' is not an issue number/);
-  assert.deepEqual(r.calls, [run(8)]);
+  assert.deepEqual(calls(r), [read(8), run(8)]);
 });
 
 // The job layout, read from the file: the workflow's own permissions, which
