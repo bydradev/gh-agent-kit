@@ -1,0 +1,329 @@
+// Nothing the model posts notifies anyone: the server puts a zero-width
+// space after each @ (or character reference for one) in the report, the
+// inline comments, the filed issues and the triage comment, in code,
+// suggestion blocks, addresses and URLs too. The workflow drops the
+// spaces before comparing the report's reviewed lines with the pull
+// request.
+import assert from "node:assert/strict";
+import path from "node:path";
+import { test } from "node:test";
+import { ghCalls, gitRepo, root, startServer, stubGh, tempDir } from "./helpers/server.mjs";
+import { runStep, stepScript } from "./helpers/workflow.mjs";
+
+const Z = String.fromCharCode(0x200b);
+const CR = String.fromCharCode(13);
+// Every @ and every character reference for one, the numeric ones also
+// without the semicolon.
+const allQuiet = (s) =>
+  s.replace(/(@|&#0*64(?![0-9]);?|&#[xX]0*40(?![0-9A-Fa-f]);?|&commat;)/g, `$1${Z}`);
+const TEXT = [
+  "Thanks @dra, and cc @acme/security-team (see @codex's note).",
+  "Write to you@example.com; `@dra` and ``x @y`` are code.",
+  "```",
+  "@decorator",
+  "```",
+  "```suggestion",
+  "@Override",
+  "```",
+  "@last",
+].join("\n");
+const QUIET = [
+  `Thanks @${Z}dra, and cc @${Z}acme/security-team (see @${Z}codex's note).`,
+  `Write to you@${Z}example.com; \`@${Z}dra\` and \`\`x @${Z}y\`\` are code.`,
+  "```",
+  `@${Z}decorator`,
+  "```",
+  "```suggestion",
+  `@${Z}Override`,
+  "```",
+  `@${Z}last`,
+].join("\n");
+
+function review(t) {
+  const repo = gitRepo(t);
+  const base = repo.commit("a.txt", "a\n", "base");
+  repo.git("checkout", "-q", "-b", "feature");
+  const head = repo.commit("b.txt", "b\n", "feature");
+  repo.git("update-ref", "refs/remotes/origin/main", base);
+  const env = { PR: "7", HEAD_SHA: head, BASE: "main", GITHUB_WORKSPACE: repo.dir };
+  const pull = {
+    number: 7,
+    title: "feat: thank @dra",
+    body: "",
+    state: "open",
+    draft: false,
+    base: { ref: "main", sha: base },
+    head: { sha: head },
+  };
+  const rules = [
+    { match: "^api --method GET repos/acme/widgets/pulls/7$", stdout: pull },
+    {
+      match: "issues\\?state=all&creator=github-actions%5Bbot%5D&per_page=100&page=1$",
+      stdout: [],
+    },
+    { match: "^api -X POST ", stdout: "https://github.com/acme/widgets/x" },
+  ];
+  return { base, head, env, rules, pull };
+}
+const sent = (server) =>
+  ghCalls(server)
+    .filter((c) => c.args.includes("POST"))
+    .map((c) => c.stdin);
+const reviewedLines = (f, title = "feat: thank @dra") => [
+  "Closes reviewed: none",
+  `Base reviewed: main at ${f.base}`,
+  `Title reviewed: ${title}`,
+  `Head reviewed: ${f.head}`,
+];
+const report = (f, title) =>
+  ["## Review R1: No blocking findings", "", "Body.", "", ...reviewedLines(f, title)].join("\n");
+
+test("post_report and inline_comment quiet mentions, the reviewed title's too", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const body = ["## Review R1: No blocking findings", "", TEXT, "", ...reviewedLines(f)].join("\n");
+  const r = await server.call("post_report", { body });
+  assert.equal(r.isError, false, r.text);
+  const inline = await server.call("inline_comment", { path: "b.txt", line: 1, body: TEXT });
+  assert.equal(inline.isError, false, inline.text);
+  const [posted, comment] = sent(server);
+  assert.equal(
+    posted,
+    [
+      "## Review R1: No blocking findings",
+      "",
+      QUIET,
+      "",
+      ...reviewedLines(f, `feat: thank @${Z}dra`),
+    ].join("\n") + "\n\n<!-- pr-review run 1001.1 -->\n",
+  );
+  assert.equal(JSON.parse(comment).body, QUIET);
+});
+
+test("the report check compares the reviewed lines without the zero-width spaces", (t) => {
+  const f = review(t);
+  // The installed server writes the run marker.
+  const script = stepScript("pr-review.yml", "Fail when no review report was posted").replaceAll(
+    "/opt/agent-kit/mcp-server.mjs",
+    path.join(root, ".github/scripts/mcp-server.mjs"),
+  );
+  const check = (pull, title, baseName = "main") => {
+    const body = [
+      report(f, title).replace(`Base reviewed: main at`, `Base reviewed: ${baseName} at`),
+      "",
+      "<!-- pr-review run 1001.1 -->",
+    ].join("\n");
+    const dir = tempDir(t);
+    const stub = stubGh(dir, [
+      {
+        match: "^api --paginate repos/acme/widgets/issues/7/comments --jq",
+        json: [{ id: 1, user: { login: "github-actions[bot]" }, body }],
+      },
+      { match: "^api --method GET repos/acme/widgets/pulls/7$", stdout: pull },
+    ]);
+    return runStep(dir, script, {
+      PATH: `${stub.bin}${path.delimiter}${process.env.PATH}`,
+      GH_STUB_RULES: stub.rulesFile,
+      GH_STUB_LOG: stub.log,
+      REPO: "acme/widgets",
+      PR: "7",
+      GITHUB_RUN_ID: "1001",
+      GITHUB_RUN_ATTEMPT: "1",
+      LAST_COMMENT_ID: "0",
+      STARTED: "2026-01-01T00:00:00Z",
+    });
+  };
+  const ok = check(f.pull, `feat: thank @${Z}dra`);
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  // A title can hold a zero-width space already (copied from a filed
+  // issue's), and the server adds its own after the @.
+  const copied = check({ ...f.pull, title: `feat: thank @${Z}dra` }, `feat: thank @${Z}${Z}dra`);
+  assert.equal(copied.status, 0, copied.stdout + copied.stderr);
+  const other = check({ ...f.pull, title: "feat: thank @someone" }, `feat: thank @${Z}dra`);
+  assert.equal(other.status, 1, other.stdout + other.stderr);
+  assert.match(other.stdout, /title \[feat: thank @dra\] vs \[feat: thank @someone\]/);
+  // A title that opens with a zero-width space and a space keeps that
+  // space: the value is taken from its line before the spaces are dropped.
+  const leading = check({ ...f.pull, title: `${Z} @demo` }, `${Z} @${Z}demo`);
+  assert.equal(leading.status, 0, leading.stdout + leading.stderr);
+  // A base branch whose name holds a zero-width space matches itself.
+  const branch = `release/2026${Z}Q4`;
+  const based = check(
+    { ...f.pull, base: { ...f.pull.base, ref: branch } },
+    `feat: thank @${Z}dra`,
+    branch,
+  );
+  assert.equal(based.status, 0, based.stdout + based.stderr);
+});
+
+test("post_report refuses a Title reviewed line that is not the pull request's title", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const r = await server.call("post_report", { body: report(f, "@octocat and @acme/everyone") });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /the Title reviewed line must read "Title reviewed: feat: thank @dra"/);
+  assert.deepEqual(sent(server), []);
+});
+
+// A title with a line separator (U+2028) is left out: the server cannot
+// yet read a request that holds one (#90).
+test("post_report takes the title with its zero-width spaces", async (t) => {
+  for (const [title, reviewed] of [[`feat: thank @${Z}dra`, "feat: thank @dra"]]) {
+    const f = review(t);
+    f.pull.title = title;
+    const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+    const r = await server.call("post_report", { body: report(f, reviewed) });
+    assert.equal(r.isError, false, `${JSON.stringify(title)}: ${r.text}`);
+    assert.ok(sent(server)[0].includes(`Title reviewed: ${allQuiet(reviewed)}\n`), title);
+  }
+});
+
+test("file_issue quiets mentions, those the comment stripping joins too", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const r = await server.call("file_issue", {
+    finding: "R1-01",
+    title: "Ask @<!---->dra about the cache",
+    outcome: `${TEXT}\nPing &#6<!---->4;octocat and &com<!---->mat;octocat and @-->octocat`,
+    acceptance: "- [ ] @--!>dra agrees",
+  });
+  assert.equal(r.isError, false, r.text);
+  const issue = JSON.parse(sent(server)[0]);
+  assert.equal(issue.title, `Ask @${Z}dra about the cache`);
+  const ping = `Ping &#64;${Z}octocat and &commat;${Z}octocat and @${Z}octocat`;
+  assert.ok(issue.body.includes(`${QUIET}\n${ping}`), issue.body);
+  assert.ok(issue.body.includes(`- [ ] @${Z}dra agrees`), issue.body);
+});
+
+test("a fence one section of a filed issue leaves open keeps no later mention live", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const r = await server.call("file_issue", {
+    finding: "R1-01",
+    title: "Split fence",
+    outcome: "```\n@x",
+    acceptance: "```suggestion\n@octocat\n```",
+  });
+  assert.equal(r.isError, false, r.text);
+  const { body } = JSON.parse(sent(server)[0]);
+  assert.ok(body.includes(`\`\`\`\n@${Z}x\n`), body);
+  assert.ok(body.includes(`\`\`\`suggestion\n@${Z}octocat\n\`\`\``), body);
+});
+
+function triage(t) {
+  return startServer(t, {
+    mode: "triage",
+    env: { TRIAGE_ISSUE: "8", TRIAGE_EVENT: "issues" },
+    rules: [
+      {
+        match: "^api --method GET repos/acme/widgets/issues/8$",
+        stdout: { number: 8, state: "open", labels: [], user: { login: "dra", type: "User" } },
+      },
+      { match: "^api -X POST ", stdout: "u" },
+    ],
+  });
+}
+async function posted(t, lines) {
+  const server = await triage(t);
+  const r = await server.call("comment", { body: `## Triage\n\n${lines.join("\n")}\n` });
+  assert.equal(r.isError, false, r.text);
+  const [body] = sent(server);
+  return body.replace(/^## Triage\n\n/, "").replace(/\n\n<!-- issue-triage run 1001\.1 -->\n$/, "");
+}
+// Each body as one inline comment, as posted.
+async function inline(t, bodies) {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  for (const body of bodies) {
+    const r = await server.call("inline_comment", { path: "b.txt", line: 1, body });
+    assert.equal(r.isError, false, r.text);
+  }
+  return sent(server).map((s) => JSON.parse(s).body);
+}
+
+test("the triage comment quiets mentions, in its code blocks too", async (t) => {
+  assert.equal(await posted(t, [TEXT]), QUIET);
+});
+
+test("text that only looks like code, an address and a URL have their mentions quieted", async (t) => {
+  for (const [what, lines] of [
+    ["escaped backticks", ["see \\` @octocat \\`"]],
+    ["a code span across a line break", ["x ` y", "@octocat ` z"]],
+    ["a stray backtick", ["a stray `@octocat"]],
+    ["an escaped @", ["\\@octocat"]],
+    ["emphasis around or before it", ["_@octocat_ and __@octocat__ and _x_@octocat"]],
+    ["one @ after another", ["@@octocat and &#64;@octocat"]],
+    ["character references", ["&#64;octocat &#x40;octocat &#0064;octocat &commat;octocat"]],
+    // Raw HTML decodes a numeric reference without its semicolon.
+    ["references without a semicolon", ["<div>&#64octocat &#X040octocat</div>", "&#064x"]],
+    ["a character reference in the login", ["@&#111;ctocat"]],
+    ["after a reference or a sha", ["#12@octocat and abc1234@octocat"]],
+    ["inline HTML", ["<details><summary>cc @octocat</summary>"]],
+    ["a URL after an open bracket", ["[see https://example.com/@octocat"]],
+    [
+      "links",
+      [
+        "See https://www.npmjs.com/package/@types/node and [the post](https://medium.com/@octocat/post).",
+        "(https://example.com/@x) and <https://example.com/@y>",
+      ],
+    ],
+  ]) {
+    const quiet = lines.map(allQuiet);
+    assert.notDeepEqual(quiet, lines, what);
+    assert.equal(await posted(t, lines), quiet.join("\n"), what);
+  }
+});
+
+test("a reference to another character is left as written", async (t) => {
+  const lines = ["&#640; &#6400 &#x40a; &#x40A; &#x400 &commatx"];
+  assert.equal(await posted(t, lines), lines.join("\n"));
+});
+
+test("an inline comment quiets mentions in every code block, a suggestion's too", async (t) => {
+  // A suggestion holding an @ is committed with the space, so the tool
+  // tells the model to describe such a change in words. The rest are
+  // inputs that once kept a mention live.
+  const cases = [
+    ["a suggestion", ["Suggested:", "```suggestion", "@Override", "```"]],
+    ["after inline HTML", ["<b>Suggested change</b>", "```suggestion", "@Override", "```"]],
+    ["a tilde suggestion", ["~~~ suggestion", "@inner", "~~~"]],
+    ["another code block", ["```js", "@decorator", "```"]],
+    ["a fence inside an HTML block", ["<div>", "```suggestion", "@octocat", "```", "</div>"]],
+    [
+      "a lone tag after a paragraph line",
+      ["Change:", "<b>", "```", "", "`````suggestion", "```", "@octocat", "`````"],
+    ],
+    ["after an indented fence", ["  ~~~", "```suggestion", "~~~", "@octocat", "```"]],
+    ["a lone carriage return", [["```suggestion", "foo", "```", "@octocat"].join(CR), "```"]],
+    [
+      "a form feed in a tag",
+      [`<x${String.fromCharCode(12)}a=1>`, "```suggestion", "@octocat", "```"],
+    ],
+    [
+      "a byte order mark",
+      [`${String.fromCharCode(0xfeff)}~~~`, "```suggestion", "~~~", "@octocat", "```"],
+    ],
+    [
+      "a list item's HTML block",
+      ["- a", "", "  <div>", "```", "`````suggestion", "```", "@octocat", "`````"],
+    ],
+  ];
+  const got = await inline(
+    t,
+    cases.map(([, lines]) => lines.join("\n")),
+  );
+  cases.forEach(([what, lines], i) => {
+    const quiet = lines.map(allQuiet);
+    assert.notDeepEqual(quiet, lines, what);
+    assert.equal(got[i], quiet.join("\n"), what);
+  });
+});
+
+test("inline_comment tells the model to describe a change to a line holding an @ in words", async (t) => {
+  const f = review(t);
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const { result } = await server.request("tools/list", {});
+  const { description } = result.tools.find((tool) => tool.name === "inline_comment");
+  assert.match(description, /@/);
+  assert.match(description, /in words/);
+});

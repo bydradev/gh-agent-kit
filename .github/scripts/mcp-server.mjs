@@ -249,7 +249,20 @@ function contentProblem(texts) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-kit-content-"));
   try {
     const found = [];
-    for (const [label, value] of texts) {
+    // Each text as the model wrote it, and again without zero-width
+    // spaces when it holds any, so the model cannot hide an address or a
+    // link behind one. Removing them can also join text into a form the
+    // check lets through (a URL's user information), so the text as
+    // written is always checked too.
+    const versions = texts.flatMap(([label, value]) =>
+      value.includes("\u200b")
+        ? [
+            [label, value],
+            [label, value.replaceAll("\u200b", "")],
+          ]
+        : [[label, value]],
+    );
+    for (const [label, value] of versions) {
       const file = path.join(dir, "text");
       fs.writeFileSync(file, value, { mode: 0o600 });
       const python = check.endsWith(".py");
@@ -290,6 +303,8 @@ function contentProblem(texts) {
         );
     }
     if (found.length === 0) return null;
+    // A finding in both versions of a text is one finding.
+    found.splice(0, found.length, ...new Set(found));
     const shown = found.slice(0, CONTENT_SHOWN).join("; ");
     const more = found.length > CONTENT_SHOWN ? `; and ${found.length - CONTENT_SHOWN} more` : "";
     return (
@@ -319,14 +334,34 @@ const findingIdsIn = (body) =>
   [...body.matchAll(/<!-- pr-review finding ([^ ]+) (R[0-9]+-[0-9]+) -->/g)]
     .filter((m) => m[1] === `${repo}#${pr}`)
     .map((m) => m[2]);
+// GitHub notifies whoever a comment or issue @mentions (a team too, as
+// @org/team), and nothing the model posts should notify anyone: text the
+// run was steered by, or a mistake, would page people from this
+// repository. GitHub finds mentions in the rendered text (the open-source
+// html-pipeline's MentionFilter, read 2026-10-29), where emphasis markup
+// is gone, character references are decoded (in raw HTML a numeric one
+// needs no semicolon) and a link before an @ ends a text node. So every
+// @, written as itself or as a character reference (&#64;, &#x40;,
+// &commat;, or the first two without the semicolon), gets a zero-width
+// space after it, as Renovate does in the release notes it posts
+// (lib/util/markdown.ts, sanitizeMarkdown, read 2026-10-29): the text
+// reads the same, and no login follows an @ directly. Addresses, code,
+// URLs and suggestion blocks get it too. No block is left as written:
+// picking out the ones GitHub is sure to render as code means following
+// its parser, a reading that falls out of step with it leaves a mention
+// live, and the reviewer is not asked for suggestions.
+const MENTION = /(@|&#0*64(?![0-9]);?|&#[xX]0*40(?![0-9A-Fa-f]);?|&commat;)/g;
+const noMentions = (t) => t.replace(MENTION, "$1\u200b");
 // The model's text in a filed issue, kept from forging the form's
-// structure: no HTML comment (a dedupe marker is one) and no heading.
+// structure: no HTML comment (a dedupe marker is one) and no heading, and
+// kept from notifying anyone (noMentions, last, so that what the stripping
+// joins, such as "&#6<!---->4;login", is quieted too).
 // Comment openers and both closers ("-->" and "--!>") are stripped until
 // nothing changes, so "<!<!---->" cannot rebuild one. Headings are
 // escaped in every form GitHub renders: an ATX "#" after any indent,
 // quote or list marker, a setext underline ("---" or "===" under a line,
 // quoted or indented too), and an <h1> to <h6> tag.
-function plain(t) {
+function unforged(t) {
   let out = t;
   for (let prev; prev !== out;) {
     prev = out;
@@ -337,6 +372,7 @@ function plain(t) {
     .replace(/^([ \t>]*)(=+|-+)([ \t]*)$/gm, "$1\\$2$3")
     .replace(/<(\/?h[1-6])/gi, "&lt;$1");
 }
+const plain = (t) => noMentions(unforged(t));
 // The body of a filed issue in the Task form's layout (its headings, as
 // GitHub renders a submitted form), for the operator, who triages it by
 // hand or closes it: the triage bot never reads it, since its author is
@@ -482,18 +518,27 @@ function fetchReviewedBase(sha) {
 const REPORT_LINES = [
   [
     "Closes reviewed",
-    /^Closes reviewed: (none|([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)*)$/gm,
+    /^Closes reviewed: (none|([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+(, ([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)*)$/,
   ],
-  ["Base reviewed", /^Base reviewed: \S+ at [0-9a-f]{40}$/gm],
-  ["Title reviewed", /^Title reviewed: .+$/gm],
-  ["Head reviewed", /^Head reviewed: [0-9a-f]{40}$/gm],
+  ["Base reviewed", /^Base reviewed: \S+ at [0-9a-f]{40}$/],
+  ["Title reviewed", /^Title reviewed: [^\n]+$/],
+  ["Head reviewed", /^Head reviewed: [0-9a-f]{40}$/],
 ];
+// A reviewed line's text after its name, line by line on "\n" as the
+// workflow's grep reads them (JavaScript's ^ and $ would also break at a
+// line or paragraph separator, which a title can hold).
+const reviewedLine = (body, name) =>
+  body
+    .split("\n")
+    .find((l) => l.startsWith(`${name}: `))
+    .slice(name.length + 2);
 function reportLineProblem(body) {
+  const lines = body.split("\n");
   for (const [name, re] of REPORT_LINES) {
     // Every line with the prefix counts, well-formed or not: the workflow
     // reads them all, so a malformed one beside a valid one fails it.
-    const prefixed = (body.match(new RegExp(`^${name}:`, "gm")) || []).length;
-    const valid = (body.match(re) || []).length;
+    const prefixed = lines.filter((l) => l.startsWith(`${name}:`)).length;
+    const valid = lines.filter((l) => re.test(l)).length;
     if (prefixed !== 1 || valid !== 1)
       return `the report must carry exactly one plain "${name}: ..." line of its own, at the start of a line, not a list item and not bold (found ${prefixed} such line(s), ${valid} well-formed); the four lines are "Closes reviewed: none" (or the closed issues), "Base reviewed: <base branch> at <40-hex base_sha>", "Title reviewed: <the title verbatim>" and "Head reviewed: <40-hex head>"`;
   }
@@ -974,7 +1019,7 @@ const reviewTools = {
   },
   inline_comment: {
     description:
-      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub.",
+      "Post one finding as a review comment on a line of the reviewed head's diff (path and line as the diff shows them on the new side). It cannot edit or delete; a line outside the diff is refused by GitHub. The server puts a zero-width space after each @, so a mention notifies no one, in a suggestion block too, where applying it would commit the space: describe a change to a line holding an @, or a character reference for one, in words instead.",
     schema: {
       type: "object",
       properties: {
@@ -1007,14 +1052,20 @@ const reviewTools = {
           "--jq",
           ".html_url",
         ],
-        JSON.stringify({ body, commit_id: env.HEAD_SHA, path, line, side: "RIGHT" }),
+        JSON.stringify({
+          body: noMentions(body),
+          commit_id: env.HEAD_SHA,
+          path,
+          line,
+          side: "RIGHT",
+        }),
       );
       record({ inline: runState.inline + 1 });
       return text(`posted ${r}`);
     },
   },
   file_issue: {
-    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report.`,
+    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
     schema: {
       type: "object",
       properties: {
@@ -1071,12 +1122,14 @@ const reviewTools = {
         return fail(`this run has filed ${ISSUE_LIMIT} issues; name the rest in the report`);
       const issueTitle = plain(title.trim());
       const issueBody = taskBody({ outcome, acceptance, references, out_of_scope, size, finding });
-      // Each of the reviewer's fields as the body carries it; the rest of
-      // the body is the server's fixed text.
+      // Each of the reviewer's fields as the body carries it, before its
+      // mentions are quieted (the check reads text as the model wrote it,
+      // as for the other posts); the rest of the body is the server's
+      // fixed text.
       const fields = Object.entries({ outcome, acceptance, references, out_of_scope })
         .filter(([, value]) => value !== undefined)
-        .map(([name, value]) => [name, plain(value)]);
-      const why = stale() || contentProblem([["title", issueTitle], ...fields]);
+        .map(([name, value]) => [name, unforged(value)]);
+      const why = stale() || contentProblem([["title", unforged(title.trim())], ...fields]);
       if (why) return fail(why);
       const r = gh(
         ["api", "-X", "POST", `repos/${repo}/issues`, "--input", "-", "--jq", ".html_url"],
@@ -1089,7 +1142,7 @@ const reviewTools = {
   },
   post_report: {
     description:
-      "Post the round's report as one comment on this pull request. Allowed once per run; it cannot edit or delete. The body must carry the four plain reviewed lines (Closes, Base, Title, Head reviewed), one each at the start of a line, or the post is refused. The server appends a hidden marker naming this workflow run, which the workflow's report check looks for (run id and attempt).",
+      "Post the round's report as one comment on this pull request. Allowed once per run; it cannot edit or delete. The body must carry the four plain reviewed lines (Closes, Base, Title, Head reviewed), one each at the start of a line, or the post is refused. The server appends a hidden marker naming this workflow run, which the workflow's report check looks for (run id and attempt), and puts a zero-width space after each @, so a mention notifies no one; the Title reviewed line must be the pull request's title verbatim.",
     schema: {
       type: "object",
       properties: { body: { type: "string" } },
@@ -1107,7 +1160,7 @@ const reviewTools = {
       // The Base reviewed line names the commit this run diffed against,
       // which range_diff may later fetch by sha, so no other commit.
       const diffedBase = `${env.BASE} at ${git(["rev-parse", `origin/${env.BASE}`]).trim()}`;
-      const named = /^Base reviewed: (.+)$/m.exec(body)[1];
+      const named = reviewedLine(body, "Base reviewed");
       if (named !== diffedBase)
         return fail(
           `the Base reviewed line must read "Base reviewed: ${diffedBase}" (the pr tool's base and base_sha), not "Base reviewed: ${named}"`,
@@ -1116,6 +1169,19 @@ const reviewTools = {
       // live pull request, so a stale run must end without a report.
       const why = stale() || contentProblem([["body", body]]);
       if (why) return fail(why);
+      // The title is the one free-text reviewed line, so it must be the
+      // pull request's own. Like the rest of the report it is posted with
+      // its mentions quieted, and the workflow drops the zero-width spaces
+      // on both sides before it compares the reviewed lines with the pull
+      // request, so they are dropped here too (a title copied from a filed
+      // issue's may hold them).
+      const title = getJson(`repos/${repo}/pulls/${pr}`).title;
+      const reviewedTitle = reviewedLine(body, "Title reviewed");
+      const bare = (x) => x.replaceAll("\u200b", "");
+      if (bare(reviewedTitle) !== bare(title))
+        return fail(
+          `the Title reviewed line must read "Title reviewed: ${title}" (the pull request's title, verbatim), not "Title reviewed: ${reviewedTitle}"`,
+        );
       const r = gh(
         [
           "api",
@@ -1127,7 +1193,7 @@ const reviewTools = {
           "--jq",
           ".html_url",
         ],
-        `${body.trimEnd()}\n\n<!-- pr-review run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
+        `${noMentions(body.trimEnd())}\n\n<!-- pr-review run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
       );
       // Set once the post succeeded (calls run one at a time), so a
       // rejected request can be retried without a duplicate.
@@ -1488,7 +1554,7 @@ const triageTools = {
   },
   comment: {
     description:
-      "Post this run's one comment on the issue. Allowed once per run; it cannot edit or delete. The server appends a hidden marker naming this workflow run, which the workflow's state check looks for (run id and attempt).",
+      "Post this run's one comment on the issue. Allowed once per run; it cannot edit or delete. The server appends a hidden marker naming this workflow run, which the workflow's state check looks for (run id and attempt), and puts a zero-width space after each @, so a mention notifies no one.",
     schema: {
       type: "object",
       properties: { body: { type: "string" } },
@@ -1513,7 +1579,7 @@ const triageTools = {
           "--jq",
           ".html_url",
         ],
-        `${body.trimEnd()}\n\n<!-- issue-triage run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
+        `${noMentions(body.trimEnd())}\n\n<!-- issue-triage run ${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT} -->\n`,
       );
       // Set once the post succeeded, so a rejected request can be retried.
       record({ comment: true });

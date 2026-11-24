@@ -710,7 +710,9 @@ fixed line naming the pull request and the finding, strips HTML comments
 from the reviewer's text and escapes headings in every form GitHub renders
 (`#`, also after a quote or list marker, a `---` or `===` underline, and
 `<h1>` to `<h6>`), so the text cannot pose as the form or another finding's
-issue. Check the finding against the code yourself before you mark the issue
+issue, and keeps a `@mention` from notifying anyone, as in everything the
+model posts ([Other guards](#other-guards)). Check the finding against the
+code yourself before you mark the issue
 `agent:approved`.
 
 ### The security scan
@@ -799,6 +801,23 @@ The workflows also:
   labels and author stay. Such a pull request never counts as closing the
   issue either, so a closing keyword in its body cannot hold off the
   stale-claim comment;
+- notify no one from what the model writes: in the report, inline
+  comments, filed issues and the triage comment, the server puts a
+  zero-width space after every `@` (or `&#64;`, `&#x40;`, `&commat;`, or
+  the first two without the semicolon), as Renovate does in the release
+  notes it posts, so no `@login` or `@org/team` mention is linked and
+  neither steered text nor a mistake pages anyone; the text reads the
+  same. Addresses, inline code, code blocks, suggestion blocks and URLs
+  get the space too, so a command or address copied from a comment, or a
+  link whose path holds an `@` (an npm scope, say), may carry it, and a
+  suggestion that holds an `@`, or a character reference for one, would
+  commit it: `inline_comment` tells the model to describe such a change
+  in words. The report's reviewed lines get the space too: the server
+  refuses a `Title reviewed:` line that is not the pull request's title,
+  and the workflow drops the spaces on both sides before it compares the
+  lines with the pull request. A reference to an issue in
+  another repository (`owner/repo#n`) is still linked, and adds a
+  "mentioned this" entry to that issue;
 - run only on same-repository heads, never on forks, and skip Dependabot
   and Release Please pull requests;
 - read the reviewer's and the scanner's skills, the review guidelines,
