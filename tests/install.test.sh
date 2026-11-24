@@ -623,5 +623,49 @@ for bad in '../outside.txt' '/tmp/outside.txt' '.github/a b.txt' 'seed ../seeded
 done
 git -C "$kit" checkout -q "$head"
 
+it "a manifest path the clone lacks is refused before anything is written"
+git -C "$kit" checkout -q -B missing "$head"
+printf 'docs/not-in-the-clone.md\n' >> "$kit/kit-manifest.txt"
+git -C "$kit" commit -q -am "list a file the clone lacks"
+new_target
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "error: docs/not-in-the-clone.md is in the manifest but not in this clone"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+git -C "$kit" checkout -q "$head"
+
+it "a file where the kit needs a directory is refused before anything is written"
+new_target
+printf 'not a directory\n' > "$t/.agents"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.agents exists and is not a directory; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+
+it "a lock that is not a regular file is refused before anything is written"
+new_target
+mkdir -p "$t/.github/gh-agent-kit.lock"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.github/gh-agent-kit.lock exists and is not a regular file; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+
+it "a directory where the kit removes a dropped file is refused before anything is removed"
+new_target
+git -C "$kit" checkout -q "$head"
+check install "$t"
+rm -- "$t/.github/ISSUE_TEMPLATE/config.yml"
+mkdir -- "$t/.github/ISSUE_TEMPLATE/config.yml"
+git -C "$kit" checkout -q "$dropped"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.github/ISSUE_TEMPLATE/config.yml (a file the kit dropped) exists and is not a regular file; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+git -C "$kit" checkout -q "$head"
+
 echo "$passes passed, $failures failed"
 [ "$failures" -eq 0 ]
