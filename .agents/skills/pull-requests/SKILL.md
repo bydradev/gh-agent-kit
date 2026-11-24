@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before committing or preparing, editing, readying, unblocking or merging a pull request. Covers commit size and attribution, when to open a pull request, and Release Please squash messages.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=edee654a4724f7e78e282908262eb58decbb7aa5eb9022b9b9473f809502c75e -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=2533987ae37d3c97a1f4613fde15e502e2a02ddf8fd8a1fc3ce441663d84d09d -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -28,11 +28,14 @@ review and reverts.
 
 ## When to open a pull request
 
-Open a standard PR once the change is complete and the checks it affects
-pass locally. Until then, push the branch without a PR when you need a backup
-or a hand-off. Open a draft earlier only for a reason the body states, such as
-checks that run only in CI, early feedback the operator asked for, or work
-handed back unfinished, and mark it ready only once that bar is met.
+Open a standard PR once the change is complete and the affected checks that
+can run locally pass. Until then, push the branch without a PR when you need a
+backup or a hand-off. Open a draft earlier only for a reason the body states,
+such as checks that run only in CI, early feedback the operator asked for, or
+work handed back unfinished. Mark it ready once the change is complete, those
+local checks pass and, for substantial work, `fresh-eyes-review` has found no
+open blocking finding; checks and reviews that run only on a ready PR follow,
+and the PR is done only when it meets `AGENTS.md`'s bar.
 
 ## Standard pull requests
 
