@@ -66,6 +66,9 @@ test("finds each kind", () => {
     // may continue the domain.
     '"https://example.com/contacts\\u002fsam@mailbox.test"': EMAIL,
     '"Contact:\\nsam@example.com-xn--p1ai"': EMAIL,
+    // After an octal escape.
+    '"Contact:\\012sam@mailbox.test"': EMAIL,
+    '"\\7sam@mailbox.test"': EMAIL,
     // In a template literal, and after an escaped backslash and an escape.
     'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
     '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
@@ -136,6 +139,9 @@ test("lets public text through", () => {
     "path = r'C:\\new@v2.config' + R\"C:\\tmp@v2.config\"",
     "\"https://user:pa's\\u0073s@host.test\"",
     '"to \\u006eoreply@anthropic.com and \\x6eoreply@anthropic.com"',
+    // A noreply address before a hyphenated suffix, and escaped scheme separators.
+    '"\\nnoreply@host.test-related"',
+    '"https:\\u002f\\u002fuser:pa\\u0022ss@host.test"',
     // An octal escape is read whole.
     '"Contact:\\012noreply@host.test"',
     "\"https://user:pa\\'\\u0073s@host.test\"",

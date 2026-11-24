@@ -72,11 +72,12 @@ const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)
 // An address right after a complete literal escape in a string, in JSON or
 // source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
 // over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
-// quiet. escapeStarts decides whether the escape is one. The local part is
-// ASCII so Python's copy, whose \w is Unicode, agrees; each lookbehind is
-// fixed-width, as Python requires.
+// quiet. escapeStarts finds the positions where one may start, and this
+// pattern is tried at each of them (sticky), so overlapping candidates such
+// as `\012sam` (an octal escape) cannot hide each other. The local part is
+// ASCII so Python's copy, whose \w is Unicode, agrees.
 const EMAIL_AFTER_ESCAPE =
-  /(?:(?<=\\[nrtbfv0"'`/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
+  /([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/y;
 // Where an address may start after an escape: the positions right after an
 // escape inside a string (opened by ", ` or a ' that no letter or digit comes
 // before other than a Python string prefix such as f or rb, and not raw) that
@@ -92,7 +93,12 @@ function escapeStarts(line) {
   let quote = null;
   let raw = false;
   let url = false;
-  const scheme = (j) => line.startsWith("://", j) || line.startsWith(":\\/\\/", j);
+  // A scheme's :// as written or escaped (`:\/\/`, `\u003a\u002f\u002f`), and
+  // the index of its last character.
+  const scheme = (j) => {
+    const m = /^(?::|\\u003[aA]|\\x3[aA])(?:\/|\\\/|\\u002[fF]|\\x2[fF]){2}/.exec(line.slice(j, j + 18));
+    return m ? j + m[0].length - 1 : -1;
+  };
   for (let j = 0; j < line.length; ) {
     const c = line[j];
     if (quote) {
@@ -114,7 +120,7 @@ function escapeStarts(line) {
         j += len;
       } else {
         if (c === quote) [quote, raw, url] = [null, false, false];
-        else if (scheme(j)) [url, j] = [true, j + (line[j + 1] === "/" ? 2 : 4)];
+        else if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
         else if (/[ \t\r\n\f\v/]/.test(c)) url = false;
         j++;
       }
@@ -122,7 +128,7 @@ function escapeStarts(line) {
       const prefix = /(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$/.exec(line.slice(Math.max(0, j - 3), j));
       if (c === '"' || c === "`" || (c === "'" && prefix)) {
         [quote, raw, url] = [c, c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
-      } else if (scheme(j)) [url, j] = [true, j + (line[j + 1] === "/" ? 2 : 4)];
+      } else if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
       else if (/[ \t\r\n\f\v'"`/]/.test(c)) url = false;
       j++;
     }
@@ -187,23 +193,29 @@ export function scan(text, allowAttribution = false) {
         ...line.matchAll(EMAIL),
         ...line.matchAll(EMAIL_WHOLE),
         ...(() => {
-          const matches = [...line.matchAll(EMAIL_AFTER_ESCAPE)];
-          if (matches.length === 0) return [];
-          const starts = escapeStarts(line);
-          return matches
-            .filter((m) => starts.get(m.index) === false)
-            .map((m) => {
-              // A hyphen and a letter or digit may continue the domain
-              // (`sam@x.example-y.test`), so no exemption applies then.
-              m.continued = /^-[A-Za-z0-9]/.test(line.slice(m.index + m[0].length));
-              return m;
-            });
+          const found = [];
+          if (!line.includes("\\") || !line.includes("@")) return found;
+          for (const [start, url] of escapeStarts(line)) {
+            if (url) continue;
+            EMAIL_AFTER_ESCAPE.lastIndex = start;
+            const m = EMAIL_AFTER_ESCAPE.exec(line);
+            if (!m) continue;
+            // A hyphen and a letter or digit may continue the domain
+            // (`sam@x.example-y.test`), so only the local part's exemption
+            // applies then.
+            const end = start + m[0].length;
+            m.continued = line[end] === "-" && /[A-Za-z0-9]/.test(line[end + 1] ?? "");
+            found.push(m);
+          }
+          return found;
         })(),
       ].some(
         (match) =>
           // The address test first: it is cheap, and the URL guard reads the
           // text before the match, which a long line holds many of.
-          (match.continued || privateAddress(match[1], match[2])) &&
+          (match.continued
+            ? !NOREPLY_LOCAL_PARTS.has(match[1].toLowerCase())
+            : privateAddress(match[1], match[2])) &&
           !URL_USERINFO.test(line.slice(0, match.index)),
       )
     )
