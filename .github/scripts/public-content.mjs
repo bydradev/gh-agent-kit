@@ -80,8 +80,9 @@ const EMAIL_AFTER_ESCAPE =
 // An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an odd
 // run of backslashes (an even run is escaped backslashes and text), sits
 // inside a string opened by ", ` or a ' that no letter or digit comes before
-// (not a Windows path, a regex or an apostrophe in prose), and is not in a
-// URL, whose user information the URL guard judges.
+// other than a Python string prefix (f'...', rb'...'; not a Windows path, a
+// regex or an apostrophe in prose), and is not in a URL (escaped slashes
+// included), whose user information the URL guard judges.
 function escapedAddress(line, index) {
   let start = index - 2;
   if (/\\u[0-9A-Fa-f]{4}$/.test(line.slice(Math.max(0, index - 6), index))) start = index - 6;
@@ -95,12 +96,16 @@ function escapedAddress(line, index) {
     if (quote) {
       if (c === "\\") j++;
       else if (c === quote) quote = null;
-    } else if (c === '"' || c === "`" || (c === "'" && !/[A-Za-z0-9_]/.test(line[j - 1] ?? ""))) {
+    } else if (
+      c === '"' ||
+      c === "`" ||
+      (c === "'" && /(?:^|[^A-Za-z0-9_])[rRbBuUfF]{0,2}$/.test(line.slice(0, j)))
+    ) {
       quote = c;
     }
   }
   if (!quote) return false;
-  return !urlToken(line, index).includes("://");
+  return !urlToken(line, index).replaceAll("\\/", "/").includes("://");
 }
 // The token the address ends, as the text decodes: it starts after the last
 // space, unescaped quote, or escape of a space or control character

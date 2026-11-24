@@ -60,6 +60,8 @@ test("finds each kind", () => {
     "the sam@mailbox.test-2024 archive": EMAIL,
     // After a URL and an escaped newline, the next line's address.
     '"https://example.com\\nsam@mailbox.test"': EMAIL,
+    // In prefixed Python strings.
+    "msg = f'to:\\nsam@mailbox.test' + rb'\\tsam@mailbox.test'": EMAIL,
     // In a template literal, and after an escaped backslash and an escape.
     'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
     '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
@@ -124,6 +126,7 @@ test("lets public text through", () => {
     "Don't use C:\\new@v2.config",
     '"C:\\\\\\\\new@v2.config"',
     '"https://user:pa\\u0073s@host.test"',
+    '"https:\\/\\/user:pa\\u0073s@host.test"',
     "\"https://user:pa\\'\\u0073s@host.test\"",
     '"C:\\\\new@v2.config"',
     '"\\n李@host.test", "\\nénoreply@host.test"',
