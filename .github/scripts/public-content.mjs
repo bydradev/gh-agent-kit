@@ -63,10 +63,13 @@ const PATTERNS = [
 // and a `-` after the letters-only top-level label opens a suffix
 // (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
 // A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
-// After a `-`, the domain may go on (`x.example.com-y.test`), or another
-// address may start (`noreply@x.example-sam@corp.example`), so no exemption
-// applies to that match.
 const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])/g;
+// The same address ending only where no word character or `-` follows. Where
+// EMAIL stops early (before a `-` or `_`), this one keeps searching and can
+// find an address that overlaps it (`noreply@x.example-sam@corp.example`)
+// or the whole domain a `-` continues, so a line is checked with both and
+// nothing this one finds is lost to the earlier end.
+const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
@@ -96,10 +99,9 @@ const ATTRIBUTION = [
   /^_Requested by \*\*[^*\n]+\*\* · \[project thread\]\(https:\/\/claude\.ai\/code\/project\/chan_[A-Za-z0-9]+\?thread=cmsg_[A-Za-z0-9]+\)_$/,
 ];
 
-function privateAddress(local, domain, continued = false) {
+function privateAddress(local, domain) {
   local = local.toLowerCase();
   domain = domain.toLowerCase();
-  if (continued) return true;
   return !(
     NOREPLY_LOCAL_PARTS.has(local) ||
     NOREPLY_DOMAINS.some((allowed) => domain === allowed || domain.endsWith(`.${allowed}`)) ||
@@ -122,10 +124,9 @@ export function scan(text, allowAttribution = false) {
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
     if (
       line !== DEPENDABOT_FOOTER &&
-      [...line.matchAll(EMAIL)].some(
+      [...line.matchAll(EMAIL), ...line.matchAll(EMAIL_WHOLE)].some(
         (match) =>
-          !URL_USERINFO.test(line.slice(0, match.index)) &&
-          privateAddress(match[1], match[2], line[match.index + match[0].length] === "-"),
+          !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),
       )
     )
       kinds.push("an email address other than a noreply one");
