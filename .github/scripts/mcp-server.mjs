@@ -34,8 +34,7 @@ const repoName = (s) =>
   /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s) &&
   !s.split("/").some((part) => /^\.+$/.test(part));
 // A ref the model may name: the fetched base exactly (whatever characters
-// its branch name has), or a plain name or sha from a conservative set:
-// any branch, tag or commit of this repository the checkout has.
+// its branch name has), or a plain name or sha from a conservative set.
 const refName = (s) =>
   typeof s === "string" &&
   (s === `origin/${env.BASE}` ||
@@ -776,10 +775,8 @@ const reviewTools = {
       if (refused) return refused;
       if (kind === "review")
         return commentBody(`repos/${repo}/pulls/${pr}/reviews`, id, page, true);
-      if (kind === "issue")
-        return commentBody(`repos/${repo}/issues/comments`, id, page, true);
-      if (kind === "inline")
-        return commentBody(`repos/${repo}/pulls/comments`, id, page, true);
+      if (kind === "issue") return commentBody(`repos/${repo}/issues/comments`, id, page, true);
+      if (kind === "inline") return commentBody(`repos/${repo}/pulls/comments`, id, page, true);
       return fail("kind must be issue, inline or review");
     },
   },
@@ -811,7 +808,7 @@ const reviewTools = {
   },
   show: {
     description:
-      "A file at a ref (ref:path), or a commit's patch (ref alone, with the base's .gitattributes, as diff reads them). Refs: any branch (origin/<name>), tag or sha of this repository, or HEAD.",
+      "A file at a ref (ref:path), or a commit's patch (ref alone, with the base's .gitattributes, as diff reads them). Refs: a sha, HEAD, or origin/<base>.",
     schema: {
       type: "object",
       properties: { ref: { type: "string" }, path: { type: "string" }, ...pageProp },
@@ -819,7 +816,7 @@ const reviewTools = {
       additionalProperties: false,
     },
     run: ({ ref, path, page }) => {
-      if (!refName(ref)) return fail("ref must be a sha, a tag, HEAD or origin/<branch>");
+      if (!refName(ref)) return fail("ref must be a sha, HEAD or origin/<branch>");
       if (path !== undefined && !pathArg(path))
         return fail("path must be a relative path inside the checkout");
       const target = path !== undefined ? `${ref}:${path}` : ref;
@@ -1335,7 +1332,9 @@ const triageTools = {
           titleScreened((i) => {
             const url = typeof i.repository_url === "string" ? i.repository_url : "";
             if (!url.toLowerCase().endsWith(own))
-              throw new Error(`the search returned an issue outside ${repo}; search with plain terms`);
+              throw new Error(
+                `the search returned an issue outside ${repo}; search with plain terms`,
+              );
             return {
               number: i.number,
               title: i.title,
