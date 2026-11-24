@@ -46,6 +46,7 @@ function review(t, env = {}) {
       stdout: {
         state: "open",
         draft: false,
+        title: "feat: add a widget",
         base: { ref: "main", sha: base },
         head: { sha: head },
       },

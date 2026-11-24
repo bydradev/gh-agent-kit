@@ -250,7 +250,9 @@ function contentProblem(texts) {
     const found = [];
     for (const [label, value] of texts) {
       const file = path.join(dir, "text");
-      fs.writeFileSync(file, value, { mode: 0o600 });
+      // Without the zero-width spaces noMentions puts after each @, or the
+      // model puts anywhere, so neither hides an address from the check.
+      fs.writeFileSync(file, value.replaceAll("\u200b", ""), { mode: 0o600 });
       const python = check.endsWith(".py");
       const r = spawnSync(
         python ? "python3" : process.execPath,

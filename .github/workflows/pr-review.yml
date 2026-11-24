@@ -476,6 +476,13 @@ jobs:
           # name is in the path: each segment URL-encoded, the slashes kept
           # (a name may hold a character the URL would cut it at).
           base_now=$(gh api --method GET "repos/$REPO/git/ref/heads/$(jq -rn --arg b "$BASE" '$b | split("/") | map(@uri) | join("/")')" --jq .object.sha)
+          # The server puts a zero-width space after each @ it posts, so a
+          # mention in the title notifies no one; the comparisons drop it,
+          # from the title too, which may hold one copied from a filed
+          # issue's.
+          zwsp=$(printf '\342\200\213')
+          last=${last//"$zwsp"/}
+          title_now=${TITLE//"$zwsp"/}
           reviewed=$(printf '%s\n' "$last" | grep '^Closes reviewed:' || true)
           base_reviewed=$(printf '%s\n' "$last" | grep '^Base reviewed:' | sed 's/^Base reviewed:[[:space:]]*//' || true)
           title_reviewed=$(printf '%s\n' "$last" | grep '^Title reviewed:' | sed 's/^Title reviewed:[[:space:]]*//' || true)
@@ -486,7 +493,7 @@ jobs:
             echo "the head is $HEAD but the last report reviewed $head_reviewed (that review may have failed); reviewing"
           elif [ "$base_reviewed" != "$BASE at $base_now" ]; then
             echo "the base is $BASE at $base_now but the last report reviewed against $base_reviewed; reviewing"
-          elif [ "$title_reviewed" != "$TITLE" ]; then
+          elif [ "$title_reviewed" != "$title_now" ]; then
             echo "the title differs from the one the last report reviewed; reviewing"
           elif [ "$(printf '%s' "$reviewed" | sed 's/^Closes reviewed:[[:space:]]*//' | tr ',' '\n' | tr -d ' ' | grep -v '^none$' | sed -E "s#^$repo_re\##\##I" | sort -u)" != "$(refs "$BODY")" ]; then
             echo "the closing references differ from the ones the last report reviewed; reviewing"
