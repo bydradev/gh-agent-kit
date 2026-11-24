@@ -149,12 +149,12 @@ const PULL = {
   head: { sha: HEAD },
 };
 
-function reportCheck(t, comments, pull = PULL) {
+function reportCheck(t, comments, pull = PULL, rules = []) {
   // The installed server writes the run marker, so a report without this
   // run's marker is no report.
   const script = stepScript(FILE, "Fail when no review report was posted").replaceAll(
     "/opt/agent-kit/mcp-server.mjs",
-    path.join(root, ".github/scripts/mcp-server.mjs"),
+    '"$KIT_SERVER"',
   );
   return step(t, null, {
     script,
@@ -163,10 +163,12 @@ function reportCheck(t, comments, pull = PULL) {
       GITHUB_RUN_ATTEMPT: "1",
       LAST_COMMENT_ID: "0",
       STARTED: "2026-01-01T00:00:00Z",
+      KIT_SERVER: path.join(root, ".github/scripts/mcp-server.mjs"),
     },
     rules: [
       { match: "^api --paginate repos/acme/widgets/issues/7/comments --jq", json: comments },
       { match: "^api --method GET repos/acme/widgets/pulls/7$", stdout: pull },
+      ...rules,
     ],
   });
 }
@@ -232,6 +234,29 @@ test("pr-review.yml: the run fails when the reviewed lines do not describe the p
     bot(1, report(reviewed({ closes: "Closes reviewed: acme/widgets#12" }))),
   ]);
   assert.equal(named.status, 0, named.stdout + named.stderr);
+});
+
+test("pr-review.yml: a base commit that moved is accepted only when the merge base did not", (t) => {
+  // The report names the commit the review diffed against; the base branch
+  // has since moved to BASE_SHA. Only a move that leaves the merge base
+  // with the head where it was keeps the reviewed diff the pull request's.
+  const reviewedBase = "d".repeat(40);
+  const compare = (mbReviewed, mbNow) => [
+    {
+      match: `^api --method GET repos/acme/widgets/compare/${reviewedBase}\\.\\.\\.${HEAD} `,
+      stdout: `${mbReviewed}\n`,
+    },
+    {
+      match: `^api --method GET repos/acme/widgets/compare/${BASE_SHA}\\.\\.\\.${HEAD} `,
+      stdout: `${mbNow}\n`,
+    },
+  ];
+  const lines = reviewed({ base: `Base reviewed: main at ${reviewedBase}` });
+  const kept = reportCheck(t, [bot(1, report(lines))], PULL, compare("e".repeat(40), "e".repeat(40)));
+  assert.equal(kept.status, 0, kept.stdout + kept.stderr);
+  const moved = reportCheck(t, [bot(1, report(lines))], PULL, compare("e".repeat(40), "f".repeat(40)));
+  assert.equal(moved.status, 1, moved.stdout + moved.stderr);
+  assert.match(moved.stdout, /base \[main at d{40}\] vs \[main at b{40}\]/);
 });
 
 // ---------- the verdict check ----------

@@ -105,7 +105,7 @@ test("the report check compares the reviewed lines without the zero-width spaces
   // The installed server writes the run marker.
   const script = stepScript("pr-review.yml", "Fail when no review report was posted").replaceAll(
     "/opt/agent-kit/mcp-server.mjs",
-    path.join(root, ".github/scripts/mcp-server.mjs"),
+    '"$KIT_SERVER"',
   );
   const check = (pull, title, baseName = "main") => {
     const body = [
@@ -131,6 +131,7 @@ test("the report check compares the reviewed lines without the zero-width spaces
       GITHUB_RUN_ATTEMPT: "1",
       LAST_COMMENT_ID: "0",
       STARTED: "2026-01-01T00:00:00Z",
+      KIT_SERVER: path.join(root, ".github/scripts/mcp-server.mjs"),
     });
   };
   const ok = check(f.pull, `feat: thank @${Z}dra`);
