@@ -71,10 +71,13 @@ const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za
 const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
 // An address right after a complete literal escape in JSON or source text
 // (`"Contact:\nsam@corp.example"`), which the patterns above pass over: their
-// start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. Each
-// alternative is fixed-width, as Python's copy of this check requires.
+// start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. The
+// escape's backslash must not itself be escaped (`C:\\new@...`), a quote must
+// come earlier on the line (a string, not a Windows path or a regex), and the
+// local part is ASCII so Python's copy, whose \w is Unicode, agrees. Each
+// lookbehind is fixed-width, as Python requires.
 const EMAIL_AFTER_ESCAPE =
-  /(?:(?<=\\[nrtbfv0"\\/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
+  /(?:(?<=(?<!\\)\\[nrtbfv0"/])|(?<=(?<!\\)\\u[0-9A-Fa-f]{4})|(?<=(?<!\\)\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
@@ -132,7 +135,9 @@ export function scan(text, allowAttribution = false) {
       [
         ...line.matchAll(EMAIL),
         ...line.matchAll(EMAIL_WHOLE),
-        ...line.matchAll(EMAIL_AFTER_ESCAPE),
+        ...[...line.matchAll(EMAIL_AFTER_ESCAPE)].filter((m) =>
+          /["']/.test(line.slice(0, m.index)),
+        ),
       ].some(
         (match) =>
           !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),

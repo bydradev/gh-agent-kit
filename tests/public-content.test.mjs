@@ -110,6 +110,11 @@ test("lets public text through", () => {
     // An escape not followed by an address, and an allowed address after one.
     '"\\t@decorator", "\\r@x", "\\u0040", "line\\nnoreply@anthropic.com"',
     '"Contact:\\nsam@example.com"',
+    // A Windows path, a regex and an escaped backslash are not escapes
+    // before an address, and Python's Unicode letters do not count.
+    "C:\\new@v2.config and /\\new@v2.config/",
+    '"C:\\\\new@v2.config"',
+    '"\\n李@host.test", "\\nénoreply@host.test"',
     // The rule's own text names the prefixes and markers it rules out.
     "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
     "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",
