@@ -100,11 +100,31 @@ function escapedAddress(line, index) {
     }
   }
   if (!quote) return false;
-  return !line
-    .slice(0, index)
-    .split(/[ \t\r\n\f\v"'`]/)
-    .pop()
-    .includes("://");
+  return !urlToken(line, index).includes("://");
+}
+// The token the address ends, as the text decodes: it starts after the last
+// space, unescaped quote, or escape of a space or control character
+// (`https://x.example\nsam@corp.example` is a URL, then an address); an
+// escaped quote or letter (`pa\'ss`, `\u0073`) stays inside it.
+const SPACE_ESCAPES = { n: 10, r: 13, t: 9, f: 12, v: 11, 0: 0, b: 8 };
+function urlToken(line, index) {
+  let start = 0;
+  for (let j = 0; j < index; ) {
+    if (line[j] === "\\") {
+      let len = 2;
+      let code = SPACE_ESCAPES[line[j + 1]] ?? null;
+      const u = /^\\u([0-9A-Fa-f]{4})/.exec(line.slice(j, j + 6));
+      const x = /^\\x([0-9A-Fa-f]{2})/.exec(line.slice(j, j + 4));
+      if (u) [len, code] = [6, parseInt(u[1], 16)];
+      else if (x) [len, code] = [4, parseInt(x[1], 16)];
+      if (code !== null && code < 0x21) start = Math.min(j + len, index);
+      j += len;
+    } else {
+      if (/[ \t\r\n\f\v"'`]/.test(line[j])) start = j + 1;
+      j++;
+    }
+  }
+  return line.slice(start, index);
 }
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
