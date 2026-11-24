@@ -1,9 +1,9 @@
 ---
 name: pull-requests
 description: >-
-  Use before committing or preparing, editing, readying, unblocking or merging a pull request. Covers commit attribution and Release Please squash messages.
+  Use before committing or preparing, editing, readying, unblocking or merging a pull request. Covers commit size and attribution, when to open a pull request, and Release Please squash messages.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=ca61266512056bbff0f2074ecda4f3861a0b9b423716a1dbbe5681f3e62f1fa7 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=2533987ae37d3c97a1f4613fde15e502e2a02ddf8fd8a1fc3ce441663d84d09d -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -20,6 +20,22 @@ For a commit an AI tool materially wrote or changed, keep its harness's
 Tool addresses: Codex `noreply@openai.com`, Antigravity CLI
 `224641728+gemini-cli-robot@users.noreply.github.com`, OpenCode
 `noreply@opencode.ai`, OMP `noreply@omp.sh`, OMO `noreply@omo.dev`.
+
+Commit in small, focused steps as the work goes, each one coherent change.
+Squash merging keeps only the PR's merge message on the default branch, so
+the branch's commits add nothing to its history and serve as checkpoints for
+review and reverts.
+
+## When to open a pull request
+
+Open a standard PR once the change is complete and the affected checks that
+can run locally pass. Until then, push the branch without a PR when you need a
+backup or a hand-off. Open a draft earlier only for a reason the body states,
+such as checks that run only in CI, early feedback the operator asked for, or
+work handed back unfinished. Mark it ready once the change is complete, those
+local checks pass and, for substantial work, `fresh-eyes-review` has found no
+open blocking finding; checks and reviews that run only on a ready PR follow,
+and the PR is done only when it meets `AGENTS.md`'s bar.
 
 ## Standard pull requests
 
