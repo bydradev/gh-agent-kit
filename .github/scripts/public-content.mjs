@@ -69,15 +69,43 @@ const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za
 // or the whole domain a `-` continues, so a line is checked with both and
 // nothing this one finds is lost to the earlier end.
 const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
-// An address right after a complete literal escape in JSON or source text
-// (`"Contact:\nsam@corp.example"`), which the patterns above pass over: their
-// start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. The
-// escape's backslash must not itself be escaped (`C:\\new@...`), a quote must
-// come earlier on the line (a string, not a Windows path or a regex), and the
-// local part is ASCII so Python's copy, whose \w is Unicode, agrees. Each
-// lookbehind is fixed-width, as Python requires.
+// An address right after a complete literal escape in a string, in JSON or
+// source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
+// over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
+// quiet. escapedAddress decides whether the escape is one. The local part is
+// ASCII so Python's copy, whose \w is Unicode, agrees; each lookbehind is
+// fixed-width, as Python requires.
 const EMAIL_AFTER_ESCAPE =
-  /(?:(?<=(?<!\\)\\[nrtbfv0"/])|(?<=(?<!\\)\\u[0-9A-Fa-f]{4})|(?<=(?<!\\)\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
+  /(?:(?<=\\[nrtbfv0"'`/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
+// An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an odd
+// run of backslashes (an even run is escaped backslashes and text), sits
+// inside a string opened by ", ` or a ' that no letter or digit comes before
+// (not a Windows path, a regex or an apostrophe in prose), and is not in a
+// URL, whose user information the URL guard judges.
+function escapedAddress(line, index) {
+  let start = index - 2;
+  if (/\\u[0-9A-Fa-f]{4}$/.test(line.slice(Math.max(0, index - 6), index))) start = index - 6;
+  else if (/\\x[0-9A-Fa-f]{2}$/.test(line.slice(Math.max(0, index - 4), index))) start = index - 4;
+  let run = 0;
+  for (let j = start; j >= 0 && line[j] === "\\"; j--) run++;
+  if (run % 2 === 0) return false;
+  let quote = null;
+  for (let j = 0; j < start; j++) {
+    const c = line[j];
+    if (quote) {
+      if (c === "\\") j++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "`" || (c === "'" && !/[A-Za-z0-9_]/.test(line[j - 1] ?? ""))) {
+      quote = c;
+    }
+  }
+  if (!quote) return false;
+  return !line
+    .slice(0, index)
+    .split(/[ \t\r\n\f\v"'`]/)
+    .pop()
+    .includes("://");
+}
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
@@ -135,9 +163,7 @@ export function scan(text, allowAttribution = false) {
       [
         ...line.matchAll(EMAIL),
         ...line.matchAll(EMAIL_WHOLE),
-        ...[...line.matchAll(EMAIL_AFTER_ESCAPE)].filter((m) =>
-          /["']/.test(line.slice(0, m.index)),
-        ),
+        ...[...line.matchAll(EMAIL_AFTER_ESCAPE)].filter((m) => escapedAddress(line, m.index)),
       ].some(
         (match) =>
           !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),

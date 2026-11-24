@@ -58,6 +58,9 @@ test("finds each kind", () => {
     "(ask sam@mailbox.test)": EMAIL,
     "sam@mailbox.test_-x": EMAIL,
     "the sam@mailbox.test-2024 archive": EMAIL,
+    // In a template literal, and after an escaped backslash and an escape.
+    'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
+    '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
     // An address right after a literal escape in serialized text.
     '{"message":"Contact:\\nalice@mailbox.test"}': EMAIL,
     '"to:\\tsam@mailbox.test"': EMAIL,
@@ -113,6 +116,12 @@ test("lets public text through", () => {
     // A Windows path, a regex and an escaped backslash are not escapes
     // before an address, and Python's Unicode letters do not count.
     "C:\\new@v2.config and /\\new@v2.config/",
+    // A regex after a closed string, an apostrophe in prose, an even run
+    // of backslashes, and an escape in a URL's user information.
+    'const label = "regex"; const pattern = /\\new@v2.config/;',
+    "Don't use C:\\new@v2.config",
+    '"C:\\\\\\\\new@v2.config"',
+    '"https://user:pa\\u0073s@host.test"',
     '"C:\\\\new@v2.config"',
     '"\\n李@host.test", "\\nénoreply@host.test"',
     // The rule's own text names the prefixes and markers it rules out.
