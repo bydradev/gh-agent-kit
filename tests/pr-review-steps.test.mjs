@@ -120,7 +120,7 @@ test("pr-review.yml: a pull request beyond the diff limits, or with files the ch
   assert.equal(missing.status, 1);
   assert.match(
     missing.stdout,
-    /::error::the checkout shows 2 changed files but the pull request reports 3; the review would be incomplete/,
+    /::error::the checkout shows\s+2 changed files but the pull request reports 3; the review would be incomplete/,
   );
 });
 

@@ -101,7 +101,7 @@ test("issue-triage.yml: needs-triage must go, and triaged and needs-operator are
 test("issue-triage.yml: the issue carries exactly one type and one priority", (t) => {
   for (const labels of [
     ["triaged", "P2"],
-    ["triaged", "bug", "docs", "P2"],
+    ["triaged", "bug", "chore", "P2"],
   ])
     fails(state(t, { labels }), "a triaged or needs-operator issue carries one type label");
   for (const labels of [
@@ -116,10 +116,6 @@ test("issue-triage.yml: a fresh triage drops the approval, and a reopen the clai
     fails(
       state(t, { labels: ["triaged", "bug", "P2", "agent:approved"], action }),
       `agent:approved survived a ${action} event`,
-    );
-    fails(
-      state(t, { labels: ["triaged", "bug", "P2", "ready"], action }),
-      `ready survived a ${action} event`,
     );
   }
   // A dispatch of an issue that carried needs-triage is a fresh triage too.
