@@ -58,6 +58,12 @@ test("finds each kind", () => {
     "(ask sam@mailbox.test)": EMAIL,
     "sam@mailbox.test_-x": EMAIL,
     "the sam@mailbox.test-2024 archive": EMAIL,
+    // An address right after a literal escape in serialized text.
+    '{"message":"Contact:\\nalice@mailbox.test"}': EMAIL,
+    '"to:\\tsam@mailbox.test"': EMAIL,
+    "'line\\rsam@mailbox.test'": EMAIL,
+    '"a\\u000asam@mailbox.test" and "b\\x0asam@mailbox.test"': EMAIL,
+    '"quote\\"sam@mailbox.test\\""': EMAIL,
     // After a hyphen the domain may go on, so an allowed-looking start
     // does not make it public.
     "user@team.example.com-xn--p1ai": EMAIL,
@@ -101,6 +107,9 @@ test("lets public text through", () => {
     // Package versions and decorators are not addresses, nor is an escape.
     "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
     'files[HUB] + "\\n@AGENTS.md\\n"',
+    // An escape not followed by an address, and an allowed address after one.
+    '"\\t@decorator", "\\r@x", "\\u0040", "line\\nnoreply@anthropic.com"',
+    '"Contact:\\nsam@example.com"',
     // The rule's own text names the prefixes and markers it rules out.
     "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
     "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",

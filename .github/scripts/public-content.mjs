@@ -69,6 +69,12 @@ const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za
 // or the whole domain a `-` continues, so a line is checked with both and
 // nothing this one finds is lost to the earlier end.
 const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
+// An address right after a complete literal escape in JSON or source text
+// (`"Contact:\nsam@corp.example"`), which the patterns above pass over: their
+// start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. Each
+// alternative is fixed-width, as Python's copy of this check requires.
+const EMAIL_AFTER_ESCAPE =
+  /(?:(?<=\\[nrtbfv0"\\/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
@@ -123,7 +129,11 @@ export function scan(text, allowAttribution = false) {
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
     if (
       line !== DEPENDABOT_FOOTER &&
-      [...line.matchAll(EMAIL), ...line.matchAll(EMAIL_WHOLE)].some(
+      [
+        ...line.matchAll(EMAIL),
+        ...line.matchAll(EMAIL_WHOLE),
+        ...line.matchAll(EMAIL_AFTER_ESCAPE),
+      ].some(
         (match) =>
           !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),
       )
