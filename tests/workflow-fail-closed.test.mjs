@@ -195,3 +195,26 @@ test("issue-triage.yml: the sweep fails when an author's permission cannot be re
   assert.match(failed.stderr, /HTTP 502/);
   assert.equal(failed.eligible, "8\n");
 });
+
+test("pr-review.yml: the run stops before its settings without a head sha or a base branch", (t) => {
+  const script = stepScript(
+    "pr-review.yml",
+    "Write the model's settings and the MCP server's configuration",
+  );
+  const head = "a".repeat(40);
+  for (const [env, message] of [
+    [{ EVENT_HEAD: "", HEAD_SHA: "", EVENT_BASE: "main" }, /::error::no head sha for this run/],
+    [{ EVENT_HEAD: "abc; rm -rf /", EVENT_BASE: "main" }, /::error::no head sha for this run/],
+    [
+      { EVENT_HEAD: "", HEAD_SHA: head, EVENT_BASE: "", BASE: "" },
+      /::error::no base branch for this run/,
+    ],
+  ]) {
+    const temp = tempDir(t);
+    const r = runStep(tempDir(t), script, { RUNNER_TEMP: temp, ...env });
+    assert.equal(r.status, 1, JSON.stringify(env));
+    assert.match(r.stdout, message);
+    // Nothing of the run's scope is written: no settings, no token file.
+    assert.deepEqual(fs.readdirSync(temp), [], JSON.stringify(env));
+  }
+});
