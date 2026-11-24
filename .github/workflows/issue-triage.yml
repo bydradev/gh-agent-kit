@@ -1328,6 +1328,6 @@ jobs:
             fi
           done
           if [ -n "$failed" ]; then
-            echo "::error::could not dispatch triage for$failed; start each with 'gh workflow run issue-triage.yml -f issue=<n>' or leave it to the next sweep, since re-running this job starts every queued issue again"
+            echo "::error::could not dispatch triage for$failed; leave them to the next sweep, or start each that still needs triage with 'gh workflow run issue-triage.yml --repo $REPO --ref $GITHUB_REF_NAME -f issue=<n>', since re-running this job starts every queued issue again"
             exit 1
           fi

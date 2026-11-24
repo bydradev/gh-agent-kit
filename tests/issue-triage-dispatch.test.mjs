@@ -146,7 +146,7 @@ test("issue-triage.yml: the dispatch job tries every issue, then fails naming th
   assert.deepEqual(calls(r), [read(8), run(8), read(12), run(12), read(15), run(15), read(17)]);
   assert.match(
     r.stdout,
-    /::error::could not dispatch triage for #12 #17; start each with 'gh workflow run issue-triage.yml -f issue=<n>' or leave it to the next sweep, since re-running this job starts every queued issue again$/m,
+    /::error::could not dispatch triage for #12 #17; leave them to the next sweep, or start each that still needs triage with 'gh workflow run issue-triage.yml --repo acme\/widgets --ref main -f issue=<n>', since re-running this job starts every queued issue again$/m,
   );
 });
 
