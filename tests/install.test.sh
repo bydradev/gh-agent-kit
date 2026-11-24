@@ -597,5 +597,75 @@ check contains "$work/out" "skipped    AGENTS.md (Work tracking block: no AGENTS
 check test -L "$t/AGENTS.md"
 check test "$(cat "$work/agents-elsewhere.md")" = "$agents_md"
 
+it "a manifest path outside the target, absolute or with a space is refused before anything is written"
+for bad in '../outside.txt' '/tmp/outside.txt' '.github/a b.txt' 'seed ../seeded.txt'; do
+  path=${bad#seed }
+  git -C "$kit" checkout -q -B unsafe "$head"
+  # The file each path names exists from the kit (committed, or beside
+  # the clone for one that climbs out of it), and the target sits a level
+  # deeper than the clone, so only the refusal keeps the installer from
+  # writing it.
+  mkdir -p "$(dirname "$kit/$path")"
+  echo planted > "$kit/$path"
+  printf '%s\n' "$bad" >> "$kit/kit-manifest.txt"
+  git -C "$kit" add -A
+  git -C "$kit" commit -q -m "plant an unsafe manifest path"
+  new_target
+  mkdir -p "$work/deeper$n"
+  mv "$t" "$work/deeper$n/"
+  t="$work/deeper$n/target$n"
+  snapshot "$t" > "$work/before"
+  check test "$(install "$t"; echo $?)" = 2
+  check contains "$work/out" "error: refusing manifest path $path"
+  snapshot "$t" > "$work/after"
+  check cmp -s "$work/before" "$work/after"
+  check test ! -e "$t/$path"
+done
+git -C "$kit" checkout -q "$head"
+
+it "a manifest path the clone lacks is refused before anything is written"
+git -C "$kit" checkout -q -B missing "$head"
+printf 'docs/not-in-the-clone.md\n' >> "$kit/kit-manifest.txt"
+git -C "$kit" commit -q -am "list a file the clone lacks"
+new_target
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "error: docs/not-in-the-clone.md is in the manifest but not in this clone"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+git -C "$kit" checkout -q "$head"
+
+it "a file where the kit needs a directory is refused before anything is written"
+new_target
+printf 'not a directory\n' > "$t/.agents"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.agents exists and is not a directory; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+
+it "a lock that is not a regular file is refused before anything is written"
+new_target
+mkdir -p "$t/.github/gh-agent-kit.lock"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.github/gh-agent-kit.lock exists and is not a regular file; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+
+it "a directory where the kit removes a dropped file is refused before anything is removed"
+new_target
+git -C "$kit" checkout -q "$head"
+check install "$t"
+rm -- "$t/.github/ISSUE_TEMPLATE/config.yml"
+mkdir -- "$t/.github/ISSUE_TEMPLATE/config.yml"
+git -C "$kit" checkout -q "$dropped"
+snapshot "$t" > "$work/before"
+check test "$(install "$t"; echo $?)" = 2
+check contains "$work/out" "/target$n/.github/ISSUE_TEMPLATE/config.yml (a file the kit dropped) exists and is not a regular file; move it aside"
+snapshot "$t" > "$work/after"
+check cmp -s "$work/before" "$work/after"
+git -C "$kit" checkout -q "$head"
+
 echo "$passes passed, $failures failed"
 [ "$failures" -eq 0 ]

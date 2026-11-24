@@ -93,6 +93,7 @@ for (const job of JOBS) {
       [{ PROVIDER: "anthropic", MODEL: "minimax-m3" }, new RegExp(`${job.model} must be a Claude model name`)],
       [{ PROVIDER: "opencode-go", MODEL: "Bad Model" }, new RegExp(`${job.model} must be an OpenCode Go model id`)],
       [{ PROVIDER: "opencode-go", MODEL: "muse-spark-1.3-contributor" }, /Contributor model, which trains on prompts/],
+      [{ PROVIDER: "anthropic", EFFORT: "extreme" }, new RegExp(`the setting ${job.effort} must be low, medium, high, xhigh or max, not 'extreme'`)],
     ]) {
       const bad = settings(t, job, env);
       assert.equal(bad.status, 1, JSON.stringify(env));
@@ -119,7 +120,7 @@ for (const job of JOBS) {
     // The run step with the CLI replaced by a stub that writes the
     // variables it was started with and answers like a successful run,
     // whose last message is text.
-    const run = (t, provider, keys, text = "done", state) => {
+    const run = (t, provider, keys, text = "done", state, { reply, exit = 0 } = {}) => {
       const dir = tempDir(t);
       const temp = path.join(dir, "runner-temp");
       fs.mkdirSync(path.join(temp, "scan-input"), { recursive: true });
@@ -132,24 +133,24 @@ for (const job of JOBS) {
       const seen = path.join(dir, "seen-env");
       const argv = path.join(dir, "seen-args");
       const answer = path.join(dir, "answer.json");
-      fs.writeFileSync(
-        answer,
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          num_turns: 2,
-          total_cost_usd: 0.5,
-          usage: { input_tokens: 11, cache_read_input_tokens: 22, cache_creation_input_tokens: 33, output_tokens: 44 },
-          result: text,
-        }),
-      );
+      const success = {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        num_turns: 2,
+        total_cost_usd: 0.5,
+        usage: { input_tokens: 11, cache_read_input_tokens: 22, cache_creation_input_tokens: 33, output_tokens: 44 },
+        result: text,
+      };
+      // reply: fields over the successful answer, or null for no output.
+      fs.writeFileSync(answer, reply === null ? "" : JSON.stringify({ ...success, ...reply }));
       fs.writeFileSync(
         stub,
         `#!/bin/bash
 env > "${seen}"
 printf '%s\\n' "$@" > "${argv}"
 cat "${answer}"
+exit ${exit}
 `,
         { mode: 0o755 },
       );
@@ -203,6 +204,22 @@ cat "${answer}"
         assert.equal(open.status, 0, open.stdout + open.stderr);
         assert.match(open.stdout, /^result: It was fine\.$/m);
       });
+
+    // A run that ends in error, or that writes no result, fails the step
+    // rather than passing as if the model had finished its work.
+    test(`${job.file}, ${name}: a run that ends in error, or with no result, fails`, (t) => {
+      const keys = { ANTHROPIC_API_KEY: "ak" };
+      for (const [why, options, message] of [
+        ["a non-zero exit", { exit: 1 }, /::error::Claude Code's run ended in error \(exit status 1\)/],
+        ["is_error", { reply: { is_error: true } }, /::error::Claude Code's run ended in error \(exit status 0\)/],
+        ["a turn limit", { reply: { subtype: "error_max_turns" } }, /::error::Claude Code's run ended in error/],
+        ["no result", { reply: null, exit: 1 }, /::error::Claude Code exited with status 1 and no result/],
+      ]) {
+        const r = run(t, "anthropic", keys, "done", { report: true }, options);
+        assert.equal(r.status, 1, `${why}: ${r.stdout}${r.stderr}`);
+        assert.match(r.stdout, message, why);
+      }
+    });
 
     // The run summary carries the model's last message, which the pull
     // request or issue may have steered, so it is printed with workflow
