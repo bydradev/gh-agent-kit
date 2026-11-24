@@ -516,12 +516,19 @@ function repoOption(r) {
 // GitHub answers the URL of an issue transferred to another repository
 // with a redirect to it there (REST API, "Get an issue", read 2026-10-29),
 // so an issue or comment read by number or id must name this repository
-// as its own. A reply that names none is taken as this repository's:
-// GitHub's issues and comments always name theirs.
+// as its own, by its API URL or, failing that, its page URL. A reply that
+// names neither is taken as this repository's: GitHub's issues, comments
+// and reviews always carry repository_url, issue_url or pull_request_url.
 function ofThisRepo(item) {
-  const url = item && (item.repository_url ?? item.issue_url ?? item.pull_request_url);
-  if (typeof url !== "string") return true;
-  const m = /\/repos\/([^/]+\/[^/]+?)(?:\/|$)/.exec(url);
+  const api = item && (item.repository_url ?? item.issue_url ?? item.pull_request_url);
+  const page = item && item.html_url;
+  const m =
+    typeof api === "string"
+      ? /\/repos\/([^/]+\/[^/]+?)(?:\/|$)/.exec(api)
+      : typeof page === "string"
+        ? /^https:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\/|$)/.exec(page)
+        : undefined;
+  if (m === undefined) return true;
   return Boolean(m) && m[1].toLowerCase() === repo.toLowerCase();
 }
 const MOVED = (what) => `${what} is now in another repository (it was transferred) and is not read`;

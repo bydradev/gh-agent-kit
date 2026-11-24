@@ -409,6 +409,14 @@ test("triage refuses an issue transferred to another repository", async (t) => {
       match: "repos/acme/widgets/issues/12$",
       stdout: { ...otherIssue(12, user("dra")), ...moved },
     },
+    { match: "repos/acme/widgets/issues/comments/35$", stdout: movedComment(35) },
+    {
+      match: "repos/acme/widgets/issues/comments/36$",
+      stdout: {
+        ...comment(36, "github-actions[bot]", "Bot"),
+        html_url: "https://github.com/other/lib/issues/3#issuecomment-36",
+      },
+    },
   ]);
   for (const [tool, args, why] of [
     [
@@ -424,6 +432,10 @@ test("triage refuses an issue transferred to another repository", async (t) => {
       /comment 35 is now in another repository \(it was transferred\) and is not read; nothing done$/,
     ],
     ["read_issue", { number: 12 }, /^#12 is now in another repository/],
+    // A bot's comment fetched by id is refused too, whether its API URL or
+    // only its page URL names the other repository.
+    ["comment_body", { kind: "issue", id: 35 }, /^comment 35 is now in another repository/],
+    ["comment_body", { kind: "issue", id: 36 }, /^comment 36 is now in another repository/],
   ]) {
     const r = await s.call(tool, args);
     assert.equal(r.isError, true, `${tool}: ${r.text}`);
