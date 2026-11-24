@@ -49,6 +49,11 @@ test("finds each kind", () => {
     "see https://github.com/acme or sam@mailbox.test": EMAIL,
     "https://host.test/u/sam@mailbox.test": EMAIL,
     "https://user:password@github.com/acme/repo by sam@mailbox.test": EMAIL,
+    // An address that punctuation no domain holds ends: Markdown emphasis,
+    // a hyphenated suffix and an underscore.
+    "_contact sam@mailbox.test_": EMAIL,
+    "the sam@mailbox.test-related thread": EMAIL,
+    "sam@mailbox.test_old": EMAIL,
   };
   for (const [text, kind] of Object.entries(cases)) assert.ok(kinds(text).includes(kind), text);
 });
@@ -77,6 +82,8 @@ test("lets public text through", () => {
     "Signed-off-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
     "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
     "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
+    // The same trailing punctuation after an allowed address.
+    "_write to sam@example.com_ or noreply@anthropic.com-style, noreply@mailbox.test_x",
     // Package versions and decorators are not addresses, nor is an escape.
     "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
     'files[HUB] + "\\n@AGENTS.md\\n"',

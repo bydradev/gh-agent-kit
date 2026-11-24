@@ -59,7 +59,10 @@ const PATTERNS = [
 // An address is found unless it is a noreply one, at an example domain, or
 // the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 // login, not a person's. A backslash before it is an escape such as `\n`.
-const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
+// It ends where a letter or digit cannot follow: `_` never appears in a
+// domain, and a `-` after the letters-only top-level label opens a suffix
+// (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
+const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
