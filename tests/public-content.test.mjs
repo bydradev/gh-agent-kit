@@ -54,6 +54,9 @@ test("finds each kind", () => {
     "_contact sam@mailbox.test_": EMAIL,
     "the sam@mailbox.test-related thread": EMAIL,
     "sam@mailbox.test_old": EMAIL,
+    "to sam@mailbox.test, then": EMAIL,
+    "(ask sam@mailbox.test)": EMAIL,
+    "sam@mailbox.test_-x": EMAIL,
   };
   for (const [text, kind] of Object.entries(cases)) assert.ok(kinds(text).includes(kind), text);
 });
@@ -84,6 +87,7 @@ test("lets public text through", () => {
     "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
     // The same trailing punctuation after an allowed address.
     "_write to sam@example.com_ or noreply@anthropic.com-style, noreply@mailbox.test_x",
+    "noreply@anthropic.com_ and sam@example.com-x",
     // Package versions and decorators are not addresses, nor is an escape.
     "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
     'files[HUB] + "\\n@AGENTS.md\\n"',
