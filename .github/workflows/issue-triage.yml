@@ -32,11 +32,12 @@ defaults:
   run:
     shell: bash
 
+# No job where a model runs can start a workflow run: the sweep's runs are
+# started by the dispatch job below, the only one with actions: write.
 permissions:
   contents: read
   issues: write
   pull-requests: read
-  actions: write # the sweep dispatches one run per issue
 
 jobs:
   # The settings the triage job runs with. Its if: and timeout-minutes can
@@ -352,6 +353,8 @@ jobs:
     needs: settings
     if: needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'
     runs-on: ubuntu-latest
+    outputs:
+      dispatch: ${{ steps.queue.outputs.issues }}
     # Checked by the settings job, which fails on a value outside 1 to 360.
     timeout-minutes: ${{ fromJSON(needs.settings.outputs.KIT_TRIAGE_TIMEOUT_MINUTES || '15') }}
     # The runner context is not available in a job's env (GitHub's context
@@ -441,11 +444,13 @@ jobs:
       # configured program with the token) is never in its hands. The
       # server runs from a root-owned copy outside the checkout, so nothing
       # in the checkout is executed. The sweep reads the list the workflow
-      # wrote and dispatches a run per issue through the server's dispatch
-      # tool, which pins the run to this branch (gh workflow run would
-      # accept --ref, and so a branch's edited workflow); it writes nothing
-      # else. The issue number is validated before it reaches the server's
-      # environment, because a dispatch input could otherwise rewrite it.
+      # wrote and queues a run per issue through the server's dispatch
+      # tool, which takes only a number from that list (gh workflow run
+      # would accept --ref, and so a branch's edited workflow); the
+      # dispatch job, which runs no model, starts the queued runs on this
+      # branch, and the sweep writes nothing else. The issue number is
+      # validated before it reaches the server's environment, because a
+      # dispatch input could otherwise rewrite it.
       - name: Scope the bot's tools to this run
         if: steps.gate.outputs.skip != 'true'
         env:
@@ -455,6 +460,7 @@ jobs:
             *[!0-9]*) echo "::error::issue must be a number, got '$ISSUE'"; exit 1 ;;
           esac
           echo "DISPATCH_LOG=$RUNNER_TEMP/dispatched" >> "$GITHUB_ENV"
+          echo "DISPATCH_QUEUE=$RUNNER_TEMP/dispatch-queue" >> "$GITHUB_ENV"
           echo "ELIGIBLE_ISSUES=$RUNNER_TEMP/eligible-issues" >> "$GITHUB_ENV"
           sudo install -d -o root -g root -m 0755 /opt/agent-kit
           sudo install -o root -g root -m 0755 .github/scripts/mcp-server.mjs /opt/agent-kit/mcp-server.mjs
@@ -518,8 +524,8 @@ jobs:
           rm -f -- "$RUNNER_TEMP/public-content.json" "$RUNNER_TEMP/public-content.err"
       # The sweep's candidates are computed here, not by the model: every
       # open issue labelled needs-triage, carrying no state label, or
-      # labelled in-progress with no activity for 7 days. The dispatch
-      # script starts a run only for a number in this list, once.
+      # labelled in-progress with no activity for 7 days. The server's
+      # dispatch tool queues a run only for a number in this list, once.
       - name: List the issues a sweep dispatches
         if: env.TRIAGE_ISSUE == ''
         env:
@@ -535,6 +541,7 @@ jobs:
                 or ((.labels | map(.name) | index("in-progress")) != null and (now - (.updated_at | fromdate)) > 7 * 86400)
               ) | .number' | sort -n > "$RUNNER_TEMP/candidates"
           : > "$DISPATCH_LOG"
+          : > "$DISPATCH_QUEUE"
           # A stale in-progress claim that already carries the warning is not
           # dispatched again: the warning is posted once.
           : > "$ELIGIBLE_ISSUES"
@@ -583,8 +590,9 @@ jobs:
       # (blockReadsOutsideWorkingDirectories); and its own process and
       # subprocesses see empty GH_TOKEN and GITHUB_TOKEN. The server keeps
       # what the run has posted in a file beside the token's (STATE_FILE),
-      # and the sweep's dispatches in DISPATCH_LOG, so its per-run limits
-      # hold when OpenCode carries the run on in a new process.
+      # and the sweep's dispatches in DISPATCH_LOG and DISPATCH_QUEUE, so
+      # its per-run limits hold when OpenCode carries the run on in a new
+      # process.
       - name: Write the model's settings and the MCP server's configuration
         if: steps.gate.outputs.skip != 'true'
         env:
@@ -609,8 +617,8 @@ jobs:
             (umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_TEMP/private-repo-names")
           fi
           mcp=$(jq -cn --arg check "${PUBLIC_CONTENT_CHECK:-}" --arg names "$RUNNER_TEMP/private-repo-names" --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
-            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
+            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg queue "$DISPATCH_QUEUE" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, DISPATCH_QUEUE: $queue, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
       # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
@@ -1231,13 +1239,96 @@ jobs:
           fi
           if [ "$ACTION" = "reopened" ] && has in-progress; then fail "in-progress survived a reopened event"; fi
       # The sweep ends successfully whether or not it dispatched anything.
-      # the dispatch tool records each issue it started; every issue in
-      # the list above must be in that record.
+      # the dispatch tool records each issue it queued or found handled;
+      # every issue in the list above must be in that record.
       - name: Fail when the sweep left an eligible issue undispatched
         if: env.TRIAGE_ISSUE == ''
         run: |
           missing=$(comm -23 <(sort "$ELIGIBLE_ISSUES") <(sort "$DISPATCH_LOG"))
           if [ -n "$missing" ]; then
             echo "::error::the sweep did not dispatch triage for issue(s): $(printf '%s' "$missing" | tr '\n' ' ')"
+            exit 1
+          fi
+      # The issues the sweep's server queued, for the dispatch job below.
+      # Passed on whether or not this job ended well, since the server
+      # checked each when it queued it, as when it dispatched at once. Every
+      # number must also be on the list the workflow computed, so nothing
+      # but that list reaches the dispatch job.
+      - name: Pass the sweep's dispatches on
+        id: queue
+        if: ${{ !cancelled() && env.TRIAGE_ISSUE == '' }}
+        run: |
+          [ -n "${DISPATCH_QUEUE:-}" ] && [ -f "$DISPATCH_QUEUE" ] || exit 0
+          queue=$(sort -un "$DISPATCH_QUEUE" | tr '\n' ' ')
+          case "$queue" in
+            *[!0-9\ ]*) echo "::error::the dispatch queue holds something other than issue numbers"; exit 1 ;;
+          esac
+          for n in $queue; do
+            grep -qx "$n" "$ELIGIBLE_ISSUES" || { echo "::error::the dispatch queue holds #$n, which the sweep did not list"; exit 1; }
+          done
+          echo "queued: ${queue:-none}"
+          echo "issues=$queue" >> "$GITHUB_OUTPUT"
+
+  # The sweep's runs, started here rather than by the server in the triage
+  # job, so the token that can start a workflow run (actions: write) is
+  # never in a job where a model runs. Each number was checked by the
+  # server against the sweep's list and the issue's state when it was
+  # queued, and by the step that passed it on against the list; the
+  # issue's state is checked again here, since minutes can pass between
+  # the two. This job runs no model and starts one run per number. A
+  # dispatch on the job token starts a run, where a label it adds would
+  # not ("Triggering a workflow from a workflow" in GitHub's docs: only
+  # workflow_dispatch and repository_dispatch events, read 2026-10-29).
+  # Re-running this job after a partial failure would start every queued
+  # issue again, and a second run cancels the first in its concurrency
+  # group, so the error names the issues to start by hand instead.
+  dispatch:
+    name: issue-triage dispatch
+    needs: triage
+    if: ${{ !cancelled() && needs.triage.outputs.dispatch != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+    steps:
+      - name: Start a triage run for each issue the sweep queued
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          QUEUE: ${{ needs.triage.outputs.dispatch }}
+        run: |
+          failed=""
+          for n in $QUEUE; do
+            case "$n" in
+              *[!0-9]*) echo "::error::'$n' is not an issue number"; exit 1 ;;
+            esac
+            # The sweep's eligibility, as the list step and the server
+            # read it: open, and needs-triage, no state label, or an
+            # in-progress claim idle for 7 days.
+            if ! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels | map(.name)) as $l
+                | if .state != "open" then "is \(.state)"
+                  elif ($l | index("needs-triage")) != null
+                    or ($l - ["needs-triage","triaged","in-progress","needs-operator"] | length) == ($l | length)
+                    or (($l | index("in-progress")) != null and (now - (.updated_at | fromdate)) > 7 * 86400)
+                  then "eligible"
+                  else "now carries \($l | map(select(. == "triaged" or . == "in-progress" or . == "needs-operator")) | join(", "))"
+                  end'); then
+              failed="$failed #$n"
+              continue
+            fi
+            if [ "$now" != "eligible" ]; then
+              echo "not dispatched: #$n $now, since the sweep queued it"
+              continue
+            fi
+            if gh workflow run issue-triage.yml --repo "$REPO" --ref "$GITHUB_REF_NAME" -f "issue=$n"; then
+              echo "dispatched issue-triage.yml for #$n on $GITHUB_REF_NAME"
+            else
+              failed="$failed #$n"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::could not dispatch triage for$failed; leave them to the next sweep, or start each that still needs triage with 'gh workflow run issue-triage.yml --repo $REPO --ref $GITHUB_REF_NAME -f issue=<n>', since re-running this job starts every queued issue again"
             exit 1
           fi
