@@ -62,6 +62,8 @@ test("finds each kind", () => {
     "user@team.example.com-xn--p1ai": EMAIL,
     "user@team.example.com-foo.test2": EMAIL,
     "report it to github@bydra.dev-ops": EMAIL,
+    "contacts/noreply@anthropic.com-sam@mailbox.test.txt": EMAIL,
+    "noreply@anthropic.com-x": EMAIL,
   };
   for (const [text, kind] of Object.entries(cases)) assert.ok(kinds(text).includes(kind), text);
 });
@@ -91,8 +93,8 @@ test("lets public text through", () => {
     "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
     "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
     // The same trailing punctuation after an allowed address.
-    "_write to sam@example.com_ or noreply@anthropic.com-style, noreply@mailbox.test_x",
-    "noreply@anthropic.com_ and noreply@anthropic.com-x",
+    "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
+    "noreply@anthropic.com_ and sam@example.com_",
     // A package tag, where a hyphen and a digit follow.
     "npm install a@b.cd-1 and @scope/a@b.cd-1",
     // Package versions and decorators are not addresses, nor is an escape.

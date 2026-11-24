@@ -63,8 +63,9 @@ const PATTERNS = [
 // and a `-` after the letters-only top-level label opens a suffix
 // (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
 // A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
-// After a `-`, the domain may go on (`x.example.com-y.test`), so only the
-// local part can make that address public.
+// After a `-`, the domain may go on (`x.example.com-y.test`), or another
+// address may start (`noreply@x.example-sam@corp.example`), so no exemption
+// applies to that match.
 const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])/g;
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
@@ -98,9 +99,9 @@ const ATTRIBUTION = [
 function privateAddress(local, domain, continued = false) {
   local = local.toLowerCase();
   domain = domain.toLowerCase();
-  if (NOREPLY_LOCAL_PARTS.has(local)) return false;
   if (continued) return true;
   return !(
+    NOREPLY_LOCAL_PARTS.has(local) ||
     NOREPLY_DOMAINS.some((allowed) => domain === allowed || domain.endsWith(`.${allowed}`)) ||
     PUBLISHED_ADDRESSES.has(`${local}@${domain}`)
   );
