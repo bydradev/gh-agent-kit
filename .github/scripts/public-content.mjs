@@ -80,11 +80,12 @@ const EMAIL_AFTER_ESCAPE =
   /([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/y;
 // Where an address may start after an escape: the positions right after an
 // escape inside a string (opened by ", ` or a ' that no letter or digit comes
-// before other than a Python string prefix such as f or rb, and not raw) that
-// decodes to a space, a control character, a quote or a slash, mapped to
-// whether the token the address ends is a URL (`scheme://` or `scheme:\/\/`
-// since its last space, quote, or escaped space or control character), whose
-// user information the URL guard judges. An escaped letter (`\u006e`) is
+// before other than a Python string prefix such as f or rb; a triple-quoted
+// one ends at its own three quotes; a raw one has no escapes) that decodes to
+// a space, a control character, a quote or a slash, mapped to whether it is
+// in a URL's user information: from a scheme's :// (escaped or not) to the
+// next space, slash, ?, # or quote, or escape of one or of a control
+// character. The URL guard judges that part. An escaped letter (`\u006e`) is
 // part of the address, and an escaped backslash consumes its pair, so a run
 // of them leaves the escape after it as it is. One pass over the line.
 const SPACE_ESCAPES = { n: 10, r: 13, t: 9, f: 12, v: 11, 0: 0, b: 8 };
@@ -93,7 +94,7 @@ function escapeStarts(line) {
   let quote = null;
   let raw = false;
   let url = false;
-  // A scheme's :// as written or escaped (`:\/\/`, `\u003a\u002f\u002f`), and
+  // A scheme's :// as written or escaped (`:\/\/`, `://`), and
   // the index of its last character.
   const scheme = (j) => {
     const m = /^(?::|\\u003[aA]|\\x3[aA])(?:\/|\\\/|\\u002[fF]|\\x2[fF]){2}/.exec(line.slice(j, j + 18));
@@ -102,7 +103,9 @@ function escapeStarts(line) {
   for (let j = 0; j < line.length; ) {
     const c = line[j];
     if (quote) {
-      if (c === "\\" && raw) {
+      if (scheme(j) >= 0) {
+        [url, j] = [true, scheme(j) + 1];
+      } else if (c === "\\" && raw) {
         j += 2;
       } else if (c === "\\") {
         let len = 2;
@@ -113,23 +116,29 @@ function escapeStarts(line) {
         if (u) [len, code] = [6, parseInt(u[1], 16)];
         else if (x) [len, code] = [4, parseInt(x[1], 16)];
         else if (o) [len, code] = [1 + o[1].length, parseInt(o[1], 8)];
-        // A space, or a slash after the authority (the user information is
-        // only between scheme:// and the first slash), ends the URL's part.
-        if (code < 0x21 || (code === 47 && url)) url = false;
+        // A space, or a slash, ? or # after the authority (the user
+        // information is only between scheme:// and the first of them), ends
+        // the URL's part.
+        if (code < 0x21 || [35, 47, 63].includes(code)) url = false;
         if (code < 0x21 || [34, 39, 47, 96].includes(code)) starts.set(j + len, url);
         j += len;
+      } else if (line.startsWith(quote, j)) {
+        [j, quote, raw, url] = [j + quote.length, null, false, false];
       } else {
-        if (c === quote) [quote, raw, url] = [null, false, false];
-        else if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
-        else if (/[ \t\r\n\f\v/]/.test(c)) url = false;
+        if (/[ \t\r\n\f\v/?#]/.test(c)) url = false;
         j++;
       }
     } else {
       const prefix = /(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$/.exec(line.slice(Math.max(0, j - 3), j));
       if (c === '"' || c === "`" || (c === "'" && prefix)) {
-        [quote, raw, url] = [c, c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
-      } else if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
-      else if (/[ \t\r\n\f\v'"`/]/.test(c)) url = false;
+        // A Python triple-quoted string ends only at its own three quotes.
+        quote = c !== "`" && line.startsWith(c.repeat(3), j) ? c.repeat(3) : c;
+        [raw, url] = [c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
+        j += quote.length;
+        continue;
+      }
+      if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
+      else if (/[ \t\r\n\f\v'"`/?#]/.test(c)) url = false;
       j++;
     }
   }

@@ -66,6 +66,9 @@ test("finds each kind", () => {
     // may continue the domain.
     '"https://example.com/contacts\\u002fsam@mailbox.test"': EMAIL,
     '"Contact:\\nsam@example.com-xn--p1ai"': EMAIL,
+    // In a URL's query or fragment after an escaped quote.
+    '"https://example.com?contact=\\u0027sam@mailbox.test"': EMAIL,
+    '"https://example.com#\\u0027sam@mailbox.test"': EMAIL,
     // After an octal escape.
     '"Contact:\\012sam@mailbox.test"': EMAIL,
     '"\\7sam@mailbox.test"': EMAIL,
@@ -142,6 +145,9 @@ test("lets public text through", () => {
     // A noreply address before a hyphenated suffix, and escaped scheme separators.
     '"\\nnoreply@host.test-related"',
     '"https:\\u002f\\u002fuser:pa\\u0022ss@host.test"',
+    // An escaped scheme colon, and raw triple-quoted strings.
+    '"https\\u003a\\u002f\\u002fuser:pa\\u0022ss@host.test"',
+    "p = r\"\"\"C:\\new@v2.config\"\"\" + r'''C:\\tmp@v2.config'''",
     // An octal escape is read whole.
     '"Contact:\\012noreply@host.test"',
     "\"https://user:pa\\'\\u0073s@host.test\"",
