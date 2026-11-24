@@ -1018,12 +1018,15 @@ jobs:
       # startup into its own environment. The model itself gets no Bash,
       # no file-writing tool, no network tool, no subagent or scheduling
       # tool and no tool that acts outside the run: Agent (and its older
-      # name Task), Workflow, Skill, SendMessage and TaskStop, since
-      # --max-turns counts only the main session's turns; ScheduleWakeup,
-      # CronCreate, CronDelete and RemoteTrigger; EnterWorktree and
-      # ExitWorktree, which add a worktree and a branch to the checkout;
-      # Monitor, which --restricted should already remove; and
-      # PushNotification, Artifact, SendUserFile and ShareOnboardingGuide.
+      # name Task), Workflow and Skill, which can start subagents whose
+      # turns --max-turns does not count, and SendMessage and TaskStop,
+      # which message or stop agents and background tasks; ScheduleWakeup,
+      # CronCreate, CronDelete and RemoteTrigger, which schedule or cancel
+      # work; EnterWorktree, which creates or enters a worktree and branch,
+      # and ExitWorktree, which leaves and can remove one; Monitor, which
+      # runs a command and --restricted should already remove; and
+      # PushNotification, Artifact, SendUserFile and ShareOnboardingGuide,
+      # which send something out of the run.
       # Read-only ones such as CronList, ListAgents and ToolSearch stay
       # (names read from the 2.1.306 and 2.1.331 binaries and the tools
       # reference, code.claude.com/docs/en/tools-reference, 2026-11-24);

@@ -186,7 +186,12 @@ a review's writes once the head moves. The reviewer may also file up to
 five backlog issues for findings outside the change, and the sweep only
 dispatches triage runs. The scan's model has no GitHub access at all: it
 reads the checkout and the diff the workflow wrote, and the workflow posts
-what it found.
+what it found. On the Claude Code runner the review, the scan and triage
+deny `Bash`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`,
+`Agent`, `Task`, `Workflow`, `Skill`, `SendMessage`, `TaskStop`,
+`ScheduleWakeup`, `CronCreate`, `CronDelete`, `RemoteTrigger`,
+`EnterWorktree`, `ExitWorktree`, `Monitor`, `PushNotification`,
+`Artifact`, `SendUserFile` and `ShareOnboardingGuide`.
 [`docs/setup.md`](docs/setup.md#what-each-run-may-do) has the details.
 
 ## Requirements in the target repository
