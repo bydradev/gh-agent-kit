@@ -1250,7 +1250,9 @@ jobs:
           fi
       # The issues the sweep's server queued, for the dispatch job below.
       # Passed on whether or not this job ended well, since the server
-      # checked each when it queued it, as when it dispatched at once.
+      # checked each when it queued it, as when it dispatched at once. Every
+      # number must also be on the list the workflow computed, so nothing
+      # but that list reaches the dispatch job.
       - name: Pass the sweep's dispatches on
         id: queue
         if: ${{ !cancelled() && env.TRIAGE_ISSUE == '' }}
@@ -1260,6 +1262,9 @@ jobs:
           case "$queue" in
             *[!0-9\ ]*) echo "::error::the dispatch queue holds something other than issue numbers"; exit 1 ;;
           esac
+          for n in $queue; do
+            grep -qx "$n" "$ELIGIBLE_ISSUES" || { echo "::error::the dispatch queue holds #$n, which the sweep did not list"; exit 1; }
+          done
           echo "queued: ${queue:-none}"
           echo "issues=$queue" >> "$GITHUB_OUTPUT"
 

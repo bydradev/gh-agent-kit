@@ -23,11 +23,12 @@ const outputs = (file) =>
       .map((l) => l.split(/=(.*)/s).slice(0, 2)),
   );
 
-function pass(t, queue) {
+function pass(t, queue, eligible = "8\n12\n") {
   const dir = tempDir(t);
   const output = path.join(dir, "github-output");
   fs.writeFileSync(output, "");
-  const env = { GITHUB_OUTPUT: output };
+  const env = { GITHUB_OUTPUT: output, ELIGIBLE_ISSUES: path.join(dir, "eligible-issues") };
+  fs.writeFileSync(env.ELIGIBLE_ISSUES, eligible);
   if (queue !== undefined) {
     env.DISPATCH_QUEUE = path.join(dir, "dispatch-queue");
     fs.writeFileSync(env.DISPATCH_QUEUE, queue);
@@ -54,6 +55,18 @@ test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once ea
   assert.equal(bad.status, 1);
   assert.match(bad.stdout, /::error::the dispatch queue holds something other than issue numbers/);
   assert.deepEqual(bad.outputs, {});
+
+  // A number the sweep did not list never reaches the dispatch job, nor
+  // one that only shares digits with a listed number.
+  for (const queue of ["8\n99\n", "1\n", "812\n"]) {
+    const unlisted = pass(t, queue);
+    assert.equal(unlisted.status, 1, queue);
+    assert.match(
+      unlisted.stdout,
+      /::error::the dispatch queue holds #\d+, which the sweep did not list/,
+    );
+    assert.deepEqual(unlisted.outputs, {});
+  }
 });
 
 function dispatch(t, queue, rules) {
