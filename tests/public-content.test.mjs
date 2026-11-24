@@ -49,6 +49,23 @@ test("finds each kind", () => {
     "see https://github.com/acme or sam@mailbox.test": EMAIL,
     "https://host.test/u/sam@mailbox.test": EMAIL,
     "https://user:password@github.com/acme/repo by sam@mailbox.test": EMAIL,
+    // An address that punctuation no domain holds ends: Markdown emphasis,
+    // a hyphenated suffix and an underscore.
+    "_contact sam@mailbox.test_": EMAIL,
+    "the sam@mailbox.test-related thread": EMAIL,
+    "sam@mailbox.test_old": EMAIL,
+    "to sam@mailbox.test, then": EMAIL,
+    "(ask sam@mailbox.test)": EMAIL,
+    "sam@mailbox.test_-x": EMAIL,
+    "the sam@mailbox.test-2024 archive": EMAIL,
+    // After a hyphen the domain may go on, so an allowed-looking start
+    // does not make it public.
+    "user@team.example.com-xn--p1ai": EMAIL,
+    "user@team.example.com-foo.test2": EMAIL,
+    "contacts/noreply@anthropic.com-sam@mailbox.test.txt": EMAIL,
+    "contacts/noreply@anthropic.com_sam@mailbox.test.txt": EMAIL,
+    "https://user@corp.test-sam@mailbox.test/path": EMAIL,
+    "report it to github@bydra.dev-ops.mailbox.test": EMAIL,
   };
   for (const [text, kind] of Object.entries(cases)) assert.ok(kinds(text).includes(kind), text);
 });
@@ -77,6 +94,10 @@ test("lets public text through", () => {
     "Signed-off-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
     "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
     "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
+    // The same trailing punctuation after an allowed address.
+    "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
+    "noreply@anthropic.com_ and sam@example.com_",
+    "noreply@anthropic.com-x and github@bydra.dev-ops",
     // Package versions and decorators are not addresses, nor is an escape.
     "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
     'files[HUB] + "\\n@AGENTS.md\\n"',
