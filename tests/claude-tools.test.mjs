@@ -1,10 +1,10 @@
 // The tools the review, the scan and triage deny Claude Code, read from the
 // three workflows: each run's --disallowedTools list and its settings file's
-// deny list name the same tools, and both include the subagent and
-// scheduling tools, since --max-turns counts only the main session's turns
-// (Claude Code 2.1.306 offers Agent, Skill and ScheduleWakeup beside the
-// allowed tools), and the ones ToolSearch offers that act (EnterWorktree
-// and ExitWorktree add a worktree and a branch to the checkout).
+// deny list name the same tools. Beside the shell, writes and the network,
+// they include the subagent tools, since --max-turns counts only the main
+// session's turns, the scheduling and worktree tools, and the tools that
+// send something out of the run (names from the 2.1.306 and 2.1.331
+// binaries and Claude Code's tools reference, 2026-11-24).
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,13 +21,21 @@ const DENIED = [
   "WebSearch",
   "Agent",
   "Task",
+  "Workflow",
   "Skill",
-  "ScheduleWakeup",
-  "EnterWorktree",
-  "ExitWorktree",
-  "CronDelete",
   "SendMessage",
   "TaskStop",
+  "ScheduleWakeup",
+  "CronCreate",
+  "CronDelete",
+  "RemoteTrigger",
+  "EnterWorktree",
+  "ExitWorktree",
+  "Monitor",
+  "PushNotification",
+  "Artifact",
+  "SendUserFile",
+  "ShareOnboardingGuide",
   "Read(//proc/**)",
   "Read(//dev/**)",
   "Read(//${GITHUB_WORKSPACE#/}/.git/**)",

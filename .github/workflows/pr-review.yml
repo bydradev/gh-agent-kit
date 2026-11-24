@@ -1016,13 +1016,18 @@ jobs:
       # is on Claude Code's command line) but in a file the runner user
       # alone can read, outside the checkout, which the server reads at
       # startup into its own environment. The model itself gets no Bash,
-      # no file-writing tool, no network tool and no subagent or
-      # scheduling tool (Agent, its older name Task, Skill and
-      # ScheduleWakeup), since --max-turns counts only the main session's
-      # turns, nor the tools ToolSearch offers that act (EnterWorktree and
-      # ExitWorktree, which add a worktree and a branch to the checkout,
-      # CronDelete, SendMessage and TaskStop; CronList stays, with nothing
-      # to list; tried on 2.1.306); its file reads stay inside the
+      # no file-writing tool, no network tool, no subagent or scheduling
+      # tool and no tool that acts outside the run: Agent (and its older
+      # name Task), Workflow, Skill, SendMessage and TaskStop, since
+      # --max-turns counts only the main session's turns; ScheduleWakeup,
+      # CronCreate, CronDelete and RemoteTrigger; EnterWorktree and
+      # ExitWorktree, which add a worktree and a branch to the checkout;
+      # Monitor, which --restricted should already remove; and
+      # PushNotification, Artifact, SendUserFile and ShareOnboardingGuide.
+      # Read-only ones such as CronList, ListAgents and ToolSearch stay
+      # (names read from the 2.1.306 and 2.1.331 binaries and the tools
+      # reference, code.claude.com/docs/en/tools-reference, 2026-11-24);
+      # its file reads stay inside the
       # checkout (blockReadsOutsideWorkingDirectories) and out of .git; and
       # its own process and subprocesses see empty GH_TOKEN and
       # GITHUB_TOKEN. The server keeps what the run has posted in a file
@@ -1053,7 +1058,7 @@ jobs:
           {
             "permissions": {
               "blockReadsOutsideWorkingDirectories": true,
-              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ScheduleWakeup", "EnterWorktree", "ExitWorktree", "CronDelete", "SendMessage", "TaskStop", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Workflow", "Skill", "SendMessage", "TaskStop", "ScheduleWakeup", "CronCreate", "CronDelete", "RemoteTrigger", "EnterWorktree", "ExitWorktree", "Monitor", "PushNotification", "Artifact", "SendUserFile", "ShareOnboardingGuide", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
             },
             "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
           }
@@ -1069,7 +1074,7 @@ jobs:
             '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", "review"], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, PR: $pr, GITHUB_WORKSPACE: $ws, HEAD_SHA: $head, BASE: $base, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
           echo "REVIEW_ALLOWED=Read,Grep,Glob,mcp__agent-kit__inline_comment,mcp__agent-kit__pr,mcp__agent-kit__conversation,mcp__agent-kit__inline,mcp__agent-kit__reviews,mcp__agent-kit__checks,mcp__agent-kit__issue,mcp__agent-kit__issue_comments,mcp__agent-kit__comment_body,mcp__agent-kit__files,mcp__agent-kit__diff,mcp__agent-kit__show,mcp__agent-kit__log,mcp__agent-kit__range_diff,mcp__agent-kit__file_issue,mcp__agent-kit__post_report" >> "$GITHUB_ENV"
-          echo "REVIEW_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill,ScheduleWakeup,EnterWorktree,ExitWorktree,CronDelete,SendMessage,TaskStop,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+          echo "REVIEW_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Workflow,Skill,SendMessage,TaskStop,ScheduleWakeup,CronCreate,CronDelete,RemoteTrigger,EnterWorktree,ExitWorktree,Monitor,PushNotification,Artifact,SendUserFile,ShareOnboardingGuide,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
       # Claude Code runs directly, not through anthropics/claude-code-action,
       # so this workflow pins the exact CLI release and sets every flag the
       # run gets (--restricted, --strict-mcp-config and the tool lists

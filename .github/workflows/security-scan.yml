@@ -927,14 +927,14 @@ jobs:
           {
             "permissions": {
               "blockReadsOutsideWorkingDirectories": true,
-              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ScheduleWakeup", "EnterWorktree", "ExitWorktree", "CronDelete", "SendMessage", "TaskStop", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
+              "deny": ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "Workflow", "Skill", "SendMessage", "TaskStop", "ScheduleWakeup", "CronCreate", "CronDelete", "RemoteTrigger", "EnterWorktree", "ExitWorktree", "Monitor", "PushNotification", "Artifact", "SendUserFile", "ShareOnboardingGuide", "Read(//proc/**)", "Read(//dev/**)", "Read(//${GITHUB_WORKSPACE#/}/.git/**)"]
             },
             "env": { "GH_TOKEN": "", "GITHUB_TOKEN": "" }
           }
           EOF
           cat "$RUNNER_TEMP/claude-settings.json"
           echo "SCAN_ALLOWED=Read,Grep,Glob" >> "$GITHUB_ENV"
-          echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill,ScheduleWakeup,EnterWorktree,ExitWorktree,CronDelete,SendMessage,TaskStop,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
+          echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Workflow,Skill,SendMessage,TaskStop,ScheduleWakeup,CronCreate,CronDelete,RemoteTrigger,EnterWorktree,ExitWorktree,Monitor,PushNotification,Artifact,SendUserFile,ShareOnboardingGuide,Read(//proc/**),Read(//dev/**),Read(//${GITHUB_WORKSPACE#/}/.git/**)" >> "$GITHUB_ENV"
           # The scan's answer: the candidate findings, in the fields the
           # skill names (the record and the inline comments read them).
           jq -cn '{
