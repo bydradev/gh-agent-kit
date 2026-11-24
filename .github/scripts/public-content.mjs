@@ -72,64 +72,58 @@ const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)
 // An address right after a complete literal escape in a string, in JSON or
 // source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
 // over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
-// quiet. escapedAddress decides whether the escape is one. The local part is
+// quiet. escapeStarts decides whether the escape is one. The local part is
 // ASCII so Python's copy, whose \w is Unicode, agrees; each lookbehind is
 // fixed-width, as Python requires.
 const EMAIL_AFTER_ESCAPE =
   /(?:(?<=\\[nrtbfv0"'`/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/g;
-// An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an odd
-// run of backslashes (an even run is escaped backslashes and text), sits
-// inside a string opened by ", ` or a ' that no letter or digit comes before
-// other than a Python string prefix (f'...', rb'...'; not a Windows path, a
-// regex or an apostrophe in prose), and is not in a URL (escaped slashes
-// included), whose user information the URL guard judges.
-function escapedAddress(line, index) {
-  let start = index - 2;
-  if (/\\u[0-9A-Fa-f]{4}$/.test(line.slice(Math.max(0, index - 6), index))) start = index - 6;
-  else if (/\\x[0-9A-Fa-f]{2}$/.test(line.slice(Math.max(0, index - 4), index))) start = index - 4;
-  let run = 0;
-  for (let j = start; j >= 0 && line[j] === "\\"; j--) run++;
-  if (run % 2 === 0) return false;
+// Where an address may start after an escape: the positions right after an
+// escape inside a string (opened by ", ` or a ' that no letter or digit comes
+// before other than a Python string prefix such as f or rb, and not raw) that
+// decodes to a space, a control character, a quote or a slash, mapped to
+// whether the token the address ends is a URL (`scheme://` or `scheme:\/\/`
+// since its last space, quote, or escaped space or control character), whose
+// user information the URL guard judges. An escaped letter (`\u006e`) is
+// part of the address, and an escaped backslash consumes its pair, so a run
+// of them leaves the escape after it as it is. One pass over the line.
+const SPACE_ESCAPES = { n: 10, r: 13, t: 9, f: 12, v: 11, 0: 0, b: 8 };
+function escapeStarts(line) {
+  const starts = new Map();
   let quote = null;
-  for (let j = 0; j < start; j++) {
+  let raw = false;
+  let url = false;
+  const scheme = (j) => line.startsWith("://", j) || line.startsWith(":\\/\\/", j);
+  for (let j = 0; j < line.length; ) {
     const c = line[j];
     if (quote) {
-      if (c === "\\") j++;
-      else if (c === quote) quote = null;
-    } else if (
-      c === '"' ||
-      c === "`" ||
-      (c === "'" && /(?:^|[^A-Za-z0-9_])[rRbBuUfF]{0,2}$/.test(line.slice(0, j)))
-    ) {
-      quote = c;
-    }
-  }
-  if (!quote) return false;
-  return !urlToken(line, index).replaceAll("\\/", "/").includes("://");
-}
-// The token the address ends, as the text decodes: it starts after the last
-// space, unescaped quote, or escape of a space or control character
-// (`https://x.example\nsam@corp.example` is a URL, then an address); an
-// escaped quote or letter (`pa\'ss`, `\u0073`) stays inside it.
-const SPACE_ESCAPES = { n: 10, r: 13, t: 9, f: 12, v: 11, 0: 0, b: 8 };
-function urlToken(line, index) {
-  let start = 0;
-  for (let j = 0; j < index; ) {
-    if (line[j] === "\\") {
-      let len = 2;
-      let code = SPACE_ESCAPES[line[j + 1]] ?? null;
-      const u = /^\\u([0-9A-Fa-f]{4})/.exec(line.slice(j, j + 6));
-      const x = /^\\x([0-9A-Fa-f]{2})/.exec(line.slice(j, j + 4));
-      if (u) [len, code] = [6, parseInt(u[1], 16)];
-      else if (x) [len, code] = [4, parseInt(x[1], 16)];
-      if (code !== null && code < 0x21) start = Math.min(j + len, index);
-      j += len;
+      if (c === "\\" && raw) {
+        j += 2;
+      } else if (c === "\\") {
+        let len = 2;
+        let code = SPACE_ESCAPES[line[j + 1]] ?? line.charCodeAt(j + 1);
+        const u = /^\\u([0-9A-Fa-f]{4})/.exec(line.slice(j, j + 6));
+        const x = /^\\x([0-9A-Fa-f]{2})/.exec(line.slice(j, j + 4));
+        if (u) [len, code] = [6, parseInt(u[1], 16)];
+        else if (x) [len, code] = [4, parseInt(x[1], 16)];
+        if (code < 0x21) url = false;
+        if (code < 0x21 || [34, 39, 47, 96].includes(code)) starts.set(j + len, url);
+        j += len;
+      } else {
+        if (c === quote) [quote, raw, url] = [null, false, false];
+        else if (/[ \t\r\n\f\v]/.test(c)) url = false;
+        else if (scheme(j)) url = true;
+        j++;
+      }
     } else {
-      if (/[ \t\r\n\f\v"'`]/.test(line[j])) start = j + 1;
+      const prefix = /(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$/.exec(line.slice(Math.max(0, j - 3), j));
+      if (c === '"' || c === "`" || (c === "'" && prefix)) {
+        [quote, raw, url] = [c, c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
+      } else if (/[ \t\r\n\f\v'"`]/.test(c)) url = false;
+      else if (scheme(j)) url = true;
       j++;
     }
   }
-  return line.slice(start, index);
+  return starts;
 }
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
@@ -188,10 +182,17 @@ export function scan(text, allowAttribution = false) {
       [
         ...line.matchAll(EMAIL),
         ...line.matchAll(EMAIL_WHOLE),
-        ...[...line.matchAll(EMAIL_AFTER_ESCAPE)].filter((m) => escapedAddress(line, m.index)),
+        ...(() => {
+          const matches = [...line.matchAll(EMAIL_AFTER_ESCAPE)];
+          if (matches.length === 0) return [];
+          const starts = escapeStarts(line);
+          return matches.filter((m) => starts.get(m.index) === false);
+        })(),
       ].some(
         (match) =>
-          !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),
+          // The address test first: it is cheap, and the URL guard reads the
+          // text before the match, which a long line holds many of.
+          privateAddress(match[1], match[2]) && !URL_USERINFO.test(line.slice(0, match.index)),
       )
     )
       kinds.push("an email address other than a noreply one");

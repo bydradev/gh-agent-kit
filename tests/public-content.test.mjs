@@ -61,7 +61,7 @@ test("finds each kind", () => {
     // After a URL and an escaped newline, the next line's address.
     '"https://example.com\\nsam@mailbox.test"': EMAIL,
     // In prefixed Python strings.
-    "msg = f'to:\\nsam@mailbox.test' + rb'\\tsam@mailbox.test'": EMAIL,
+    "msg = f'to:\\nsam@mailbox.test' + b'\\tsam@mailbox.test'": EMAIL,
     // In a template literal, and after an escaped backslash and an escape.
     'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
     '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
@@ -127,6 +127,11 @@ test("lets public text through", () => {
     '"C:\\\\\\\\new@v2.config"',
     '"https://user:pa\\u0073s@host.test"',
     '"https:\\/\\/user:pa\\u0073s@host.test"',
+    // A raw string's backslash, an apostrophe in a double-quoted URL's
+    // password, and an allowed address with an escaped first letter.
+    "path = r'C:\\new@v2.config' + R\"C:\\tmp@v2.config\"",
+    "\"https://user:pa's\\u0073s@host.test\"",
+    '"to \\u006eoreply@anthropic.com and \\x6eoreply@anthropic.com"',
     "\"https://user:pa\\'\\u0073s@host.test\"",
     '"C:\\\\new@v2.config"',
     '"\\n李@host.test", "\\nénoreply@host.test"',
@@ -155,6 +160,13 @@ test("allows only the exact public footer", () => {
     assert.deepEqual(kinds(forbidden + "\n" + footer), kinds(forbidden));
     assert.ok(kinds(footer + " " + forbidden).length);
   }
+});
+
+test("a long serialized line with many escaped addresses scans in linear time", () => {
+  const line = `"${"\\nnoreply@host.test".repeat(20000)}"`;
+  const started = Date.now();
+  assert.deepEqual(kinds(line), []);
+  assert.ok(Date.now() - started < 2000, `${Date.now() - started} ms`);
 });
 
 test("reports line numbers", () => {
