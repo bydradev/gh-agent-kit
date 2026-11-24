@@ -8,6 +8,22 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
+### Unmerged hardening branches (2026-11-24)
+
+Five branches from 2026-10-29 to 2026-11-02 never had a pull request. Each
+now has an issue:
+[#84](https://github.com/bydradev/gh-agent-kit/issues/84) (`fix/deny-subagents`,
+taken up first),
+[#85](https://github.com/bydradev/gh-agent-kit/issues/85) (`fix/same-repo-issue-reads`),
+[#86](https://github.com/bydradev/gh-agent-kit/issues/86) (`fix/triage-sweep-actions-write`),
+[#82](https://github.com/bydradev/gh-agent-kit/issues/82) (`fix/no-mentions-in-posted-text`)
+and [#83](https://github.com/bydradev/gh-agent-kit/issues/83)
+(`test/uncovered-workflow-rules`, last, once the rules it tests have
+landed). #82 and #86 touch code that
+[#80](https://github.com/bydradev/gh-agent-kit/issues/80) may change, so
+the order is settled with the operator. Each branch is deleted once its
+pull request merges.
+
 ### Target round for v0.5.x (2026-11-17)
 
 [#48](https://github.com/bydradev/gh-agent-kit/issues/48) shipped in v0.5.0:

@@ -661,12 +661,28 @@ slow to answer.
 
 ### Reads and writes
 
-In the review and triage runs the model has no shell, no file-writing tool
-and no network tool, and reads files only inside the checkout, outside
-`.git`. Every GitHub read and write goes through the MCP server in
-`.github/scripts/mcp-server.mjs`, which runs from a root-owned copy outside
-the checkout, holds the job token in its own environment only, and offers
-named tools:
+In the review and triage runs the model has no shell, no file-writing
+tool, no network tool and no subagent, and reads files only inside the
+checkout, outside `.git`. On the Claude Code runner the review, the scan
+and triage also deny the tools that start other agents or work past the
+run. `Agent` (and its older name `Task`), `Workflow` and `Skill` can start
+subagents, whose turns `--max-turns` does not count, so with them the turn
+limit would not bound a run; `SendMessage` and `TaskStop` message or stop
+those agents and background tasks. `ScheduleWakeup`, `CronCreate`,
+`CronDelete` and `RemoteTrigger` schedule or cancel work. `EnterWorktree`
+creates a worktree and branch or switches into an existing one, and
+`ExitWorktree` leaves it and can remove it, so both change the checkout.
+`Monitor` runs a command, which `--restricted` should already remove.
+`PushNotification`, `Artifact`, `SendUserFile` and `ShareOnboardingGuide`
+send something out of the run. Read-only tools such as
+`CronList`, `ListAgents` and `ToolSearch` stay. The names were read from
+the pinned 2.1.306 binary, the latest 2.1.331 and Claude Code's
+[tools reference](https://code.claude.com/docs/en/tools-reference) on
+2026-11-24. OpenCode's deny-all permissions leave its own subagent tool
+out. Every GitHub read and write goes through the MCP server in
+`.github/scripts/mcp-server.mjs`, which runs from a root-owned copy
+outside the checkout, holds the job token in its own environment only, and
+offers named tools:
 
 | Run | Reads | Writes |
 | --- | --- | --- |
