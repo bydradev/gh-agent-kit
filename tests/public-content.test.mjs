@@ -62,6 +62,10 @@ test("finds each kind", () => {
     '"https://example.com\\nsam@mailbox.test"': EMAIL,
     // In prefixed Python strings.
     "msg = f'to:\\nsam@mailbox.test' + b'\\tsam@mailbox.test'": EMAIL,
+    // In a URL's path after an escaped slash, and before a hyphen that
+    // may continue the domain.
+    '"https://example.com/contacts\\u002fsam@mailbox.test"': EMAIL,
+    '"Contact:\\nsam@example.com-xn--p1ai"': EMAIL,
     // In a template literal, and after an escaped backslash and an escape.
     'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
     '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
@@ -132,6 +136,8 @@ test("lets public text through", () => {
     "path = r'C:\\new@v2.config' + R\"C:\\tmp@v2.config\"",
     "\"https://user:pa's\\u0073s@host.test\"",
     '"to \\u006eoreply@anthropic.com and \\x6eoreply@anthropic.com"',
+    // An octal escape is read whole.
+    '"Contact:\\012noreply@host.test"',
     "\"https://user:pa\\'\\u0073s@host.test\"",
     '"C:\\\\new@v2.config"',
     '"\\n李@host.test", "\\nénoreply@host.test"',

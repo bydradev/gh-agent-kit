@@ -103,23 +103,27 @@ function escapeStarts(line) {
         let code = SPACE_ESCAPES[line[j + 1]] ?? line.charCodeAt(j + 1);
         const u = /^\\u([0-9A-Fa-f]{4})/.exec(line.slice(j, j + 6));
         const x = /^\\x([0-9A-Fa-f]{2})/.exec(line.slice(j, j + 4));
+        const o = /^\\([0-7]{1,3})/.exec(line.slice(j, j + 4));
         if (u) [len, code] = [6, parseInt(u[1], 16)];
         else if (x) [len, code] = [4, parseInt(x[1], 16)];
-        if (code < 0x21) url = false;
+        else if (o) [len, code] = [1 + o[1].length, parseInt(o[1], 8)];
+        // A space, or a slash after the authority (the user information is
+        // only between scheme:// and the first slash), ends the URL's part.
+        if (code < 0x21 || (code === 47 && url)) url = false;
         if (code < 0x21 || [34, 39, 47, 96].includes(code)) starts.set(j + len, url);
         j += len;
       } else {
         if (c === quote) [quote, raw, url] = [null, false, false];
-        else if (/[ \t\r\n\f\v]/.test(c)) url = false;
-        else if (scheme(j)) url = true;
+        else if (scheme(j)) [url, j] = [true, j + (line[j + 1] === "/" ? 2 : 4)];
+        else if (/[ \t\r\n\f\v/]/.test(c)) url = false;
         j++;
       }
     } else {
       const prefix = /(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$/.exec(line.slice(Math.max(0, j - 3), j));
       if (c === '"' || c === "`" || (c === "'" && prefix)) {
         [quote, raw, url] = [c, c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
-      } else if (/[ \t\r\n\f\v'"`]/.test(c)) url = false;
-      else if (scheme(j)) url = true;
+      } else if (scheme(j)) [url, j] = [true, j + (line[j + 1] === "/" ? 2 : 4)];
+      else if (/[ \t\r\n\f\v'"`/]/.test(c)) url = false;
       j++;
     }
   }
@@ -186,13 +190,21 @@ export function scan(text, allowAttribution = false) {
           const matches = [...line.matchAll(EMAIL_AFTER_ESCAPE)];
           if (matches.length === 0) return [];
           const starts = escapeStarts(line);
-          return matches.filter((m) => starts.get(m.index) === false);
+          return matches
+            .filter((m) => starts.get(m.index) === false)
+            .map((m) => {
+              // A hyphen and a letter or digit may continue the domain
+              // (`sam@x.example-y.test`), so no exemption applies then.
+              m.continued = /^-[A-Za-z0-9]/.test(line.slice(m.index + m[0].length));
+              return m;
+            });
         })(),
       ].some(
         (match) =>
           // The address test first: it is cheap, and the URL guard reads the
           // text before the match, which a long line holds many of.
-          privateAddress(match[1], match[2]) && !URL_USERINFO.test(line.slice(0, match.index)),
+          (match.continued || privateAddress(match[1], match[2])) &&
+          !URL_USERINFO.test(line.slice(0, match.index)),
       )
     )
       kinds.push("an email address other than a noreply one");
