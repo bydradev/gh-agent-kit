@@ -41,6 +41,7 @@ function rules({
   timelineFails = false,
   snapshots = ["title of 30"],
   labels = ["needs-triage"],
+  labelSnapshots,
   comments = [],
 }) {
   return [
@@ -51,14 +52,16 @@ function rules({
     { match: "^api --method GET repos/acme/widgets/issues/31$", stdout: issue(31, OTHER_APP) },
     {
       match: "^api graphql .* -F n=30$",
-      sequence: snapshots.map((title) => ({
+      sequence: (labelSnapshots || snapshots).map((_, k) => ({
         data: {
           repository: {
             issue: {
-              title,
+              title: labelSnapshots ? snapshots[0] : snapshots[k],
               body: "body of 30",
               lastEditedAt: edited,
-              labels: { nodes: labels.map((name) => ({ name })) },
+              labels: {
+                nodes: (labelSnapshots ? labelSnapshots[k] : labels).map((name) => ({ name })),
+              },
             },
           },
         },
@@ -262,7 +265,19 @@ const CASES = [
       edited: T1,
       snapshots: Array(6).fill(["title of 30, unvouched", "title of 30"]).flat(),
     },
-    /^github-actions\[bot\] opened it and its text changed while it was being read; the title/,
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  [
+    "whose triaged label is removed while the vouch is read",
+    {
+      events: ANSWERED,
+      edited: T1,
+      comments: [answer("## Triage\n\nplan", T3)],
+      labelSnapshots: Array(6)
+        .fill([["triaged"], []])
+        .flat(),
+    },
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
   ],
 ];
 

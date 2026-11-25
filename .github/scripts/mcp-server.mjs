@@ -714,8 +714,8 @@ const isKitBotIssue = (i) => Boolean(i.user && i.user.type === "Bot" && i.user.l
 // issue carries triaged and the bot's latest triage comment is a plan
 // posted after that change (a questions answer, or none, withholds). A
 // removal by anyone else withdraws the vouch. The text shown is the one read, with its
-// lastEditedAt, in a query before the timeline and found unchanged in a
-// second query after it, so the vouch read covers that text and no other.
+// lastEditedAt and labels, in a query before the timeline and found
+// unchanged in a second query after it, so the vouch read covers that text and no other.
 // A failed lookup withholds.
 const UNVOUCHED_BOT = `${KIT_BOT} opened it and nobody with write access has vouched for its current text by adding needs-triage (the operator adds it to vouch)`;
 const SNAPSHOT = "title body lastEditedAt labels(first: 100) { nodes { name } }";
@@ -729,9 +729,12 @@ function vouchedText(number) {
     if (
       before.title !== after.title ||
       before.body !== after.body ||
-      before.lastEditedAt !== after.lastEditedAt
+      before.lastEditedAt !== after.lastEditedAt ||
+      JSON.stringify(before.labels) !== JSON.stringify(after.labels)
     )
-      return { reason: `${KIT_BOT} opened it and its text changed while it was being read` };
+      return {
+        reason: `${KIT_BOT} opened it and its text or labels changed while it was being read`,
+      };
     const latest = (type) =>
       events
         .filter((e) => e.event === type)
