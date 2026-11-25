@@ -31,6 +31,28 @@ function server(t, vouched, { title = "a finding", body = "### Outcome\n\nFix it
     mode: "triage",
     env,
     rules: [
+      // Both issues were vouched for (the read paths' own check, #100).
+      {
+        match: "^api graphql ",
+        stdout: { data: { repository: { issue: { lastEditedAt: null } } } },
+      },
+      {
+        match: "^api --paginate --slurp repos/acme/widgets/issues/[89]/timeline",
+        stdout: [
+          [
+            {
+              event: "labeled",
+              label: { name: "needs-triage" },
+              actor: { login: "dra", type: "User" },
+              created_at: "2026-11-03T00:00:00Z",
+            },
+          ],
+        ],
+      },
+      {
+        match: "^api --method GET repos/acme/widgets/collaborators/dra/permission$",
+        stdout: { permission: "admin" },
+      },
       { match: "^api --method GET repos/acme/widgets/issues/8$", stdout: issue(8, title, body) },
       {
         match: "^api --method GET repos/acme/widgets/issues/9$",

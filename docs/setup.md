@@ -686,8 +686,8 @@ offers named tools:
 
 | Run | Reads | Writes |
 | --- | --- | --- |
-| Review | The pull request, its conversation, reviews, inline comments, checks, files, diffs, commits (a base commit an earlier report recorded is fetched by sha when the checkout no longer has it); issues of this repository and their comments (one the body closes in another repository is not read); a comment, review or issue by an author without write access, other than a GitHub App, is listed with its text withheld | Inline review comments on the reviewed head (at most 40), one report comment, and backlog issues for findings outside the pull request's scope (at most 5, one per finding, in the Task form's layout and labelled `needs-operator`), all refused once the head moves; the workflow, not the model, then sets the verdict check |
-| Triage (one issue) | The issue, its comments, other issues and pull requests, repository metadata; a comment on the issue, another issue, or the title of an issue or pull request it lists, by an author without write access, other than a GitHub App, is listed with its text withheld, and a pull request by such an author never counts as closing the issue | Named label moves on that issue (never `agent:approved` or `requested`), one comment |
+| Review | The pull request, its conversation, reviews, inline comments, checks, files, diffs, commits (a base commit an earlier report recorded is fetched by sha when the checkout no longer has it); issues of this repository and their comments (one the body closes in another repository is not read); a comment, review or issue by an author without write access, other than a GitHub App, or an issue `github-actions[bot]` opened that the operator has not vouched for, is listed with its text withheld | Inline review comments on the reviewed head (at most 40), one report comment, and backlog issues for findings outside the pull request's scope (at most 5, one per finding, in the Task form's layout and labelled `needs-operator`), all refused once the head moves; the workflow, not the model, then sets the verdict check |
+| Triage (one issue) | The issue, its comments, other issues and pull requests, repository metadata; a comment on the issue, another issue, or the title of an issue or pull request it lists, by an author without write access, other than a GitHub App, or an issue `github-actions[bot]` opened that the operator has not vouched for, is listed with its text withheld, and a pull request by such an author never counts as closing the issue | Named label moves on that issue (never `agent:approved` or `requested`), one comment |
 | Sweep | The list of eligible issues the workflow computed | One `issue-triage` dispatch per listed issue, on the current branch, queued by the server and started after the model's run by a job of its own that runs no model, which checks each issue's state again first; it is the only job with `actions: write`. A sweep cancelled before that job starts none, and the next sweep lists them again. When the job fails to start some, leave them to the next sweep, or start each that still needs triage by hand on the sweep's branch (`gh workflow run issue-triage.yml --repo <owner/repo> --ref <branch> -f issue=<n>`, as the error spells out) rather than re-running the job, which would start every queued issue again and cancel the runs already going |
 | Scan and verification | The checkout, the base's rules in it, and the diff, file list and (for the verification) candidate findings the workflow wrote to a directory of its own; no GitHub access | Nothing: each run answers with structured output, which the workflow checks and then posts as at most 30 inline comments on the scanned head and one record comment |
 
@@ -712,6 +712,16 @@ does, the server shows the model the issue's title and body only while
 they match the text the gate checked, so text nobody vouched for is never
 read. After an edit, add `needs-triage` again (remove it first if it
 is still there). Issues other bots open are still left alone.
+
+The same vouch governs the other reads of such an issue: triage's
+`read_issue` and `search` on a run for another issue, and the reviewer's
+`issue` tool, show its title and body only while it has a `needs-triage`
+added by someone with write access after its last edit, retitle and
+reopen, and not removed since by anyone but the triage bot (which removes
+it when it answers). Otherwise they list it with its text withheld and the
+reason, as for an author without write access. So the reviewer can check
+a pull request against such an issue's criteria only once you vouched for
+it.
 
 Its text is the reviewer's, written after reading the pull request's
 conversation. A comment by an author without write access reaches the
@@ -792,7 +802,9 @@ The workflows also:
   count as trusted, since only the account's owner or a repository admin
   installs one on this repository. So does `github-actions[bot]`, which is
   every workflow here that posts with the job token, not one App someone
-  chose: a workflow that echoes an outside user's text (a greeting that
+  chose, except for an issue it opened, whose text is shown only once the
+  operator vouched for it ([Issues the reviewer
+  files](#issues-the-reviewer-files)): a workflow that echoes an outside user's text (a greeting that
   quotes a first-time contributor's title, for one) should not post it
   with the job token. No tool reads another repository, where an App is
   anyone's and the token cannot check access: an issue the body closes
@@ -808,7 +820,9 @@ The workflows also:
   or pull request `open_prs` lists, all of this repository (`search`
   refuses a `repo:`, `org:`, `user:` or `owner:` qualifier, and fails on a
   result from another repository), are withheld when their author lacks
-  write access (a fork's pull request among them), while the number,
+  write access (a fork's pull request among them), or, for an issue
+  `github-actions[bot]` opened, until the operator vouched for it, while
+  the number,
   labels and author stay. Such a pull request never counts as closing the
   issue either, so a closing keyword in its body cannot hold off the
   stale-claim comment;

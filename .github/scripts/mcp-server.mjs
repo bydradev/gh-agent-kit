@@ -596,7 +596,11 @@ const ownComments = (project, why) => (c) => {
 // write; the permission field reports maintain as write, the same reading
 // as the workflows' gates) or is a GitHub App (user type Bot), which only
 // the account's owner or a repository admin can install; the triage bot's
-// own plans are by github-actions[bot], an App. Every item is of this
+// own plans are by github-actions[bot], an App. An issue github-actions[bot]
+// opened is the exception (see unvouchedReason): its text may be the
+// reviewer's (file_issue), written after reading a pull request's
+// conversation, so read_issue, search and the review's issue tool show it
+// only once the operator vouched for it. Every item is of this
 // repository: no tool reads an issue or comment of another, where an App
 // is anyone's and the job token cannot check access. Any other item keeps
 // its place with its text withheld, so the model knows it is there; a
@@ -664,11 +668,89 @@ function listedReason(i) {
   }
   return withheldReason(i.user);
 }
-const titleScreened = (fields) => (i) => {
-  const item = fields(i);
-  const reason = listedReason(i);
-  return reason ? { ...item, title: null, withheld: `${reason}; the title is not shown` } : item;
-};
+const titleScreened =
+  (fields, reasonOf = listedReason) =>
+  (i) => {
+    const item = fields(i);
+    const reason = reasonOf(i);
+    return reason ? { ...item, title: null, withheld: `${reason}; the title is not shown` } : item;
+  };
+// An issue's last body edit (lastEditedAt, GraphQL; "" when never edited)
+// and its timeline, every page. Errors propagate.
+function lastEditedAt(number) {
+  const [owner, name] = repo.split("/");
+  const q =
+    "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issue(number: $n) { lastEditedAt } } }";
+  return (
+    JSON.parse(
+      gh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${q}`,
+        "-f",
+        `o=${owner}`,
+        "-f",
+        `r=${name}`,
+        "-F",
+        `n=${number}`,
+      ]),
+    ).data.repository.issue.lastEditedAt || ""
+  );
+}
+const timeline = (number) =>
+  JSON.parse(
+    gh(["api", "--paginate", "--slurp", `repos/${repo}/issues/${number}/timeline?per_page=100`]),
+  ).flat();
+// An issue github-actions[bot] opened, such as one the reviewer filed with
+// file_issue. Other GitHub Apps' issues keep the rule for an App.
+const KIT_BOT = "github-actions[bot]";
+const isKitBotIssue = (i) => Boolean(i.user && i.user.type === "Bot" && i.user.login === KIT_BOT);
+// Such an issue's text is shown only once the operator vouched for it, the
+// signal #80 established: needs-triage added by a person with write access
+// after the title and body last changed (the latest of lastEditedAt and
+// the latest renamed and reopened events, strictly later, as the triage
+// gate reads it), and not removed since by anyone but the triage bot, which
+// removes it when it answers. The text is read before this check, so an
+// edit in between shows as a change after the vouch. A failed lookup
+// withholds.
+const UNVOUCHED_BOT = `${KIT_BOT} opened it and nobody with write access has vouched for its current text by adding needs-triage (the operator adds it to vouch)`;
+function unvouchedReason(number) {
+  try {
+    const events = timeline(number);
+    const latest = (type) =>
+      events
+        .filter((e) => e.event === type)
+        .map((e) => e.created_at)
+        .pop() || "";
+    const changedAt =
+      [lastEditedAt(number), latest("renamed"), latest("reopened")].filter(Boolean).sort().pop() ||
+      "";
+    const marks = events.filter(
+      (e) =>
+        (e.event === "labeled" || e.event === "unlabeled") &&
+        e.label &&
+        e.label.name === "needs-triage",
+    );
+    let at = -1;
+    for (let k = marks.length - 1; k >= 0; k--) {
+      const e = marks[k];
+      if (e.event === "labeled" && e.actor && e.actor.type !== "Bot" && !withheldReason(e.actor)) {
+        at = k;
+        break;
+      }
+    }
+    if (at === -1 || !(marks[at].created_at > changedAt)) return UNVOUCHED_BOT;
+    const withdrawn = marks
+      .slice(at + 1)
+      .some((e) => e.event === "unlabeled" && !(e.actor && e.actor.login === KIT_BOT));
+    return withdrawn ? UNVOUCHED_BOT : null;
+  } catch {
+    return `${KIT_BOT} opened it and whether the operator vouched for its text could not be checked`;
+  }
+}
+// The reason an issue's title and body are withheld, or null.
+const issueReason = (i) => (isKitBotIssue(i) ? unvouchedReason(i.number) : withheldReason(i.user));
 const reviewTools = {
   pr: {
     description:
@@ -749,7 +831,7 @@ const reviewTools = {
   },
   issue: {
     description:
-      "An issue of this repository the body closes: title, body, labels, state; a long body comes in pages. An issue in another repository is not read.",
+      "An issue of this repository the body closes: title, body, labels, state; a long body comes in pages. An issue opened by an author without write access (a GitHub App aside), or by github-actions[bot] (the reviewer's file_issue) before the operator vouched for it with needs-triage, has its title and body withheld, with the reason. An issue in another repository is not read.",
     schema: {
       type: "object",
       properties: { number: { type: "integer" }, ...pageProp },
@@ -765,8 +847,9 @@ const reviewTools = {
       if (!ofThisRepo(i)) return fail(`${MOVED(`#${number}`)}: ${NOT_READ}`);
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
       // An issue's author can edit its title and body at any time, so an
-      // issue opened without write access is screened as a comment is.
-      const reason = withheldReason(i.user);
+      // issue opened without write access is screened as a comment is, and
+      // one github-actions[bot] opened until the operator vouched for it.
+      const reason = issueReason(i);
       const item = {
         number: i.number,
         title: i.title,
@@ -1249,27 +1332,8 @@ const hasLabel = (i, name) => (i.labels || []).some((l) => l.name === name);
 // older scope (the run for that event may have been cancelled by a later
 // one or never happened). Errors propagate: never "false" by default.
 function editedAfterApproval() {
-  const [owner, name] = repo.split("/");
-  const q =
-    "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issue(number: $n) { lastEditedAt } } }";
-  const lastEdited =
-    JSON.parse(
-      gh([
-        "api",
-        "graphql",
-        "-f",
-        `query=${q}`,
-        "-f",
-        `o=${owner}`,
-        "-f",
-        `r=${name}`,
-        "-F",
-        `n=${n}`,
-      ]),
-    ).data.repository.issue.lastEditedAt || "";
-  const events = JSON.parse(
-    gh(["api", "--paginate", "--slurp", `repos/${repo}/issues/${n}/timeline?per_page=100`]),
-  ).flat();
+  const lastEdited = lastEditedAt(n);
+  const events = timeline(n);
   const approvals = events
     .filter((e) => e.event === "labeled" && e.label && e.label.name === "agent:approved")
     .map((e) => e.created_at);
@@ -1398,7 +1462,7 @@ const triageTools = {
   },
   search: {
     description:
-      "Open issues of this repository matching search terms (for duplicate and related checks): number, title, labels, author, as many as fit a page; follow next_start until null (truncated: true means GitHub's 1,000-result cap was reached). Terms may not carry a repo:, org:, user: or owner: qualifier. An issue opened by an author without write access (a GitHub App aside) keeps its place with its title withheld and the reason. A search GitHub cuts short fails instead of returning part of the matches.",
+      "Open issues of this repository matching search terms (for duplicate and related checks): number, title, labels, author, as many as fit a page; follow next_start until null (truncated: true means GitHub's 1,000-result cap was reached). Terms may not carry a repo:, org:, user: or owner: qualifier. An issue opened by an author without write access (a GitHub App aside), or by github-actions[bot] before the operator vouched for it with needs-triage, keeps its place with its title withheld and the reason. A search GitHub cuts short fails instead of returning part of the matches.",
     schema: {
       type: "object",
       properties: { terms: { type: "string" }, ...startProp },
@@ -1420,27 +1484,30 @@ const triageTools = {
         search(
           `repo:${repo} is:issue is:open ${terms}`,
           start,
-          titleScreened((i) => {
-            const url = typeof i.repository_url === "string" ? i.repository_url : "";
-            if (!url.toLowerCase().endsWith(own))
-              throw new Error(
-                `the search returned an issue outside ${repo}; search with plain terms`,
-              );
-            const item = {
-              number: i.number,
-              title: i.title,
-              labels: (i.labels || []).map((l) => l.name),
-              author: i.user && i.user.login,
-            };
-            return unvouched(i) ? { ...item, title: null, withheld: UNVOUCHED } : item;
-          }),
+          titleScreened(
+            (i) => {
+              const url = typeof i.repository_url === "string" ? i.repository_url : "";
+              if (!url.toLowerCase().endsWith(own))
+                throw new Error(
+                  `the search returned an issue outside ${repo}; search with plain terms`,
+                );
+              const item = {
+                number: i.number,
+                title: i.title,
+                labels: (i.labels || []).map((l) => l.name),
+                author: i.user && i.user.login,
+              };
+              return unvouched(i) ? { ...item, title: null, withheld: UNVOUCHED } : item;
+            },
+            (i) => (isKitBotIssue(i) ? unvouchedReason(i.number) : listedReason(i)),
+          ),
         ),
       );
     },
   },
   read_issue: {
     description:
-      "Another issue of this repository (one search returned): title, body, labels, state, author; a long body comes in pages. An issue opened by an author without write access (a GitHub App aside) has its title and body withheld, with the reason.",
+      "Another issue of this repository (one search returned): title, body, labels, state, author; a long body comes in pages. An issue opened by an author without write access (a GitHub App aside), or by github-actions[bot] (the reviewer's file_issue) before the operator vouched for it with needs-triage, has its title and body withheld, with the reason.",
     schema: {
       type: "object",
       properties: { number: { type: "integer" }, ...pageProp },
@@ -1456,7 +1523,7 @@ const triageTools = {
       if (unvouched(i)) return fail(UNVOUCHED);
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.
-      const reason = withheldReason(i.user);
+      const reason = issueReason(i);
       const item = {
         number: i.number,
         title: i.title,
