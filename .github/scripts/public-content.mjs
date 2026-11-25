@@ -69,6 +69,88 @@ const EMAIL = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za
 // or the whole domain a `-` continues, so a line is checked with both and
 // nothing this one finds is lost to the earlier end.
 const EMAIL_WHOLE = /(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g;
+// An address right after a complete literal escape in a string, in JSON or
+// source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
+// over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
+// quiet. escapeStarts finds the positions where one may start, and this
+// pattern is tried at each of them (sticky), so overlapping candidates such
+// as `\012sam` (an octal escape) cannot hide each other. The local part is
+// ASCII so Python's copy, whose \w is Unicode, agrees.
+const EMAIL_AFTER_ESCAPE =
+  /([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])/y;
+// Where an address may start after an escape: the positions right after an
+// escape inside a string (opened by ", ` or a ' that no letter or digit comes
+// before other than a Python string prefix such as f or rb; a triple-quoted
+// one ends at its own three quotes; a raw one, r'...' or String.raw`...`, has
+// no escapes) that decodes to
+// a character an address's local part cannot hold, mapped to whether it is
+// in a URL's user information: from a scheme's :// (escaped or not) to the
+// next space, slash, ?, # or quote, or escape of one or of a control
+// character. The URL guard judges that part. An escaped letter (`\u006e`) is
+// part of the address, and an escaped backslash consumes its pair, so a run
+// of them leaves the escape after it as it is. One pass over the line.
+const SPACE_ESCAPES = { n: 10, r: 13, t: 9, f: 12, v: 11, 0: 0, b: 8 };
+function escapeStarts(line) {
+  const starts = new Map();
+  let quote = null;
+  let raw = false;
+  let url = false;
+  // A scheme's :// as written or escaped (`:\/\/`, `://`), and
+  // the index of its last character.
+  const scheme = (j) => {
+    const m = /^(?::|\\u003[aA]|\\x3[aA])(?:\/|\\\/|\\u002[fF]|\\x2[fF]){2}/.exec(line.slice(j, j + 18));
+    return m ? j + m[0].length - 1 : -1;
+  };
+  for (let j = 0; j < line.length; ) {
+    const c = line[j];
+    if (quote) {
+      if (scheme(j) >= 0) {
+        [url, j] = [true, scheme(j) + 1];
+      } else if (c === "\\" && raw) {
+        j += 2;
+      } else if (c === "\\") {
+        let len = 2;
+        let code = SPACE_ESCAPES[line[j + 1]] ?? line.charCodeAt(j + 1);
+        const u = /^\\u([0-9A-Fa-f]{4})/.exec(line.slice(j, j + 6));
+        const x = /^\\x([0-9A-Fa-f]{2})/.exec(line.slice(j, j + 4));
+        const o = /^\\([0-7]{1,3})/.exec(line.slice(j, j + 4));
+        if (u) [len, code] = [6, parseInt(u[1], 16)];
+        else if (x) [len, code] = [4, parseInt(x[1], 16)];
+        else if (o) [len, code] = [1 + o[1].length, parseInt(o[1], 8)];
+        // A space, or a slash, ? or # after the authority (the user
+        // information is only between scheme:// and the first of them), ends
+        // the URL's part.
+        if (code < 0x21 || [35, 47, 63].includes(code)) url = false;
+        // Any character a local part cannot hold ends the text before it, so
+        // an address may start after its escape (`\u003c` in Go's JSON); an
+        // escaped backslash is followed by literal text (`C:\\new`).
+        if (code !== 92 && !/[A-Za-z0-9_.%+-]/.test(String.fromCharCode(code))) starts.set(j + len, url);
+        j += len;
+      } else if (line.startsWith(quote, j)) {
+        [j, quote, raw, url] = [j + quote.length, null, false, false];
+      } else {
+        if (/[ \t\r\n\f\v/?#]/.test(c)) url = false;
+        j++;
+      }
+    } else {
+      const prefix = /(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$/.exec(line.slice(Math.max(0, j - 3), j));
+      if (c === '"' || c === "`" || (c === "'" && prefix)) {
+        // A Python triple-quoted string ends only at its own three quotes.
+        quote = c !== "`" && line.startsWith(c.repeat(3), j) ? c.repeat(3) : c;
+        // A raw string has no escapes: a Python r or R prefix, or String.raw`...`.
+        raw =
+          c === "`" ? /String\.raw\s{0,8}$/.test(line.slice(Math.max(0, j - 18), j)) : /[rR]/.test(prefix ? prefix[1] : "");
+        url = false;
+        j += quote.length;
+        continue;
+      }
+      if (scheme(j) >= 0) [url, j] = [true, scheme(j)];
+      else if (/[ \t\r\n\f\v'"`/?#]/.test(c)) url = false;
+      j++;
+    }
+  }
+  return starts;
+}
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
 // a match whose text before it ends with this is skipped. mailto: has no //,
@@ -123,9 +205,34 @@ export function scan(text, allowAttribution = false) {
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
     if (
       line !== DEPENDABOT_FOOTER &&
-      [...line.matchAll(EMAIL), ...line.matchAll(EMAIL_WHOLE)].some(
+      [
+        ...line.matchAll(EMAIL),
+        ...line.matchAll(EMAIL_WHOLE),
+        ...(() => {
+          const found = [];
+          if (!line.includes("\\") || !line.includes("@")) return found;
+          for (const [start, url] of escapeStarts(line)) {
+            if (url) continue;
+            EMAIL_AFTER_ESCAPE.lastIndex = start;
+            const m = EMAIL_AFTER_ESCAPE.exec(line);
+            if (!m) continue;
+            // A hyphen and a letter or digit may continue the domain
+            // (`sam@x.example-y.test`), so only the local part's exemption
+            // applies then.
+            const end = start + m[0].length;
+            m.continued = line[end] === "-" && /[A-Za-z0-9]/.test(line[end + 1] ?? "");
+            found.push(m);
+          }
+          return found;
+        })(),
+      ].some(
         (match) =>
-          !URL_USERINFO.test(line.slice(0, match.index)) && privateAddress(match[1], match[2]),
+          // The address test first: it is cheap, and the URL guard reads the
+          // text before the match, which a long line holds many of.
+          (match.continued
+            ? !NOREPLY_LOCAL_PARTS.has(match[1].toLowerCase())
+            : privateAddress(match[1], match[2])) &&
+          !URL_USERINFO.test(line.slice(0, match.index)),
       )
     )
       kinds.push("an email address other than a noreply one");

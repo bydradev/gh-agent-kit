@@ -58,6 +58,32 @@ test("finds each kind", () => {
     "(ask sam@mailbox.test)": EMAIL,
     "sam@mailbox.test_-x": EMAIL,
     "the sam@mailbox.test-2024 archive": EMAIL,
+    // After a URL and an escaped newline, the next line's address.
+    '"https://example.com\\nsam@mailbox.test"': EMAIL,
+    // In prefixed Python strings.
+    "msg = f'to:\\nsam@mailbox.test' + b'\\tsam@mailbox.test'": EMAIL,
+    // In a URL's path after an escaped slash, and before a hyphen that
+    // may continue the domain.
+    '"https://example.com/contacts\\u002fsam@mailbox.test"': EMAIL,
+    '"Contact:\\nsam@example.com-xn--p1ai"': EMAIL,
+    // In a URL's query or fragment after an escaped quote.
+    '"https://example.com?contact=\\u0027sam@mailbox.test"': EMAIL,
+    '"https://example.com#\\u0027sam@mailbox.test"': EMAIL,
+    // After an escaped character an address can follow (Go escapes < > &).
+    '"Sam \\u003csam@mailbox.test\\u003e"': EMAIL,
+    '"to:\\u0028sam@mailbox.test\\u0029"': EMAIL,
+    // After an octal escape.
+    '"Contact:\\012sam@mailbox.test"': EMAIL,
+    '"\\7sam@mailbox.test"': EMAIL,
+    // In a template literal, and after an escaped backslash and an escape.
+    'const contact = `Contact:\\nsam@mailbox.test`;': EMAIL,
+    '"Contact:\\\\\\nsam@mailbox.test"': EMAIL,
+    // An address right after a literal escape in serialized text.
+    '{"message":"Contact:\\nalice@mailbox.test"}': EMAIL,
+    '"to:\\tsam@mailbox.test"': EMAIL,
+    "'line\\rsam@mailbox.test'": EMAIL,
+    '"a\\u000asam@mailbox.test" and "b\\x0asam@mailbox.test"': EMAIL,
+    '"quote\\"sam@mailbox.test\\""': EMAIL,
     // After a hyphen the domain may go on, so an allowed-looking start
     // does not make it public.
     "user@team.example.com-xn--p1ai": EMAIL,
@@ -101,6 +127,37 @@ test("lets public text through", () => {
     // Package versions and decorators are not addresses, nor is an escape.
     "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
     'files[HUB] + "\\n@AGENTS.md\\n"',
+    // An escape not followed by an address, and an allowed address after one.
+    '"\\t@decorator", "\\r@x", "\\u0040", "line\\nnoreply@anthropic.com"',
+    '"Contact:\\nsam@example.com"',
+    // A Windows path, a regex and an escaped backslash are not escapes
+    // before an address, and Python's Unicode letters do not count.
+    "C:\\new@v2.config and /\\new@v2.config/",
+    // A regex after a closed string, an apostrophe in prose, an even run
+    // of backslashes, and an escape in a URL's user information.
+    'const label = "regex"; const pattern = /\\new@v2.config/;',
+    "Don't use C:\\new@v2.config",
+    '"C:\\\\\\\\new@v2.config"',
+    '"https://user:pa\\u0073s@host.test"',
+    '"https:\\/\\/user:pa\\u0073s@host.test"',
+    // A raw string's backslash, an apostrophe in a double-quoted URL's
+    // password, and an allowed address with an escaped first letter.
+    "path = r'C:\\new@v2.config' + R\"C:\\tmp@v2.config\"",
+    "\"https://user:pa's\\u0073s@host.test\"",
+    '"to \\u006eoreply@anthropic.com and \\x6eoreply@anthropic.com"',
+    // A noreply address before a hyphenated suffix, and escaped scheme separators.
+    '"\\nnoreply@host.test-related"',
+    '"https:\\u002f\\u002fuser:pa\\u0022ss@host.test"',
+    // An escaped scheme colon, and raw triple-quoted strings.
+    '"https\\u003a\\u002f\\u002fuser:pa\\u0022ss@host.test"',
+    "p = r\"\"\"C:\\new@v2.config\"\"\" + r'''C:\\tmp@v2.config'''",
+    // A String.raw template keeps its backslashes.
+    'String.raw`C:\\new@v2.config`',
+    // An octal escape is read whole.
+    '"Contact:\\012noreply@host.test"',
+    "\"https://user:pa\\'\\u0073s@host.test\"",
+    '"C:\\\\new@v2.config"',
+    '"\\n李@host.test", "\\nénoreply@host.test"',
     // The rule's own text names the prefixes and markers it rules out.
     "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
     "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",
@@ -126,6 +183,20 @@ test("allows only the exact public footer", () => {
     assert.deepEqual(kinds(forbidden + "\n" + footer), kinds(forbidden));
     assert.ok(kinds(footer + " " + forbidden).length);
   }
+});
+
+test("a long serialized line with many escaped addresses scans in linear time", () => {
+  const line = `"${"\\nnoreply@host.test".repeat(20000)}"`;
+  const started = Date.now();
+  assert.deepEqual(kinds(line), []);
+  assert.ok(Date.now() - started < 2000, `${Date.now() - started} ms`);
+});
+
+test("a long line with many template literals scans in linear time", () => {
+  const line = `${"`x`; ".repeat(40000)}"\\nnoreply@host.test"`;
+  const started = Date.now();
+  assert.deepEqual(kinds(line), []);
+  assert.ok(Date.now() - started < 2000, `${Date.now() - started} ms`);
 });
 
 test("reports line numbers", () => {
