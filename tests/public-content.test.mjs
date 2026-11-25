@@ -69,6 +69,9 @@ test("finds each kind", () => {
     // In a URL's query or fragment after an escaped quote.
     '"https://example.com?contact=\\u0027sam@mailbox.test"': EMAIL,
     '"https://example.com#\\u0027sam@mailbox.test"': EMAIL,
+    // After an escaped character an address can follow (Go escapes < > &).
+    '"Sam \\u003csam@mailbox.test\\u003e"': EMAIL,
+    '"to:\\u0028sam@mailbox.test\\u0029"': EMAIL,
     // After an octal escape.
     '"Contact:\\012sam@mailbox.test"': EMAIL,
     '"\\7sam@mailbox.test"': EMAIL,
@@ -148,6 +151,8 @@ test("lets public text through", () => {
     // An escaped scheme colon, and raw triple-quoted strings.
     '"https\\u003a\\u002f\\u002fuser:pa\\u0022ss@host.test"',
     "p = r\"\"\"C:\\new@v2.config\"\"\" + r'''C:\\tmp@v2.config'''",
+    // A String.raw template keeps its backslashes.
+    'String.raw`C:\\new@v2.config`',
     // An octal escape is read whole.
     '"Contact:\\012noreply@host.test"',
     "\"https://user:pa\\'\\u0073s@host.test\"",

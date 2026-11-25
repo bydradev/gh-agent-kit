@@ -81,8 +81,9 @@ const EMAIL_AFTER_ESCAPE =
 // Where an address may start after an escape: the positions right after an
 // escape inside a string (opened by ", ` or a ' that no letter or digit comes
 // before other than a Python string prefix such as f or rb; a triple-quoted
-// one ends at its own three quotes; a raw one has no escapes) that decodes to
-// a space, a control character, a quote or a slash, mapped to whether it is
+// one ends at its own three quotes; a raw one, r'...' or String.raw`...`, has
+// no escapes) that decodes to
+// a character an address's local part cannot hold, mapped to whether it is
 // in a URL's user information: from a scheme's :// (escaped or not) to the
 // next space, slash, ?, # or quote, or escape of one or of a control
 // character. The URL guard judges that part. An escaped letter (`\u006e`) is
@@ -120,7 +121,10 @@ function escapeStarts(line) {
         // information is only between scheme:// and the first of them), ends
         // the URL's part.
         if (code < 0x21 || [35, 47, 63].includes(code)) url = false;
-        if (code < 0x21 || [34, 39, 47, 96].includes(code)) starts.set(j + len, url);
+        // Any character a local part cannot hold ends the text before it, so
+        // an address may start after its escape (`\u003c` in Go's JSON); an
+        // escaped backslash is followed by literal text (`C:\\new`).
+        if (code !== 92 && !/[A-Za-z0-9_.%+-]/.test(String.fromCharCode(code))) starts.set(j + len, url);
         j += len;
       } else if (line.startsWith(quote, j)) {
         [j, quote, raw, url] = [j + quote.length, null, false, false];
@@ -133,7 +137,10 @@ function escapeStarts(line) {
       if (c === '"' || c === "`" || (c === "'" && prefix)) {
         // A Python triple-quoted string ends only at its own three quotes.
         quote = c !== "`" && line.startsWith(c.repeat(3), j) ? c.repeat(3) : c;
-        [raw, url] = [c !== "`" && /[rR]/.test(prefix ? prefix[1] : ""), false];
+        // A raw string has no escapes: a Python r or R prefix, or String.raw`...`.
+        raw =
+          c === "`" ? /String\.raw\s*$/.test(line.slice(0, j)) : /[rR]/.test(prefix ? prefix[1] : "");
+        url = false;
         j += quote.length;
         continue;
       }
