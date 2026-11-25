@@ -193,18 +193,43 @@ const labeled = (name, at, by = "dra") => ({
 });
 
 test("needs-triage added to a github-actions[bot] issue checks the labeller, not the author", (t) => {
-  const r = gate(t, { ...BOT, event: "issues", actor: "maintainer" });
+  const event = (actor) =>
+    gate(t, {
+      ...BOT,
+      labels: ["needs-triage", "needs-operator"],
+      event: "issues",
+      actor,
+      timeline: [labeled("needs-triage", "2026-11-03T00:00:00Z", actor)],
+      edited: "2026-11-01T00:00:00Z",
+    });
+  const r = event("maintainer");
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.output, "");
   assert.deepEqual(r.lookups, ["maintainer"]);
   // A labeller without write access vouches for nothing.
-  const reader = gate(t, { ...BOT, event: "issues", actor: "reader" });
+  const reader = event("reader");
   assert.equal(reader.status, 0, reader.stdout + reader.stderr);
   assert.match(
     reader.stdout,
-    /::notice::reader has 'read' access to acme\/widgets, not write; not triaged/,
+    /::notice::#8 was opened by github-actions\[bot\] and reader, who added needs-triage last, has 'read' access/,
   );
   assert.equal(reader.output, "skip=true\n");
+});
+
+test("a label run finds the issue edited after the label it came from, and is skipped", (t) => {
+  // The edit's own run cancels this one once it starts; until then the
+  // gate sees the edit and refuses.
+  const r = gate(t, {
+    ...BOT,
+    labels: ["needs-triage"],
+    event: "issues",
+    timeline: [labeled("needs-triage", "2026-11-03T00:00:00Z")],
+    edited: "2026-11-03T00:00:05Z",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /add needs-triage to it \(after any edit\) to vouch for its text/);
+  assert.equal(r.output, "skip=true\n");
+  assert.deepEqual(r.lookups, []);
 });
 
 test("any other event on a github-actions[bot] issue is skipped with a notice", (t) => {

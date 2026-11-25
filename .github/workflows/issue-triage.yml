@@ -414,15 +414,17 @@ jobs:
       # one) has an author with no access, so the operator vouches for its
       # text instead, by adding needs-triage: whoever added it is checked in
       # the author's place. On an issue event the run must be that label
-      # being added and its actor is checked; an edit, which the settings
-      # job lets through only to cancel a run in flight, is skipped. On a dispatch the issue must carry needs-triage, and the
-      # latest needs-triage label event must be later than the issue's last
-      # body edit, retitle and reopen, so the vouching covers the text the
-      # model reads; it is the last such event in the timeline's order (a
-      # relabel can share a second), and its actor is checked. Without
-      # that, or with a labeller who lacks write access, a dispatch ends
-      # green with a notice that says how to vouch, not as a failure. Other
-      # bot authors are refused as before.
+      # being added; an edit, which the settings job lets through only so
+      # that its run cancels one in flight, is skipped. On either event the
+      # issue must carry needs-triage, and the latest needs-triage label
+      # event must be later than the issue's last body edit, retitle and
+      # reopen, so the vouching covers the text as the gate finds it (an
+      # edit after the gate cancels the run once the edit's run starts,
+      # which narrows the window but cannot close it); it is the last such
+      # event in the timeline's order (a relabel can share a second), and
+      # its actor is checked. Without that, or with a labeller who lacks
+      # write access, the run ends green with a notice that says how to
+      # vouch, not as a failure. Other bot authors are refused as before.
       - name: Refuse an issue whose author, or an issue event whose actor, lacks write access
         id: gate
         if: env.TRIAGE_ISSUE != ''
@@ -441,39 +443,35 @@ jobs:
           type=$(sed -n 2p <<<"$info")
           logins="$author"
           if [ "$EVENT" = "issues" ]; then logins="$author $ACTOR"; fi
-          vouched_dispatch=false
+          vouched=false
           if [ "$author" = "github-actions[bot]" ] && [ "$type" = Bot ]; then
-            if [ "$EVENT" = "issues" ]; then
-              if [ "$ACTION" != labeled ] || [ "$LABEL" != needs-triage ]; then
-                echo "::notice::#$TRIAGE_ISSUE was opened by $author; only needs-triage added by someone with write access starts its triage; not triaged"
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              logins="$ACTOR"
-            else
-              # Plain assignments: a failed call fails the run. Every page
-              # of the timeline (30 events a page).
-              labels=$(tail -n +3 <<<"$info")
-              events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
-                --jq '.[] | select(.event == "labeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
-              edited=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
-                -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt } } }' \
-                --jq '.data.repository.issue.lastEditedAt // ""')
-              # The timeline lists events oldest first; its order, not the
-              # timestamp, settles two in the same second.
-              vouch=$(awk -F '\t' '$1 == "labeled" && $3 == "needs-triage"' <<<"$events" | tail -n 1)
-              at=$(cut -f 2 <<<"$vouch")
-              by=$(cut -f 4 <<<"$vouch")
-              later=$(awk -F '\t' '$1 == "renamed" || $1 == "reopened" { print $2 }' <<<"$events" | sort | tail -n 1)
-              [[ -z "$edited" || "$edited" < "$later" ]] || later=$edited
-              if ! grep -qxF needs-triage <<<"$labels" || [ -z "$by" ] || ! [[ "$at" > "$later" ]]; then
-                echo "::notice::#$TRIAGE_ISSUE was opened by $author; add needs-triage to it (after any edit) to vouch for its text and have it triaged; not triaged"
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              logins="$by"
-              vouched_dispatch=true
+            if [ "$EVENT" = "issues" ] && { [ "$ACTION" != labeled ] || [ "$LABEL" != needs-triage ]; }; then
+              echo "::notice::#$TRIAGE_ISSUE was opened by $author; only needs-triage added by someone with write access starts its triage; not triaged"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
+            # Plain assignments: a failed call fails the run. Every page of
+            # the timeline (30 events a page).
+            labels=$(tail -n +3 <<<"$info")
+            events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
+              --jq '.[] | select(.event == "labeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
+            edited=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
+              -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt } } }' \
+              --jq '.data.repository.issue.lastEditedAt // ""')
+            # The timeline lists events oldest first; its order, not the
+            # timestamp, settles two in the same second.
+            vouch=$(awk -F '\t' '$1 == "labeled" && $3 == "needs-triage"' <<<"$events" | tail -n 1)
+            at=$(cut -f 2 <<<"$vouch")
+            by=$(cut -f 4 <<<"$vouch")
+            later=$(awk -F '\t' '$1 == "renamed" || $1 == "reopened" { print $2 }' <<<"$events" | sort | tail -n 1)
+            [[ -z "$edited" || "$edited" < "$later" ]] || later=$edited
+            if ! grep -qxF needs-triage <<<"$labels" || [ -z "$by" ] || ! [[ "$at" > "$later" ]]; then
+              echo "::notice::#$TRIAGE_ISSUE was opened by $author; add needs-triage to it (after any edit) to vouch for its text and have it triaged; not triaged"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            logins="$by"
+            vouched=true
           fi
           for login in $logins; do
             if permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission 2>"$RUNNER_TEMP/permission-error"); then
@@ -487,7 +485,7 @@ jobs:
             case "$permission" in
               admin|write) echo "$login: $permission" ;;
               *)
-                if [ "$vouched_dispatch" = true ]; then
+                if [ "$vouched" = true ]; then
                   echo "::notice::#$TRIAGE_ISSUE was opened by github-actions[bot] and $login, who added needs-triage last, has '$permission' access to $REPO, not write; someone with write access must add it to vouch for its text; not triaged"
                   echo "skip=true" >> "$GITHUB_OUTPUT"
                   exit 0
