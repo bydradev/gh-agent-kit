@@ -336,6 +336,19 @@ test("a dispatch of a github-actions[bot] issue without a vouching needs-triage 
       { timeline: [vouched, { event: "renamed", created_at: "2026-11-04T00:00:00Z" }] },
     ],
     [
+      "removed after",
+      {
+        timeline: [
+          vouched,
+          {
+            event: "unlabeled",
+            created_at: "2026-11-04T00:00:00Z",
+            label: { name: "needs-triage" },
+          },
+        ],
+      },
+    ],
+    [
       "reopened after",
       { timeline: [vouched, { event: "reopened", created_at: "2026-11-04T00:00:00Z" }] },
     ],

@@ -454,21 +454,26 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            # Plain assignments: a failed call fails the run. Every page of
-            # the timeline (30 events a page).
+            # Plain assignments: a failed call fails the run. The title,
+            # body and last edit first, in one read: the hash the server
+            # holds the model's reads to is of this text, and the timeline,
+            # read after it, shows any retitle, reopen or label removal up
+            # to then.
             labels=$(tail -n +3 <<<"$info")
-            events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
-              --jq '.[] | select(.event == "labeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
-            # The title, body and last edit in one read, so the text the
-            # freshness check passes is the text whose hash the server
-            # holds the model's reads to.
             text=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
               -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { title body lastEditedAt } } }')
             edited=$(jq -r '.data.repository.issue.lastEditedAt // ""' <<<"$text")
             sha=$(jq -j '.data.repository.issue | .title + "\n" + (.body // "")' <<<"$text" | sha256sum | cut -d ' ' -f 1)
+            # The hash fingerprints the text; keep it out of the logs.
+            echo "::add-mask::$sha"
+            # Every page of the timeline (30 events a page).
+            events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
+              --jq '.[] | select(.event == "labeled" or .event == "unlabeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
             # The timeline lists events oldest first; its order, not the
-            # timestamp, settles two in the same second.
-            vouch=$(awk -F '\t' '$1 == "labeled" && $3 == "needs-triage"' <<<"$events" | tail -n 1)
+            # timestamp, settles two in the same second. The last
+            # needs-triage event must add it: a removal withdraws the vouch.
+            vouch=$(awk -F '\t' '($1 == "labeled" || $1 == "unlabeled") && $3 == "needs-triage"' <<<"$events" | tail -n 1)
+            [ "$(cut -f 1 <<<"$vouch")" = labeled ] || vouch=""
             at=$(cut -f 2 <<<"$vouch")
             by=$(cut -f 4 <<<"$vouch")
             later=$(awk -F '\t' '$1 == "renamed" || $1 == "reopened" { print $2 }' <<<"$events" | sort | tail -n 1)
