@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { root, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
-import { EXEMPT_FILES, main, scan } from "../.github/scripts/public-content.mjs";
+import { EXEMPT_FILES, main, scan, userinfoEnds } from "../.github/scripts/public-content.mjs";
 
 const ATTRIBUTION =
   '<!-- claude-projects-attribution: {"github_login":"someone"} -->\n' +
@@ -659,4 +659,48 @@ test("both steps check the lines the commits add to files", () => {
       /--files="\$(BASE\.\.\$HEAD|range)"/,
       name,
     );
+});
+
+// The URL user-information guard decides in one pass which positions of a
+// line follow user information (#97): the same positions as the pattern
+// it replaces, tested on the text before each, and in linear time.
+const URL_USERINFO = /[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^\s/?#@:]*:)?$/;
+test("userinfoEnds finds the positions the user-information pattern matches before", () => {
+  const alphabet = ["a", "Z", "1", "+", ".", "-", ":", "/", "@", "?", "#", " ", "\t", "_", "é"];
+  let seed = 97;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  const lines = [
+    "https://user:password@github.com/a and https://user@github.com/b",
+    "mailto:sam@mailbox.test",
+    "1+://x@y.test 9://x@y.test a1://x:@y.test ://x@y.test",
+    "git+ssh://u:p:q@host.test x://a/b:c@d.test",
+  ];
+  for (let n = 0; n < 3000; n++) {
+    let line = "";
+    const length = Math.floor(random() * 24);
+    for (let i = 0; i < length; i++)
+      line += random() < 0.2 ? "://" : alphabet[Math.floor(random() * alphabet.length)];
+    lines.push(line);
+  }
+  for (const line of lines) {
+    const expected = [];
+    for (let p = 0; p <= line.length; p++)
+      if (URL_USERINFO.test(line.slice(0, p))) expected.push(p);
+    assert.deepEqual(
+      [...userinfoEnds(line)].sort((a, b) => a - b),
+      expected,
+      JSON.stringify(line),
+    );
+  }
+});
+
+test("a long line of URL user information is checked in linear time", () => {
+  // Before #97 the check took seconds for 4,000 repetitions and four times
+  // as long for twice as many; 40,000 would take minutes.
+  const line = "https://user@host.test ".repeat(40000);
+  const started = Date.now();
+  assert.deepEqual(kinds(line), []);
+  assert.deepEqual(kinds(`${line}sam@mailbox.test`), [EMAIL]);
+  assert.deepEqual(kinds(`${line}https://user:pw@host.test sam@mailbox.test`), [EMAIL]);
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
 });
