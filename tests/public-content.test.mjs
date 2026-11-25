@@ -192,6 +192,13 @@ test("a long serialized line with many escaped addresses scans in linear time", 
   assert.ok(Date.now() - started < 2000, `${Date.now() - started} ms`);
 });
 
+test("a long line with many template literals scans in linear time", () => {
+  const line = `${"`x`; ".repeat(40000)}"\\nnoreply@host.test"`;
+  const started = Date.now();
+  assert.deepEqual(kinds(line), []);
+  assert.ok(Date.now() - started < 2000, `${Date.now() - started} ms`);
+});
+
 test("reports line numbers", () => {
   assert.deepEqual(scan("ok\n\nClaude-Session: x\n"), [[3, "a Claude-Session trailer"]]);
 });

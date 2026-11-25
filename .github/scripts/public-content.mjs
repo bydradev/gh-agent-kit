@@ -139,7 +139,7 @@ function escapeStarts(line) {
         quote = c !== "`" && line.startsWith(c.repeat(3), j) ? c.repeat(3) : c;
         // A raw string has no escapes: a Python r or R prefix, or String.raw`...`.
         raw =
-          c === "`" ? /String\.raw\s*$/.test(line.slice(0, j)) : /[rR]/.test(prefix ? prefix[1] : "");
+          c === "`" ? /String\.raw\s{0,8}$/.test(line.slice(Math.max(0, j - 18), j)) : /[rR]/.test(prefix ? prefix[1] : "");
         url = false;
         j += quote.length;
         continue;
