@@ -165,8 +165,10 @@ const PUBLISHED_ADDRESSES = new Set(["github@bydra.dev", "git@github.com"]);
 const DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>";
 // A commit carries no Signed-off-by line but that footer (AGENTS.md *Public
 // repository content*), whatever address it names. Anchored at the line's
-// start, so prose that names the trailer stays clean.
-const SIGNOFF = /^[ \t]*Signed-off-by\s*:/i;
+// start, so prose that names the trailer stays clean. ASCII letters and
+// spaces only, so the Python copy, whose case-folding and \s are Unicode,
+// agrees.
+const SIGNOFF = /^[ \t]*[Ss][Ii][Gg][Nn][Ee][Dd]-[Oo][Ff][Ff]-[Bb][Yy][ \t]*:/;
 const SIGNOFF_KIND = "a Signed-off-by line other than the public footer";
 
 // The check's own script and tests hold every pattern and example it finds.

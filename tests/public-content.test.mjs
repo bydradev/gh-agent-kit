@@ -166,6 +166,8 @@ test("lets public text through", () => {
     "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",
     // Prose that names the trailer is not one.
     "a commit carries no `Signed-off-by:` line, and Signed-off-by: in a sentence is fine",
+    // Only ASCII letters and spaces make the trailer, as in the Python copy.
+    "\u017figned-off-by: x", "S\u0131gned-off-by: x", "Signed-off-by\u0085: x", "Signed-off-by\ufeff: x",
   ])
     assert.deepEqual(kinds(text), [], text);
 });
