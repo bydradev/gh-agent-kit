@@ -707,9 +707,10 @@ sweep leaves bot-authored issues out. A run, a dispatch by hand
 while it carries a `needs-triage` added, by someone with write access,
 after its last edit, retitle and reopen; otherwise the run ends with a
 notice saying so. An edit, which the Moderate role can make without write
-access, also starts a run, only to cancel a triage in flight: that narrows
-the window in which the model could read text nobody vouched for, without
-closing it. After an edit, add `needs-triage` again (remove it first if it
+access, also starts a run, only to cancel a triage in flight; until it
+does, the server shows the model the issue's title and body only while
+they match the text the gate checked, so text nobody vouched for is never
+read. After an edit, add `needs-triage` again (remove it first if it
 is still there). Issues other bots open are still left alone.
 
 Its text is the reviewer's, written after reading the pull request's

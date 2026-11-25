@@ -8,6 +8,7 @@
 //
 // No dependencies: the MCP stdio transport is newline-delimited JSON-RPC.
 import { execFileSync, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1223,6 +1224,21 @@ function issue() {
   if (isPr(i)) throw new Error(`#${n} is a pull request, not an issue; nothing done`);
   return i;
 }
+// An issue github-actions[bot] opened is read only once the operator
+// vouched for its text by adding needs-triage; the workflow's gate hands
+// over the hash of the title and body that vouch covered, and this run's
+// issue text is shown only while it still has that hash, so an edit made
+// after the gate is never read. Unset, as on every other issue, nothing is
+// checked.
+const vouchedSha = env.VOUCHED_TEXT_SHA256 || "";
+const textSha = (i) =>
+  crypto
+    .createHash("sha256")
+    .update(`${i.title ?? ""}\n${i.body ?? ""}`)
+    .digest("hex");
+const UNVOUCHED = `#${n}'s title or body changed after needs-triage vouched for it, so it is not shown; the operator adds needs-triage again to vouch for the new text`;
+const unvouched = (i) =>
+  vouchedSha !== "" && String(i.number) === String(n) && textSha(i) !== vouchedSha;
 function ensureOpen() {
   const state = issue().state;
   if (state !== "open") throw new Error(`issue #${n} is ${state}; nothing written`);
@@ -1335,6 +1351,7 @@ const triageTools = {
     schema: { type: "object", properties: { ...pageProp }, additionalProperties: false },
     run: ({ page }) => {
       const i = issue();
+      if (unvouched(i)) return fail(UNVOUCHED);
       return text(
         {
           number: i.number,
@@ -1410,12 +1427,13 @@ const triageTools = {
               throw new Error(
                 `the search returned an issue outside ${repo}; search with plain terms`,
               );
-            return {
+            const item = {
               number: i.number,
               title: i.title,
               labels: (i.labels || []).map((l) => l.name),
               author: i.user && i.user.login,
             };
+            return unvouched(i) ? { ...item, title: null, withheld: UNVOUCHED } : item;
           }),
         ),
       );
@@ -1436,6 +1454,7 @@ const triageTools = {
       const i = getJson(`repos/${repo}/issues/${number}`);
       if (!ofThisRepo(i)) return fail(MOVED(`#${number}`));
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
+      if (unvouched(i)) return fail(UNVOUCHED);
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.
       const reason = withheldReason(i.user);

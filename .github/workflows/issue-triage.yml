@@ -419,12 +419,16 @@ jobs:
       # issue must carry needs-triage, and the latest needs-triage label
       # event must be later than the issue's last body edit, retitle and
       # reopen, so the vouching covers the text as the gate finds it (an
-      # edit after the gate cancels the run once the edit's run starts,
-      # which narrows the window but cannot close it); it is the last such
-      # event in the timeline's order (a relabel can share a second), and
-      # its actor is checked. Without that, or with a labeller who lacks
-      # write access, the run ends green with a notice that says how to
-      # vouch, not as a failure. Other bot authors are refused as before.
+      # edit after the gate cancels the run once the edit's run starts, and
+      # the server refuses the changed text until then, below); it is the
+      # last such event in the timeline's order (a relabel can share a
+      # second), and its actor is checked. Without that, or with a labeller
+      # who lacks write access, the run ends green with a notice that says
+      # how to vouch, not as a failure. A passed vouch hands the server the hash of
+      # the title and body it covered (VOUCHED_TEXT_SHA256), and the server
+      # shows the model the issue's text only while it still has that hash,
+      # so an edit after the gate is never read. Other bot authors are
+      # refused as before.
       - name: Refuse an issue whose author, or an issue event whose actor, lacks write access
         id: gate
         if: env.TRIAGE_ISSUE != ''
@@ -455,9 +459,13 @@ jobs:
             labels=$(tail -n +3 <<<"$info")
             events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
               --jq '.[] | select(.event == "labeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
-            edited=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
-              -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt } } }' \
-              --jq '.data.repository.issue.lastEditedAt // ""')
+            # The title, body and last edit in one read, so the text the
+            # freshness check passes is the text whose hash the server
+            # holds the model's reads to.
+            text=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
+              -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { title body lastEditedAt } } }')
+            edited=$(jq -r '.data.repository.issue.lastEditedAt // ""' <<<"$text")
+            sha=$(jq -j '.data.repository.issue | .title + "\n" + (.body // "")' <<<"$text" | sha256sum | cut -d ' ' -f 1)
             # The timeline lists events oldest first; its order, not the
             # timestamp, settles two in the same second.
             vouch=$(awk -F '\t' '$1 == "labeled" && $3 == "needs-triage"' <<<"$events" | tail -n 1)
@@ -503,6 +511,9 @@ jobs:
                 ;;
             esac
           done
+          # Every check passed: the server holds the model's reads to the
+          # text the vouch covered.
+          if [ "$vouched" = true ]; then echo "VOUCHED_TEXT_SHA256=$sha" >> "$GITHUB_ENV"; fi
       # No step needs git credentials, so keep the job token out of the
       # checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -691,8 +702,8 @@ jobs:
             (umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_TEMP/private-repo-names")
           fi
           mcp=$(jq -cn --arg check "${PUBLIC_CONTENT_CHECK:-}" --arg names "$RUNNER_TEMP/private-repo-names" --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
-            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg queue "$DISPATCH_QUEUE" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, DISPATCH_QUEUE: $queue, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
+            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg queue "$DISPATCH_QUEUE" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" --arg vouched "${VOUCHED_TEXT_SHA256:-}" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, DISPATCH_QUEUE: $queue, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end) + (if $vouched == "" then {} else {VOUCHED_TEXT_SHA256: $vouched} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
       # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).

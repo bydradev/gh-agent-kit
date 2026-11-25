@@ -6,6 +6,7 @@
 // its skip, so a skipped event costs no checkout, install or model call.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { root, stubGh, tempDir } from "./helpers/server.mjs";
@@ -67,18 +68,27 @@ function gate(
           },
           {
             match: "^api graphql -f owner=acme -f name=widgets -F number=8 ",
-            json: { data: { repository: { issue: { lastEditedAt: edited ?? null } } } },
+            json: {
+              data: {
+                repository: {
+                  issue: { title: "a finding", body: "Fix it.\r\n", lastEditedAt: edited ?? null },
+                },
+              },
+            },
           },
         ]
       : []),
   ]);
   const output = path.join(dir, "github-output");
   fs.writeFileSync(output, "");
+  const githubEnv = path.join(dir, "github-env");
+  fs.writeFileSync(githubEnv, "");
   const r = runStep(dir, script, {
     PATH: `${stub.bin}${path.delimiter}${process.env.PATH}`,
     GH_STUB_RULES: stub.rulesFile,
     GH_STUB_LOG: stub.log,
     GITHUB_OUTPUT: output,
+    GITHUB_ENV: githubEnv,
     RUNNER_TEMP: dir,
     REPO: "acme/widgets",
     TRIAGE_ISSUE: "8",
@@ -94,7 +104,12 @@ function gate(
     .map((l) => JSON.parse(l).args.join(" "))
     .filter((c) => c.includes("/collaborators/"))
     .map((c) => c.match(/collaborators\/([^/]+)\//)[1]);
-  return { ...r, output: fs.readFileSync(output, "utf8"), lookups };
+  return {
+    ...r,
+    output: fs.readFileSync(output, "utf8"),
+    env: fs.readFileSync(githubEnv, "utf8"),
+    lookups,
+  };
 }
 
 test("an author and actor with write access pass, with no skip", (t) => {
@@ -108,6 +123,7 @@ test("an author and actor with write access pass, with no skip", (t) => {
     assert.equal(r.output, "");
     assert.doesNotMatch(r.stdout, /::(notice|error)::/);
     assert.deepEqual(r.lookups, [author, actor]);
+    assert.equal(r.env, "");
   }
 });
 
@@ -185,6 +201,12 @@ test("a lookup that fails for another reason fails the run, on any event", (t) =
 // author with no access: the operator vouches for its text by adding
 // needs-triage, and whoever added it is checked in the author's place.
 const BOT = { author: "github-actions[bot]", type: "Bot" };
+// What a passed vouch hands the server: the hash of the title and body the
+// gate read with the last edit, in one GraphQL read.
+const VOUCHED = `VOUCHED_TEXT_SHA256=${crypto
+  .createHash("sha256")
+  .update("a finding\nFix it.\r\n")
+  .digest("hex")}\n`;
 const labeled = (name, at, by = "dra") => ({
   event: "labeled",
   created_at: at,
@@ -205,6 +227,7 @@ test("needs-triage added to a github-actions[bot] issue checks the labeller, not
   const r = event("maintainer");
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.output, "");
+  assert.equal(r.env, VOUCHED);
   assert.deepEqual(r.lookups, ["maintainer"]);
   // A labeller without write access vouches for nothing.
   const reader = event("reader");
@@ -214,6 +237,7 @@ test("needs-triage added to a github-actions[bot] issue checks the labeller, not
     /::notice::#8 was opened by github-actions\[bot\] and reader, who added needs-triage, has 'read' access/,
   );
   assert.equal(reader.output, "skip=true\n");
+  assert.equal(reader.env, "");
 });
 
 test("a label run finds the issue edited after the label it came from, and is skipped", (t) => {
@@ -258,6 +282,7 @@ test("a label run checks its own sender as well as the latest labeller", (t) => 
     timeline: [labeled("needs-triage", "2026-11-03T00:00:02Z", "maintainer")],
   });
   assert.equal(w.output, "", w.stdout + w.stderr);
+  assert.equal(w.env, VOUCHED);
   assert.deepEqual(w.lookups, ["maintainer"]);
 });
 
@@ -294,6 +319,7 @@ test("a dispatch of a github-actions[bot] issue runs when needs-triage is newer 
   });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.output, "");
+  assert.equal(r.env, VOUCHED);
   // The labeller is checked, not the author or the dispatch's actor.
   assert.deepEqual(r.lookups, ["maintainer"]);
 });
@@ -323,6 +349,7 @@ test("a dispatch of a github-actions[bot] issue without a vouching needs-triage 
     );
     assert.doesNotMatch(r.stdout, /::error::/, why);
     assert.equal(r.output, "skip=true\n", why);
+    assert.equal(r.env, "", why);
     assert.deepEqual(r.lookups, [], why);
   }
 });
@@ -363,6 +390,7 @@ test("a dispatch takes the last needs-triage in timeline order when two share a 
     });
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.equal(r.output, passes ? "" : "skip=true\n", `${first} then ${last}`);
+    assert.equal(r.env, passes ? VOUCHED : "", `${first} then ${last}`);
     assert.deepEqual(r.lookups, [last]);
   }
 });

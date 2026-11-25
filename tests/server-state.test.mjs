@@ -60,3 +60,22 @@ test("issue-triage.yml: triage's and the sweep's server keep the run's posts in 
     assert.equal(server.env.DISPATCH_LOG, "dispatched");
   }
 });
+
+// A vouched github-actions[bot] issue's hash, from the gate, reaches the
+// server; any other run passes none.
+test("issue-triage.yml: the server gets the vouched text's hash only when the gate wrote one", (t) => {
+  const base = {
+    MCP_MODE: "triage",
+    TRIAGE_ISSUE: "8",
+    TRIAGE_EVENT: "labeled",
+    ELIGIBLE_ISSUES: "eligible",
+    DISPATCH_LOG: "dispatched",
+  };
+  const vouched = settings(t, "issue-triage.yml", {
+    ...base,
+    VOUCHED_TEXT_SHA256: "ab".repeat(32),
+  });
+  assert.equal(vouched.server.env.VOUCHED_TEXT_SHA256, "ab".repeat(32));
+  const plain = settings(t, "issue-triage.yml", base);
+  assert.equal("VOUCHED_TEXT_SHA256" in plain.server.env, false);
+});
