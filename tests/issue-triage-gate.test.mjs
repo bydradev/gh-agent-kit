@@ -66,7 +66,7 @@ function gate(
             json: timeline,
           },
           {
-            match: "^api graphql -F owner=acme -F name=widgets -F number=8 ",
+            match: "^api graphql -f owner=acme -f name=widgets -F number=8 ",
             json: { data: { repository: { issue: { lastEditedAt: edited ?? null } } } },
           },
         ]
@@ -273,19 +273,44 @@ test("a dispatch of a github-actions[bot] issue without a vouching needs-triage 
   }
 });
 
-test("a dispatch vouched for by a labeller without write access still fails", (t) => {
+test("a dispatch vouched for by a labeller without write access ends green with a notice", (t) => {
   const r = gate(t, {
     ...BOT,
     labels: ["needs-triage"],
     event: "workflow_dispatch",
     timeline: [labeled("needs-triage", "2026-11-03T00:00:00Z", "triager")],
   });
-  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(
     r.stdout,
-    /::error::triager has 'triage' access to acme\/widgets, not write; not triaged/,
+    /::notice::#8 was opened by github-actions\[bot\] and triager, who added needs-triage last, has 'triage' access to acme\/widgets, not write; someone with write access must add it to vouch for its text; not triaged/,
   );
+  assert.doesNotMatch(r.stdout, /::error::/);
+  assert.equal(r.output, "skip=true\n");
   assert.deepEqual(r.lookups, ["triager"]);
+});
+
+test("a dispatch takes the last needs-triage in timeline order when two share a second", (t) => {
+  // A writer's label, removed and added again by a triager in the same
+  // second: the triager's is the one in force, whatever the logins sort as.
+  for (const [first, last, passes] of [
+    ["maintainer", "triager", false],
+    ["triager", "maintainer", true],
+  ]) {
+    const r = gate(t, {
+      ...BOT,
+      labels: ["needs-triage"],
+      event: "workflow_dispatch",
+      timeline: [
+        labeled("needs-triage", "2026-11-03T00:00:00Z", first),
+        { event: "unlabeled", created_at: "2026-11-03T00:00:00Z", label: { name: "needs-triage" } },
+        labeled("needs-triage", "2026-11-03T00:00:00Z", last),
+      ],
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.output, passes ? "" : "skip=true\n", `${first} then ${last}`);
+    assert.deepEqual(r.lookups, [last]);
+  }
 });
 
 test("another bot's issue is refused as before, needs-triage or not", (t) => {
@@ -302,7 +327,8 @@ test("another bot's issue is refused as before, needs-triage or not", (t) => {
 
 // The settings job's if:, read from the workflow and evaluated on issue
 // events: it is the first filter, so a github-actions[bot] issue reaches
-// the gate only on needs-triage being added, and another bot's never.
+// the gate only on needs-triage being added or an edit (which the gate
+// skips; its run cancels one in flight), and another bot's never.
 function settingsIf() {
   const lines = fs
     .readFileSync(path.join(root, ".github/workflows/issue-triage.yml"), "utf8")
@@ -320,7 +346,7 @@ function settingsIf() {
   return new Function("github", "contains", `return (${js});`);
 }
 
-test("issue-triage.yml: the settings job passes a bot's issue only on a vouching needs-triage", () => {
+test("issue-triage.yml: the settings job passes a bot's issue only on a vouching needs-triage or an edit", () => {
   const passes = settingsIf();
   const contains = (list, v) => list.includes(v);
   const check = (login, type, action, label) =>
@@ -336,9 +362,10 @@ test("issue-triage.yml: the settings job passes a bot's issue only on a vouching
       contains,
     );
   assert.equal(check("github-actions[bot]", "Bot", "labeled", "needs-triage"), true);
+  // An edit passes only to cancel a run in flight; the gate skips it.
+  assert.equal(check("github-actions[bot]", "Bot", "edited", undefined), true);
   for (const [action, label] of [
     ["opened", undefined],
-    ["edited", undefined],
     ["reopened", undefined],
     ["labeled", "bug"],
   ]) {

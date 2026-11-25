@@ -701,12 +701,15 @@ it planned, or close it. Adding `needs-triage` vouches for the text as it
 stands: the workflow then checks the access of whoever added the label in
 the author's place, and triage plans the issue like any other, after
 which an agent can take it once you apply `agent:approved`. Nothing else
-starts a run on it: not its opening, an edit, a reopen or another label,
-and the weekly sweep leaves bot-authored issues out. After an edit, add
+triages it: not its opening, a reopen or another label, and the weekly
+sweep leaves bot-authored issues out. An edit, which the Moderate role can
+make without write access, starts a run only to cancel a triage in flight,
+so the model never reads text nobody vouched for; after an edit, add
 `needs-triage` again (remove it first if it is still there). A dispatch by
 hand (`gh workflow run issue-triage.yml -f issue=<n>`) triages it only
-while it carries a `needs-triage` added after its last edit, retitle and
-reopen; otherwise the run ends with a notice saying so. Issues other bots
+while it carries a `needs-triage` added, by someone with write access,
+after its last edit, retitle and reopen; otherwise the run ends with a
+notice saying so. Issues other bots
 open are still left alone.
 
 Its text is the reviewer's, written after reading the pull request's
