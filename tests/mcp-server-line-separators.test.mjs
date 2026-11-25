@@ -37,18 +37,26 @@ function reviewServer(t) {
 }
 
 // The next reply's raw line, or a failure once the server exits or 5 s pass.
+// Settling stops the polling, so a failure leaves no timer behind.
 function nextLine(server, before) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("no reply")), 5000);
-    server.exited.then((code) => {
+    let settled = false;
+    let poller;
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      reject(new Error(`server exited (${code}): ${server.stderr()}`));
-    });
+      clearTimeout(poller);
+      fn(value);
+    };
+    const timer = setTimeout(() => settle(reject, new Error("no reply")), 5000);
+    server.exited.then((code) =>
+      settle(reject, new Error(`server exited (${code}): ${server.stderr()}`)),
+    );
     const poll = () => {
-      if (server.lines.length > before) {
-        clearTimeout(timer);
-        resolve(server.lines[before]);
-      } else setTimeout(poll, 10);
+      if (settled) return;
+      if (server.lines.length > before) settle(resolve, server.lines[before]);
+      else poller = setTimeout(poll, 10);
     };
     poll();
   });
