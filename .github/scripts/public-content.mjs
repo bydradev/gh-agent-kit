@@ -3,7 +3,8 @@
 // AGENTS.md *Public repository content* rules out. claude.ai session,
 // project, artifact and chat links, Claude-Session trailers, session and
 // thread IDs, paths from an agent's machine or project storage, email
-// addresses other than noreply ones.
+// addresses other than noreply ones, and Signed-off-by lines other than the
+// exact public footer.
 // gh-repo-bootstrapper's .github/scripts/check_public_content.py is the same
 // check in Python: keep the two in step.
 //
@@ -162,6 +163,11 @@ const PUBLISHED_ADDRESSES = new Set(["github@bydra.dev", "git@github.com"]);
 
 // Only this complete literal line exempts its email; it does not verify authorship.
 const DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>";
+// A commit carries no Signed-off-by line but that footer (AGENTS.md *Public
+// repository content*), whatever address it names. Anchored at the line's
+// start, so prose that names the trailer stays clean.
+const SIGNOFF = /^[ \t]*Signed-off-by\s*:/i;
+const SIGNOFF_KIND = "a Signed-off-by line other than the public footer";
 
 // The check's own script and tests hold every pattern and example it finds.
 export const EXEMPT_FILES = new Set([
@@ -203,6 +209,7 @@ export function scan(text, allowAttribution = false) {
   lines.forEach((line, index) => {
     if (index < skip) return;
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
+    if (line !== DEPENDABOT_FOOTER && SIGNOFF.test(line)) kinds.push(SIGNOFF_KIND);
     if (
       line !== DEPENDABOT_FOOTER &&
       [

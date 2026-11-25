@@ -124,6 +124,16 @@ test("zero-width spaces neither hide a detail from the check nor join one into a
   assert.equal(posts(server).length, 0);
 });
 
+test("a sign-off that is not the public footer is refused, and the refusal names it", async (t) => {
+  const f = review(t, { PUBLIC_CONTENT_CHECK: CHECK });
+  const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
+  const body = at("Done.\n", "Signed-off", "-by: Sam <123+sam@users.noreply.github.com>");
+  const r = await server.call("inline_comment", { path: "b.txt", line: 1, body });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /body line 2: a Signed-off-by line other than the public footer/);
+  assert.equal(posts(server).length, 0);
+});
+
 test("inline_comment and file_issue are checked, file_issue field by field", async (t) => {
   const f = review(t, { PUBLIC_CONTENT_CHECK: CHECK });
   const server = await startServer(t, { mode: "review", env: f.env, rules: f.rules });
