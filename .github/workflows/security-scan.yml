@@ -756,7 +756,8 @@ jobs:
                "a session or thread ID", "a local or project-storage path",
                "a bydradev or bydraio repository outside the public list",
                "a bydradev repository outside the public list",
-               "an email address other than a noreply one", "a private repository name"] as $known
+               "an email address other than a noreply one",
+               "a Signed-off-by line other than the public footer", "a private repository name"] as $known
               | split("\n") | map(select(. != "") | if IN($known[]) then . else "a detail the check rules out" end)
               | unique | join("; ")'
           }
