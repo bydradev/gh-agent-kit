@@ -8,6 +8,7 @@
 //
 // No dependencies: the MCP stdio transport is newline-delimited JSON-RPC.
 import { execFileSync, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -375,10 +376,11 @@ function unforged(t) {
 }
 const plain = (t) => noMentions(unforged(t));
 // The body of a filed issue in the Task form's layout (its headings, as
-// GitHub renders a submitted form), for the operator, who triages it by
-// hand or closes it: the triage bot never reads it, since its author is
-// github-actions[bot] (issue-triage.yml skips bot-authored issues), so it
-// is labelled needs-operator, not needs-triage. Under a fixed line the
+// GitHub renders a submitted form), for the operator, who adds needs-triage
+// to have it planned or closes it: its author is github-actions[bot], and
+// issue-triage.yml triages such an issue only once someone with write
+// access adds needs-triage, vouching for its text, so it is labelled
+// needs-operator, not needs-triage. Under a fixed line the
 // model cannot change: the reviewer wrote the text after reading the pull
 // request's conversation, which people without write access can add to,
 // so it is unverified until the operator checks.
@@ -1066,7 +1068,7 @@ const reviewTools = {
     },
   },
   file_issue: {
-    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
+    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator adds needs-triage to have the triage bot plan it, or closes it), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
     schema: {
       type: "object",
       properties: {
@@ -1222,6 +1224,21 @@ function issue() {
   if (isPr(i)) throw new Error(`#${n} is a pull request, not an issue; nothing done`);
   return i;
 }
+// An issue github-actions[bot] opened is read only once the operator
+// vouched for its text by adding needs-triage; the workflow's gate hands
+// over the hash of the title and body that vouch covered, and this run's
+// issue text is shown only while it still has that hash, so an edit made
+// after the gate is never read. Unset, as on every other issue, nothing is
+// checked.
+const vouchedSha = env.VOUCHED_TEXT_SHA256 || "";
+const textSha = (i) =>
+  crypto
+    .createHash("sha256")
+    .update(`${i.title ?? ""}\n${i.body ?? ""}`)
+    .digest("hex");
+const UNVOUCHED = `#${n}'s title or body changed after needs-triage vouched for it, so it is not shown; the operator adds needs-triage again to vouch for the new text`;
+const unvouched = (i) =>
+  vouchedSha !== "" && String(i.number) === String(n) && textSha(i) !== vouchedSha;
 function ensureOpen() {
   const state = issue().state;
   if (state !== "open") throw new Error(`issue #${n} is ${state}; nothing written`);
@@ -1334,6 +1351,7 @@ const triageTools = {
     schema: { type: "object", properties: { ...pageProp }, additionalProperties: false },
     run: ({ page }) => {
       const i = issue();
+      if (unvouched(i)) return fail(UNVOUCHED);
       return text(
         {
           number: i.number,
@@ -1409,12 +1427,13 @@ const triageTools = {
               throw new Error(
                 `the search returned an issue outside ${repo}; search with plain terms`,
               );
-            return {
+            const item = {
               number: i.number,
               title: i.title,
               labels: (i.labels || []).map((l) => l.name),
               author: i.user && i.user.login,
             };
+            return unvouched(i) ? { ...item, title: null, withheld: UNVOUCHED } : item;
           }),
         ),
       );
@@ -1435,6 +1454,7 @@ const triageTools = {
       const i = getJson(`repos/${repo}/issues/${number}`);
       if (!ofThisRepo(i)) return fail(MOVED(`#${number}`));
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
+      if (unvouched(i)) return fail(UNVOUCHED);
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.
       const reason = withheldReason(i.user);

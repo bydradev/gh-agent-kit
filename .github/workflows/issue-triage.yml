@@ -56,11 +56,25 @@ jobs:
       cancel-in-progress: true
     # The triage job's filters, so an event it skips costs no runner
     # either. Skip bot-authored issues (a CI notifier's, for example), and on a
-    # "labeled" event run only when the label applied is needs-triage.
+    # "labeled" event run only when the label applied is needs-triage. The one
+    # exception is an issue github-actions[bot] opened (the reviewer's
+    # file_issue, for one), on the event of needs-triage being added to it:
+    # the operator adding it vouches for the issue's text as it stands, and
+    # the gate step below checks that whoever added it has write access. An
+    # edit to such an issue passes too, only so that its run cancels a
+    # triage in flight (the triage job's concurrency) before the model reads
+    # text nobody vouched for; the gate then skips it, so an edit after the
+    # label needs needs-triage again. The Moderate role can edit an issue's
+    # title and body without write access (docs.github.com, "Repository
+    # roles for an organization", read 2026-11-25). Every other event on
+    # such an issue is skipped.
     if: >-
       github.event_name != 'issues' ||
       (github.event.issue.state == 'open' &&
-        github.event.issue.user.type != 'Bot' &&
+        (github.event.issue.user.type != 'Bot' ||
+          (github.event.issue.user.login == 'github-actions[bot]' &&
+            (github.event.action == 'edited' ||
+              (github.event.action == 'labeled' && github.event.label.name == 'needs-triage')))) &&
         (github.event.action != 'labeled' || github.event.label.name == 'needs-triage') &&
         (github.event.action != 'opened' || !contains(github.event.issue.labels.*.name, 'needs-triage')))
     # One CPU is enough for reading settings, at a third of the standard
@@ -395,6 +409,26 @@ jobs:
       # skip, and every later step's if: checks it, so the job ends green
       # with the rest skipped. A dispatch by hand of such an issue still
       # fails, since someone asked for that run.
+      #
+      # An issue github-actions[bot] opened (the reviewer's file_issue, for
+      # one) has an author with no access, so the operator vouches for its
+      # text instead, by adding needs-triage: whoever added it is checked in
+      # the author's place. On an issue event the run must be that label
+      # being added; an edit, which the settings job lets through only so
+      # that its run cancels one in flight, is skipped. On either event the
+      # issue must carry needs-triage, and the latest needs-triage label
+      # event must be later than the issue's last body edit, retitle and
+      # reopen, so the vouching covers the text as the gate finds it (an
+      # edit after the gate cancels the run once the edit's run starts, and
+      # the server refuses the changed text until then, below); it is the
+      # last such event in the timeline's order (a relabel can share a
+      # second), and its actor is checked. Without that, or with a labeller
+      # who lacks write access, the run ends green with a notice that says
+      # how to vouch, not as a failure. A passed vouch hands the server the hash of
+      # the title and body it covered (VOUCHED_TEXT_SHA256), and the server
+      # shows the model the issue's text only while it still has that hash,
+      # so an edit after the gate is never read. Other bot authors are
+      # refused as before.
       - name: Refuse an issue whose author, or an issue event whose actor, lacks write access
         id: gate
         if: env.TRIAGE_ISSUE != ''
@@ -403,10 +437,58 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
         run: |
-          author=$(gh api --method GET "repos/$REPO/issues/$TRIAGE_ISSUE" --jq .user.login)
+          # The author's login and type, then the labels, one a line (a
+          # label name may contain a comma or a space).
+          info=$(gh api --method GET "repos/$REPO/issues/$TRIAGE_ISSUE" --jq '.user.login, .user.type, .labels[].name')
+          author=$(sed -n 1p <<<"$info")
+          type=$(sed -n 2p <<<"$info")
           logins="$author"
           if [ "$EVENT" = "issues" ]; then logins="$author $ACTOR"; fi
+          vouched=false
+          if [ "$author" = "github-actions[bot]" ] && [ "$type" = Bot ]; then
+            if [ "$EVENT" = "issues" ] && { [ "$ACTION" != labeled ] || [ "$LABEL" != needs-triage ]; }; then
+              echo "::notice::#$TRIAGE_ISSUE was opened by $author; only needs-triage added by someone with write access starts its triage; not triaged"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # Plain assignments: a failed call fails the run. The title,
+            # body and last edit first, in one read: the hash the server
+            # holds the model's reads to is of this text, and the timeline,
+            # read after it, shows any retitle, reopen or label removal up
+            # to then.
+            labels=$(tail -n +3 <<<"$info")
+            text=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
+              -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { title body lastEditedAt } } }')
+            edited=$(jq -r '.data.repository.issue.lastEditedAt // ""' <<<"$text")
+            sha=$(jq -j '.data.repository.issue | .title + "\n" + (.body // "")' <<<"$text" | sha256sum | cut -d ' ' -f 1)
+            # The hash fingerprints the text; keep it out of the logs.
+            echo "::add-mask::$sha"
+            # Every page of the timeline (30 events a page).
+            events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
+              --jq '.[] | select(.event == "labeled" or .event == "unlabeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
+            # The timeline lists events oldest first; its order, not the
+            # timestamp, settles two in the same second. The last
+            # needs-triage event must add it: a removal withdraws the vouch.
+            vouch=$(awk -F '\t' '($1 == "labeled" || $1 == "unlabeled") && $3 == "needs-triage"' <<<"$events" | tail -n 1)
+            [ "$(cut -f 1 <<<"$vouch")" = labeled ] || vouch=""
+            at=$(cut -f 2 <<<"$vouch")
+            by=$(cut -f 4 <<<"$vouch")
+            later=$(awk -F '\t' '$1 == "renamed" || $1 == "reopened" { print $2 }' <<<"$events" | sort | tail -n 1)
+            [[ -z "$edited" || "$edited" < "$later" ]] || later=$edited
+            if ! grep -qxF needs-triage <<<"$labels" || [ -z "$by" ] || ! [[ "$at" > "$later" ]]; then
+              echo "::notice::#$TRIAGE_ISSUE was opened by $author; add needs-triage to it (after any edit) to vouch for its text and have it triaged; not triaged"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # A label run checks its own sender too: an older run must not
+            # pass on a newer label someone else added.
+            logins="$by"
+            if [ "$EVENT" = "issues" ] && [ "$ACTOR" != "$by" ]; then logins="$ACTOR $by"; fi
+            vouched=true
+          fi
           for login in $logins; do
             if permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission 2>"$RUNNER_TEMP/permission-error"); then
               :
@@ -419,6 +501,11 @@ jobs:
             case "$permission" in
               admin|write) echo "$login: $permission" ;;
               *)
+                if [ "$vouched" = true ]; then
+                  echo "::notice::#$TRIAGE_ISSUE was opened by github-actions[bot] and $login, who added needs-triage, has '$permission' access to $REPO, not write; someone with write access must add it to vouch for its text; not triaged"
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
                 if [ "$EVENT" = "issues" ]; then
                   echo "::notice::$login has '$permission' access to $REPO, not write; not triaged"
                   echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -429,6 +516,9 @@ jobs:
                 ;;
             esac
           done
+          # Every check passed: the server holds the model's reads to the
+          # text the vouch covered.
+          if [ "$vouched" = true ]; then echo "VOUCHED_TEXT_SHA256=$sha" >> "$GITHUB_ENV"; fi
       # No step needs git credentials, so keep the job token out of the
       # checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -617,8 +707,8 @@ jobs:
             (umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_TEMP/private-repo-names")
           fi
           mcp=$(jq -cn --arg check "${PUBLIC_CONTENT_CHECK:-}" --arg names "$RUNNER_TEMP/private-repo-names" --arg tokenfile "$RUNNER_TEMP/gh-token" --arg repo "$REPO" --arg mode "$MCP_MODE" --arg issue "$TRIAGE_ISSUE" --arg event "$TRIAGE_EVENT" \
-            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg queue "$DISPATCH_QUEUE" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" \
-            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, DISPATCH_QUEUE: $queue, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end))}}}')
+            --arg eligible "$ELIGIBLE_ISSUES" --arg log "$DISPATCH_LOG" --arg queue "$DISPATCH_QUEUE" --arg ref "$GITHUB_REF_NAME" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg state "$RUNNER_TEMP/agent-kit-state.json" --arg vouched "${VOUCHED_TEXT_SHA256:-}" \
+            '{mcpServers: {"agent-kit": {command: "node", args: ["/opt/agent-kit/mcp-server.mjs", $mode], env: ({GH_TOKEN_FILE: $tokenfile, GITHUB_REPOSITORY: $repo, TRIAGE_ISSUE: $issue, TRIAGE_EVENT: $event, ELIGIBLE_ISSUES: $eligible, DISPATCH_LOG: $log, DISPATCH_QUEUE: $queue, GITHUB_REF_NAME: $ref, GITHUB_RUN_ID: $run, GITHUB_RUN_ATTEMPT: $attempt, STATE_FILE: $state} + (if $check == "" then {} else {PUBLIC_CONTENT_CHECK: $check, PRIVATE_REPO_NAMES_FILE: $names} end) + (if $vouched == "" then {} else {VOUCHED_TEXT_SHA256: $vouched} end))}}}')
           echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap on Linux, or Claude
       # Code exits at startup (anthropics/claude-code#96664, open 2026-10-21).
@@ -1099,8 +1189,11 @@ jobs:
       # was touched. Every single-issue path posts one comment and leaves
       # the labels in the state the skill names for its event; a run that
       # posted the comment but failed a label move must not pass. The paths
-      # the skill ends without changes are exempt: a closed or bot-authored
-      # issue, and an in-progress issue on any event but edited or reopened
+      # the skill ends without changes are exempt: a closed issue, one
+      # authored by a bot other than github-actions[bot] (gh names it
+      # app/github-actions; the gate lets one of its issues through only
+      # once the operator vouched for it, and the skill then triages it),
+      # and an in-progress issue on any event but edited or reopened
       # (the dispatched stale check may have nothing to say).
       - name: Fail when the run left the issue in the wrong state
         if: env.TRIAGE_ISSUE != '' && steps.gate.outputs.skip != 'true'
@@ -1114,7 +1207,7 @@ jobs:
           # comma or a space.
           issue=$(gh issue view "$TRIAGE_ISSUE" --repo "$REPO" --json state,author,labels)
           state=$(jq -r .state <<<"$issue")
-          bot=$(jq -r .author.is_bot <<<"$issue")
+          bot=$(jq -r 'if .author.is_bot and .author.login != "app/github-actions" then "true" else "false" end' <<<"$issue")
           labels=$(jq -r '.labels[].name' <<<"$issue")
           shown=$(paste -sd ' ' - <<<"$labels")
           has() { grep -qxF -- "$1" <<<"$labels"; }

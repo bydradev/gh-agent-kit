@@ -693,14 +693,25 @@ offers named tools:
 
 ### Issues the reviewer files
 
-An issue the reviewer files is opened by `github-actions[bot]`, and the
-triage workflow leaves bot-authored issues alone (the issue's author needs
-write access before a model reads its text), so it waits under
-`needs-operator` for the operator: triage it by hand, or close it.
-Re-applying `needs-triage` starts no run on it, since its author stays the
-bot; an agent picks up only an issue with the triage bot's plan, so for
-agent work open the finding as an issue of your own, which triage plans,
-and close this one.
+An issue the reviewer files is opened by `github-actions[bot]`. The
+triage workflow needs an issue's author to have write access before a
+model reads its text, and the bot has none, so the issue waits under
+`needs-operator` for the operator. Read it, then add `needs-triage` to have
+it planned, or close it. Adding `needs-triage` vouches for the text as it
+stands: the workflow then checks the access of whoever added the label in
+the author's place, and triage plans the issue like any other, after
+which an agent can take it once you apply `agent:approved`. Nothing else
+triages it: not its opening, a reopen or another label, and the weekly
+sweep leaves bot-authored issues out. A run, a dispatch by hand
+(`gh workflow run issue-triage.yml -f issue=<n>`) included, triages it only
+while it carries a `needs-triage` added, by someone with write access,
+after its last edit, retitle and reopen; otherwise the run ends with a
+notice saying so. An edit, which the Moderate role can make without write
+access, also starts a run, only to cancel a triage in flight; until it
+does, the server shows the model the issue's title and body only while
+they match the text the gate checked, so text nobody vouched for is never
+read. After an edit, add `needs-triage` again (remove it first if it
+is still there). Issues other bots open are still left alone.
 
 Its text is the reviewer's, written after reading the pull request's
 conversation. A comment by an author without write access reaches the
@@ -1101,7 +1112,9 @@ file is fixed by hand. It never updates the files itself: to update, check
 out the release in a clone of the kit (`git checkout vX.Y.Z`), run
 `install.sh` from it and open a pull request with the result, as for the
 first install. The issue is opened with the job token, so it starts no
-other workflow, and triage skips it as bot-authored.
+other workflow, and triage skips it as bot-authored unless you add
+`needs-triage` to it, as for [an issue the reviewer
+files](#issues-the-reviewer-files).
 
 Closing the issue by hand while the release is still ahead only lasts until
 the next run, which opens a new one; unset `KIT_UPDATE_CHECK` instead.
