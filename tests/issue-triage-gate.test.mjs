@@ -211,7 +211,7 @@ test("needs-triage added to a github-actions[bot] issue checks the labeller, not
   assert.equal(reader.status, 0, reader.stdout + reader.stderr);
   assert.match(
     reader.stdout,
-    /::notice::#8 was opened by github-actions\[bot\] and reader, who added needs-triage last, has 'read' access/,
+    /::notice::#8 was opened by github-actions\[bot\] and reader, who added needs-triage, has 'read' access/,
   );
   assert.equal(reader.output, "skip=true\n");
 });
@@ -230,6 +230,35 @@ test("a label run finds the issue edited after the label it came from, and is sk
   assert.match(r.stdout, /add needs-triage to it \(after any edit\) to vouch for its text/);
   assert.equal(r.output, "skip=true\n");
   assert.deepEqual(r.lookups, []);
+});
+
+test("a label run checks its own sender as well as the latest labeller", (t) => {
+  // An older run, by a reader, finds a newer needs-triage by a writer.
+  const r = gate(t, {
+    ...BOT,
+    labels: ["needs-triage"],
+    event: "issues",
+    actor: "reader",
+    timeline: [
+      labeled("needs-triage", "2026-11-03T00:00:00Z", "reader"),
+      { event: "unlabeled", created_at: "2026-11-03T00:00:01Z", label: { name: "needs-triage" } },
+      labeled("needs-triage", "2026-11-03T00:00:02Z", "maintainer"),
+    ],
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /and reader, who added needs-triage, has 'read' access/);
+  assert.equal(r.output, "skip=true\n");
+  assert.deepEqual(r.lookups, ["reader"]);
+  // The writer's own run passes.
+  const w = gate(t, {
+    ...BOT,
+    labels: ["needs-triage"],
+    event: "issues",
+    actor: "maintainer",
+    timeline: [labeled("needs-triage", "2026-11-03T00:00:02Z", "maintainer")],
+  });
+  assert.equal(w.output, "", w.stdout + w.stderr);
+  assert.deepEqual(w.lookups, ["maintainer"]);
 });
 
 test("any other event on a github-actions[bot] issue is skipped with a notice", (t) => {
@@ -308,7 +337,7 @@ test("a dispatch vouched for by a labeller without write access ends green with 
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(
     r.stdout,
-    /::notice::#8 was opened by github-actions\[bot\] and triager, who added needs-triage last, has 'triage' access to acme\/widgets, not write; someone with write access must add it to vouch for its text; not triaged/,
+    /::notice::#8 was opened by github-actions\[bot\] and triager, who added needs-triage, has 'triage' access to acme\/widgets, not write; someone with write access must add it to vouch for its text; not triaged/,
   );
   assert.doesNotMatch(r.stdout, /::error::/);
   assert.equal(r.output, "skip=true\n");

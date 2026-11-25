@@ -470,7 +470,10 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            # A label run checks its own sender too: an older run must not
+            # pass on a newer label someone else added.
             logins="$by"
+            if [ "$EVENT" = "issues" ] && [ "$ACTOR" != "$by" ]; then logins="$ACTOR $by"; fi
             vouched=true
           fi
           for login in $logins; do
@@ -486,7 +489,7 @@ jobs:
               admin|write) echo "$login: $permission" ;;
               *)
                 if [ "$vouched" = true ]; then
-                  echo "::notice::#$TRIAGE_ISSUE was opened by github-actions[bot] and $login, who added needs-triage last, has '$permission' access to $REPO, not write; someone with write access must add it to vouch for its text; not triaged"
+                  echo "::notice::#$TRIAGE_ISSUE was opened by github-actions[bot] and $login, who added needs-triage, has '$permission' access to $REPO, not write; someone with write access must add it to vouch for its text; not triaged"
                   echo "skip=true" >> "$GITHUB_OUTPUT"
                   exit 0
                 fi
