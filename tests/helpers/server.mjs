@@ -4,7 +4,6 @@ import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -62,10 +61,22 @@ export async function startServer(t, { mode, env = {}, rules = [] }) {
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d));
   const pending = new Map();
-  readline.createInterface({ input: child.stdout }).on("line", (line) => {
-    const msg = JSON.parse(line);
-    pending.get(msg.id)?.(msg);
-    pending.delete(msg.id);
+  // Replies end at "\n" only, as an MCP client reads them; readline would
+  // also end a line at U+2028 or U+2029. `lines` keeps each reply as sent.
+  const lines = [];
+  let out = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    out += chunk;
+    let end;
+    while ((end = out.indexOf("\n")) !== -1) {
+      const line = out.slice(0, end);
+      out = out.slice(end + 1);
+      lines.push(line);
+      const msg = JSON.parse(line);
+      pending.get(msg.id)?.(msg);
+      pending.delete(msg.id);
+    }
   });
   const exited = new Promise((resolve) => child.on("exit", resolve));
   t.after(() => child.kill());
@@ -83,7 +94,7 @@ export async function startServer(t, { mode, env = {}, rules = [] }) {
     if (msg.error) return { text: msg.error.message, isError: true, rpcError: true };
     return { text: msg.result.content[0].text, isError: Boolean(msg.result.isError) };
   };
-  return { request, call, log: stub.log, dir, exited, stderr: () => stderr };
+  return { request, call, lines, child, log: stub.log, dir, exited, stderr: () => stderr };
 }
 
 // A scratch git repository; returns a runner for git in it.

@@ -12,7 +12,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 
 const mode = process.argv[2];
 const env = process.env;
@@ -1712,14 +1711,37 @@ if (mode === "review") {
 }
 
 // ---------- JSON-RPC over stdio ----------
+// One message a line. JSON.stringify leaves U+2028 and U+2029 unescaped,
+// and a client that reads with Node's readline ends a line at either, so
+// write them escaped; the JSON means the same.
+function send(msg) {
+  process.stdout.write(
+    JSON.stringify(msg)
+      .replace(/\u2028/g, "\\u2028")
+      .replace(/\u2029/g, "\\u2029") + "\n",
+  );
+}
 function reply(id, result) {
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+  send({ jsonrpc: "2.0", id, result });
 }
 function replyError(id, code, message) {
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n");
+  send({ jsonrpc: "2.0", id, error: { code, message } });
 }
-const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-rl.on("line", (line) => {
+// Requests end at "\n" only. readline would also end a line at U+2028 and
+// U+2029, splitting a request whose text holds one into two invalid lines
+// that are never answered.
+let pendingInput = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  pendingInput += chunk;
+  let end;
+  while ((end = pendingInput.indexOf("\n")) !== -1) {
+    const line = pendingInput.slice(0, end).replace(/\r$/, "");
+    pendingInput = pendingInput.slice(end + 1);
+    handle(line);
+  }
+});
+function handle(line) {
   if (!line.trim()) return;
   let msg;
   try {
@@ -1766,4 +1788,4 @@ rl.on("line", (line) => {
   } else if (id !== undefined) {
     replyError(id, -32601, `unknown method ${method}`);
   }
-});
+}
