@@ -668,7 +668,10 @@ const URL_USERINFO = /[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^\s/?#@:]*:)?$/;
 test("userinfoEnds finds the positions the user-information pattern matches before", () => {
   const alphabet = ["a", "Z", "1", "+", ".", "-", ":", "/", "@", "?", "#", " ", "\t", "_", "é"];
   let seed = 97;
-  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  // BigInt keeps the product exact (a Number rounds it), so the corpus is
+  // the bootstrapper's test's.
+  const random = () =>
+    (seed = Number((BigInt(seed) * 1103515245n + 12345n) % 2n ** 31n)) / 2 ** 31;
   const lines = [
     "https://user:password@github.com/a and https://user@github.com/b",
     "mailto:sam@mailbox.test",
