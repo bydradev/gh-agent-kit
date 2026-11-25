@@ -597,7 +597,7 @@ const ownComments = (project, why) => (c) => {
 // as the workflows' gates) or is a GitHub App (user type Bot), which only
 // the account's owner or a repository admin can install; the triage bot's
 // own plans are by github-actions[bot], an App. An issue github-actions[bot]
-// opened is the exception (see unvouchedReason): its text may be the
+// opened is the exception (see vouchedText): its text may be the
 // reviewer's (file_issue), written after reading a pull request's
 // conversation, so read_issue, search and the review's issue tool show it
 // only once the operator vouched for it. Every item is of this
@@ -675,29 +675,28 @@ const titleScreened =
     const reason = reasonOf(i);
     return reason ? { ...item, title: null, withheld: `${reason}; the title is not shown` } : item;
   };
-// An issue's last body edit (lastEditedAt, GraphQL; "" when never edited)
-// and its timeline, every page. Errors propagate.
-function lastEditedAt(number) {
+// An issue's fields read in one GraphQL query, its last body edit
+// (lastEditedAt, "" when never edited), and its timeline, every page.
+// Errors propagate.
+function issueFields(number, fields) {
   const [owner, name] = repo.split("/");
-  const q =
-    "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issue(number: $n) { lastEditedAt } } }";
-  return (
-    JSON.parse(
-      gh([
-        "api",
-        "graphql",
-        "-f",
-        `query=${q}`,
-        "-f",
-        `o=${owner}`,
-        "-f",
-        `r=${name}`,
-        "-F",
-        `n=${number}`,
-      ]),
-    ).data.repository.issue.lastEditedAt || ""
-  );
+  const q = `query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issue(number: $n) { ${fields} } } }`;
+  return JSON.parse(
+    gh([
+      "api",
+      "graphql",
+      "-f",
+      `query=${q}`,
+      "-f",
+      `o=${owner}`,
+      "-f",
+      `r=${name}`,
+      "-F",
+      `n=${number}`,
+    ]),
+  ).data.repository.issue;
 }
+const lastEditedAt = (number) => issueFields(number, "lastEditedAt").lastEditedAt || "";
 const timeline = (number) =>
   JSON.parse(
     gh(["api", "--paginate", "--slurp", `repos/${repo}/issues/${number}/timeline?per_page=100`]),
@@ -711,21 +710,34 @@ const isKitBotIssue = (i) => Boolean(i.user && i.user.type === "Bot" && i.user.l
 // after the title and body last changed (the latest of lastEditedAt and
 // the latest renamed and reopened events, strictly later, as the triage
 // gate reads it), and not removed since by anyone but the triage bot, which
-// removes it when it answers. The text is read before this check, so an
-// edit in between shows as a change after the vouch. A failed lookup
-// withholds.
+// removes it when it answers (a plan or questions) and leaves the text it
+// was vouched for unchanged. The text shown is the one read, with its
+// lastEditedAt, in a query before the timeline and found unchanged in a
+// second query after it, so the vouch read covers that text and no other.
+// A failed lookup withholds.
 const UNVOUCHED_BOT = `${KIT_BOT} opened it and nobody with write access has vouched for its current text by adding needs-triage (the operator adds it to vouch)`;
-function unvouchedReason(number) {
+const SNAPSHOT = "title body lastEditedAt";
+function vouchedText(number) {
   try {
+    const before = issueFields(number, SNAPSHOT);
     const events = timeline(number);
+    const after = issueFields(number, SNAPSHOT);
+    if (
+      before.title !== after.title ||
+      before.body !== after.body ||
+      before.lastEditedAt !== after.lastEditedAt
+    )
+      return { reason: `${KIT_BOT} opened it and its text changed while it was being read` };
     const latest = (type) =>
       events
         .filter((e) => e.event === type)
         .map((e) => e.created_at)
         .pop() || "";
     const changedAt =
-      [lastEditedAt(number), latest("renamed"), latest("reopened")].filter(Boolean).sort().pop() ||
-      "";
+      [before.lastEditedAt || "", latest("renamed"), latest("reopened")]
+        .filter(Boolean)
+        .sort()
+        .pop() || "";
     const marks = events.filter(
       (e) =>
         (e.event === "labeled" || e.event === "unlabeled") &&
@@ -740,17 +752,24 @@ function unvouchedReason(number) {
         break;
       }
     }
-    if (at === -1 || !(marks[at].created_at > changedAt)) return UNVOUCHED_BOT;
+    if (at === -1 || !(marks[at].created_at > changedAt)) return { reason: UNVOUCHED_BOT };
     const withdrawn = marks
       .slice(at + 1)
       .some((e) => e.event === "unlabeled" && !(e.actor && e.actor.login === KIT_BOT));
-    return withdrawn ? UNVOUCHED_BOT : null;
+    if (withdrawn) return { reason: UNVOUCHED_BOT };
+    return { reason: null, title: before.title, body: before.body };
   } catch {
-    return `${KIT_BOT} opened it and whether the operator vouched for its text could not be checked`;
+    return {
+      reason: `${KIT_BOT} opened it and whether the operator vouched for its text could not be checked`,
+    };
   }
 }
-// The reason an issue's title and body are withheld, or null.
-const issueReason = (i) => (isKitBotIssue(i) ? unvouchedReason(i.number) : withheldReason(i.user));
+// An issue's title and body as a tool may show them, or the reason they
+// are withheld.
+const issueText = (i) =>
+  isKitBotIssue(i)
+    ? vouchedText(i.number)
+    : { reason: withheldReason(i.user), title: i.title, body: i.body };
 const reviewTools = {
   pr: {
     description:
@@ -849,11 +868,11 @@ const reviewTools = {
       // An issue's author can edit its title and body at any time, so an
       // issue opened without write access is screened as a comment is, and
       // one github-actions[bot] opened until the operator vouched for it.
-      const reason = issueReason(i);
+      const { reason, title, body } = issueText(i);
       const item = {
         number: i.number,
-        title: i.title,
-        body: i.body,
+        title,
+        body,
         state: i.state,
         labels: (i.labels || []).map((l) => l.name),
         author: i.user && i.user.login,
@@ -1497,9 +1516,21 @@ const triageTools = {
                 labels: (i.labels || []).map((l) => l.name),
                 author: i.user && i.user.login,
               };
-              return unvouched(i) ? { ...item, title: null, withheld: UNVOUCHED } : item;
+              // An issue github-actions[bot] opened shows the title its
+              // vouch covers, read with it, not the search's copy.
+              let title = i.title;
+              let body = i.body;
+              if (isKitBotIssue(i)) {
+                const v = vouchedText(i.number);
+                if (v.reason)
+                  return { ...item, title: null, withheld: `${v.reason}; the title is not shown` };
+                ({ title, body } = v);
+              }
+              return unvouched({ number: i.number, title, body })
+                ? { ...item, title: null, withheld: UNVOUCHED }
+                : { ...item, title };
             },
-            (i) => (isKitBotIssue(i) ? unvouchedReason(i.number) : listedReason(i)),
+            (i) => (isKitBotIssue(i) ? null : listedReason(i)),
           ),
         ),
       );
@@ -1520,14 +1551,14 @@ const triageTools = {
       const i = getJson(`repos/${repo}/issues/${number}`);
       if (!ofThisRepo(i)) return fail(MOVED(`#${number}`));
       if (isPr(i)) return fail(`#${number} is a pull request, not an issue`);
-      if (unvouched(i)) return fail(UNVOUCHED);
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.
-      const reason = issueReason(i);
+      const { reason, title, body } = issueText(i);
+      if (unvouched({ number: i.number, title, body })) return fail(UNVOUCHED);
       const item = {
         number: i.number,
-        title: i.title,
-        body: i.body,
+        title,
+        body,
         state: i.state,
         labels: (i.labels || []).map((l) => l.name),
         author: i.user && i.user.login,

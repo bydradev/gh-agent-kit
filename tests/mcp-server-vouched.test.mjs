@@ -24,6 +24,10 @@ const issue = (number, title, body) => ({
   author_association: "NONE",
 });
 
+const gql = (title, body) => ({
+  data: { repository: { issue: { title, body, lastEditedAt: null } } },
+});
+
 function server(t, vouched, { title = "a finding", body = "### Outcome\n\nFix it." } = {}) {
   const env = { TRIAGE_ISSUE: "8", TRIAGE_EVENT: "labeled" };
   if (vouched !== undefined) env.VOUCHED_TEXT_SHA256 = vouched;
@@ -32,10 +36,8 @@ function server(t, vouched, { title = "a finding", body = "### Outcome\n\nFix it
     env,
     rules: [
       // Both issues were vouched for (the read paths' own check, #100).
-      {
-        match: "^api graphql ",
-        stdout: { data: { repository: { issue: { lastEditedAt: null } } } },
-      },
+      { match: "^api graphql .* -F n=8$", stdout: gql(title, body) },
+      { match: "^api graphql .* -F n=9$", stdout: gql("another", "other text") },
       {
         match: "^api --paginate --slurp repos/acme/widgets/issues/[89]/timeline",
         stdout: [

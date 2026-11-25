@@ -11,16 +11,17 @@ const T2 = "2026-11-21T10:00:00Z";
 const T3 = "2026-11-22T10:00:00Z";
 const person = (login) => ({ login, type: "User" });
 const BOT = { login: "github-actions[bot]", type: "Bot" };
-const mark = (event, actor, at) => ({
+const OTHER_APP = { login: "renovate[bot]", type: "Bot" };
+const mark = (event, actor, at, name = "needs-triage") => ({
   event,
-  label: { name: "needs-triage" },
+  label: { name },
   actor,
   created_at: at,
 });
-const issue = (number, user) => ({
+const issue = (number, user, title = `title of ${number}`, body = `body of ${number}`) => ({
   number,
-  title: `title of ${number}`,
-  body: `body of ${number}`,
+  title,
+  body,
   state: "open",
   labels: [{ name: "needs-operator" }],
   repository_url: "https://api.github.com/repos/acme/widgets",
@@ -30,17 +31,22 @@ const issue = (number, user) => ({
 });
 
 // #30 is github-actions[bot]'s, with the given timeline and last edit;
-// #31 is another App's.
-function rules({ events = [], edited = null, timelineFails = false } = {}) {
+// #31 is another App's. GraphQL answers #30's text with the titles in
+// snapshots in turn (the vouch check reads the text before and after the
+// timeline), while REST and search hold a stale copy, so a tool that shows
+// theirs fails the assertions.
+function rules({ events = [], edited = null, timelineFails = false, snapshots = ["title of 30"] }) {
   return [
-    { match: "^api --method GET repos/acme/widgets/issues/30$", stdout: issue(30, BOT) },
     {
-      match: "^api --method GET repos/acme/widgets/issues/31$",
-      stdout: issue(31, { login: "renovate[bot]", type: "Bot" }),
+      match: "^api --method GET repos/acme/widgets/issues/30$",
+      stdout: issue(30, BOT, "stale title", "stale body"),
     },
+    { match: "^api --method GET repos/acme/widgets/issues/31$", stdout: issue(31, OTHER_APP) },
     {
       match: "^api graphql .* -F n=30$",
-      stdout: { data: { repository: { issue: { lastEditedAt: edited } } } },
+      sequence: snapshots.map((title) => ({
+        data: { repository: { issue: { title, body: "body of 30", lastEditedAt: edited } } },
+      })),
     },
     timelineFails
       ? {
@@ -65,13 +71,15 @@ function rules({ events = [], edited = null, timelineFails = false } = {}) {
       stdout: {
         incomplete_results: false,
         total_count: 2,
-        items: [issue(30, BOT), issue(31, { login: "renovate[bot]", type: "Bot" })],
+        items: [issue(30, BOT, "stale title", "stale body"), issue(31, OTHER_APP)],
       },
     },
   ];
 }
 
-// What each of the three tools shows of #30 and #31: the title, or null.
+// What triage's read_issue and search and the review's issue tool show of
+// #30 and #31: titles (all three), bodies (the two direct reads) and
+// withheld reasons.
 async function shown(t, setup) {
   const triage = await startServer(t, {
     mode: "triage",
@@ -97,35 +105,60 @@ async function shown(t, setup) {
       await read(review, "issue", number),
     ];
     for (const i of items) {
+      assert.doesNotMatch(JSON.stringify(i), /stale/);
       if (i.title === null) {
         assert.equal(i.body ?? null, null);
         assert.ok(i.withheld, JSON.stringify(i));
       }
-      assert.doesNotMatch(JSON.stringify(i.withheld === undefined ? {} : i), /title of|body of/);
     }
-    out[number] = items.map((i) => i.title);
-    out[`${number}withheld`] = items.map((i) => i.withheld);
+    out[number] = {
+      titles: items.map((i) => i.title),
+      bodies: [items[0].body, items[2].body],
+      withheld: items.map((i) => i.withheld),
+    };
   }
   return out;
 }
 
+const SHOWN = { titles: Array(3).fill("title of 30"), bodies: ["body of 30", "body of 30"] };
+const WITHHELD = { titles: [null, null, null], bodies: [null, null] };
+const NOT_VOUCHED =
+  /^github-actions\[bot\] opened it and nobody with write access has vouched for its current text by adding needs-triage .*; the title/;
+
 const CASES = [
-  ["never vouched for", {}, false],
+  ["never vouched for", {}, NOT_VOUCHED],
+  ["vouched for by the operator", { events: [mark("labeled", person("dra"), T2)], edited: T1 }],
   [
-    "vouched for by the operator",
-    { events: [mark("labeled", person("dra"), T2)], edited: T1 },
-    true,
+    "vouched for, then planned by triage, which removes needs-triage",
+    {
+      events: [
+        mark("labeled", person("dra"), T2),
+        mark("unlabeled", BOT, T3),
+        mark("labeled", BOT, T3, "triaged"),
+      ],
+      edited: T1,
+    },
   ],
   [
-    "vouched for, then answered by triage, which removes needs-triage",
-    { events: [mark("labeled", person("dra"), T2), mark("unlabeled", BOT, T3)], edited: T1 },
-    true,
+    "vouched for, then asked about by triage (needs-operator, the text unchanged)",
+    {
+      events: [
+        mark("labeled", person("dra"), T2),
+        mark("unlabeled", BOT, T3),
+        mark("labeled", BOT, T3, "needs-operator"),
+      ],
+      edited: T1,
+    },
   ],
-  ["edited after the vouch", { events: [mark("labeled", person("dra"), T1)], edited: T2 }, false],
+  [
+    "edited after the vouch",
+    { events: [mark("labeled", person("dra"), T1)], edited: T2 },
+    NOT_VOUCHED,
+  ],
   [
     "edited in the vouch's second",
     { events: [mark("labeled", person("dra"), T1)], edited: T1 },
-    false,
+    NOT_VOUCHED,
   ],
   [
     "retitled after the vouch",
@@ -135,7 +168,7 @@ const CASES = [
         { event: "renamed", actor: person("dra"), created_at: T2 },
       ],
     },
-    false,
+    NOT_VOUCHED,
   ],
   [
     "reopened after the vouch",
@@ -145,18 +178,18 @@ const CASES = [
         { event: "reopened", actor: person("dra"), created_at: T2 },
       ],
     },
-    false,
+    NOT_VOUCHED,
   ],
   [
     "labelled by someone without write access",
     { events: [mark("labeled", person("reader"), T2)] },
-    false,
+    NOT_VOUCHED,
   ],
-  ["labelled by a bot", { events: [mark("labeled", BOT, T2)] }, false],
+  ["labelled by a bot", { events: [mark("labeled", BOT, T2)] }, NOT_VOUCHED],
   [
     "vouched for, then withdrawn by a person",
     { events: [mark("labeled", person("dra"), T2), mark("unlabeled", person("dra"), T3)] },
-    false,
+    NOT_VOUCHED,
   ],
   [
     "withdrawn, then vouched for again",
@@ -167,28 +200,36 @@ const CASES = [
         mark("labeled", person("dra"), T3),
       ],
     },
-    true,
   ],
-  ["whose timeline cannot be read", { timelineFails: true }, false],
+  [
+    "whose timeline cannot be read",
+    { timelineFails: true },
+    /^github-actions\[bot\] opened it and whether the operator vouched for its text could not be checked; the title/,
+  ],
+  [
+    // A read can catch a revision nobody vouched for just before the
+    // operator corrects the text and vouches for the new one: the text
+    // shown is the one the vouch read covers, so a change between the two
+    // reads around the timeline withholds it.
+    "whose text changes while the vouch is read",
+    {
+      events: [mark("labeled", person("dra"), T2)],
+      edited: T1,
+      snapshots: Array(6).fill(["title of 30, unvouched", "title of 30"]).flat(),
+    },
+    /^github-actions\[bot\] opened it and its text changed while it was being read; the title/,
+  ],
 ];
 
-for (const [name, setup, vouched] of CASES) {
-  test(`a github-actions[bot] issue ${name} is ${vouched ? "shown" : "withheld"} by read_issue, search and issue`, async (t) => {
+for (const [name, setup, reason] of CASES) {
+  test(`a github-actions[bot] issue ${name} is ${reason ? "withheld" : "shown"} by read_issue, search and issue`, async (t) => {
     const got = await shown(t, setup);
-    assert.deepEqual(
-      got[30],
-      vouched ? ["title of 30", "title of 30", "title of 30"] : [null, null, null],
-    );
-    if (!vouched) {
-      for (const w of got["30withheld"])
-        assert.match(
-          w,
-          setup.timelineFails
-            ? /^github-actions\[bot\] opened it and whether the operator vouched for its text could not be checked; the title/
-            : /^github-actions\[bot\] opened it and nobody with write access has vouched for its current text by adding needs-triage .*; the title/,
-        );
-    }
+    assert.deepEqual({ titles: got[30].titles, bodies: got[30].bodies }, reason ? WITHHELD : SHOWN);
+    for (const w of got[30].withheld)
+      if (reason) assert.match(w, reason);
+      else assert.equal(w, undefined);
     // Another App's issue keeps the rule for an App, whatever #30's state.
-    assert.deepEqual(got[31], ["title of 31", "title of 31", "title of 31"]);
+    assert.deepEqual(got[31].titles, Array(3).fill("title of 31"));
+    assert.deepEqual(got[31].bodies, ["body of 31", "body of 31"]);
   });
 }

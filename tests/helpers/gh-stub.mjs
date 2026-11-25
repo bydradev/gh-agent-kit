@@ -3,6 +3,8 @@
 // file of rules, each { match, stdout?, json?, stderr?, status? }: the first
 // rule whose match (a regular expression) finds the call's arguments, joined
 // by spaces, answers it; stdout that is not a string is printed as JSON.
+// A rule with sequence (a list of stdout values) answers its nth call with
+// the nth, and every later call with the last.
 // json is a response body passed through the call's own --jq filter with jq,
 // as gh does, so a test exercises the filter itself. Every call is appended
 // to GH_STUB_LOG as one JSON line { args, stdin }, so a test can check what
@@ -15,10 +17,17 @@ const stdin = process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8");
 fs.appendFileSync(process.env.GH_STUB_LOG, JSON.stringify({ args, stdin }) + "\n");
 const rules = JSON.parse(fs.readFileSync(process.env.GH_STUB_RULES, "utf8"));
 const joined = args.join(" ");
-const rule = rules.find((r) => new RegExp(r.match).test(joined));
+const at = rules.findIndex((r) => new RegExp(r.match).test(joined));
+const rule = rules[at];
 if (!rule) {
   process.stderr.write(`gh stub: no rule for: ${joined}\n`);
   process.exit(9);
+}
+if (rule.sequence !== undefined) {
+  const counter = `${process.env.GH_STUB_RULES}.${at}.calls`;
+  const calls = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
+  fs.writeFileSync(counter, String(calls + 1));
+  rule.stdout = rule.sequence[Math.min(calls, rule.sequence.length - 1)];
 }
 if (rule.stdout !== undefined)
   process.stdout.write(typeof rule.stdout === "string" ? rule.stdout : JSON.stringify(rule.stdout));
