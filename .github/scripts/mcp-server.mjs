@@ -229,6 +229,7 @@ const CONTENT_KINDS = new Set([
   "a bydradev or bydraio repository outside the public list",
   "a bydradev repository outside the public list",
   "an email address other than a noreply one",
+  "a Signed-off-by line other than the public footer",
 ]);
 const CONTENT_FINDING = /^::error title=Public repository content::.*, line ([0-9]+): (.+)$/;
 const CONTENT_SHOWN = 10;

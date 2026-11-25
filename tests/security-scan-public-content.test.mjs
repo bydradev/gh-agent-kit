@@ -161,6 +161,18 @@ test("a refused finding is withheld from the comments, the summary, the log and 
   assert.doesNotMatch(body, /notes\.txt|skunkworks|api\.js:12|api\.js:30/);
 });
 
+test("a finding withheld for a sign-off line names that kind", (t) => {
+  const s = setup(t, { [MJS]: CHECK });
+  const signoff = ["Signed-off", "-by: Sam <123+sam@users.noreply.github.com>"].join("");
+  s.write("scan-results.json", results([finding({ description: `Reads this.\n${signoff}` })]));
+  const hold = s.hold();
+  assert.equal(hold.status, 0, hold.stdout + hold.stderr);
+  assert.match(
+    s.text("scan-withheld.md"),
+    /found in their text a Signed-off-by line other than the public footer\./,
+  );
+});
+
 test("a check that cannot run withholds every finding, and the notice says so", (t) => {
   const s = setup(t, { [MJS]: "process.exit(2);\n" });
   s.write("scan-results.json", results([finding(), finding({ line: 20 })]));
