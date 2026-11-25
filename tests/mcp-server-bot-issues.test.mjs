@@ -35,7 +35,14 @@ const issue = (number, user, title = `title of ${number}`, body = `body of ${num
 // snapshots in turn (the vouch check reads the text before and after the
 // timeline), while REST and search hold a stale copy, so a tool that shows
 // theirs fails the assertions.
-function rules({ events = [], edited = null, timelineFails = false, snapshots = ["title of 30"] }) {
+function rules({
+  events = [],
+  edited = null,
+  timelineFails = false,
+  snapshots = ["title of 30"],
+  labels = ["needs-triage"],
+  comments = [],
+}) {
   return [
     {
       match: "^api --method GET repos/acme/widgets/issues/30$",
@@ -45,7 +52,16 @@ function rules({ events = [], edited = null, timelineFails = false, snapshots = 
     {
       match: "^api graphql .* -F n=30$",
       sequence: snapshots.map((title) => ({
-        data: { repository: { issue: { title, body: "body of 30", lastEditedAt: edited } } },
+        data: {
+          repository: {
+            issue: {
+              title,
+              body: "body of 30",
+              lastEditedAt: edited,
+              labels: { nodes: labels.map((name) => ({ name })) },
+            },
+          },
+        },
       })),
     },
     timelineFails
@@ -58,6 +74,10 @@ function rules({ events = [], edited = null, timelineFails = false, snapshots = 
           match: "^api --paginate --slurp repos/acme/widgets/issues/30/timeline",
           stdout: [events],
         },
+    {
+      match: "^api --paginate --slurp repos/acme/widgets/issues/30/comments",
+      stdout: [comments],
+    },
     {
       match: "^api --method GET repos/acme/widgets/collaborators/dra/permission$",
       stdout: { permission: "admin" },
@@ -120,6 +140,9 @@ async function shown(t, setup) {
   return out;
 }
 
+const ANSWERED = [mark("labeled", person("dra"), T2), mark("unlabeled", BOT, T3)];
+const answer = (body, at) => ({ user: BOT, body, created_at: at });
+
 const SHOWN = { titles: Array(3).fill("title of 30"), bodies: ["body of 30", "body of 30"] };
 const WITHHELD = { titles: [null, null, null], bodies: [null, null] };
 const NOT_VOUCHED =
@@ -131,24 +154,46 @@ const CASES = [
   [
     "vouched for, then planned by triage, which removes needs-triage",
     {
-      events: [
-        mark("labeled", person("dra"), T2),
-        mark("unlabeled", BOT, T3),
-        mark("labeled", BOT, T3, "triaged"),
-      ],
+      events: ANSWERED,
       edited: T1,
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\n**Summary:** fix it.", T3)],
     },
   ],
   [
-    "vouched for, then asked about by triage (needs-operator, the text unchanged)",
+    "vouched for, then asked about by triage",
     {
-      events: [
-        mark("labeled", person("dra"), T2),
-        mark("unlabeled", BOT, T3),
-        mark("labeled", BOT, T3, "needs-operator"),
-      ],
+      events: ANSWERED,
       edited: T1,
+      labels: ["needs-operator"],
+      comments: [answer("## Triage: questions\n\n1. Which?", T3)],
     },
+    NOT_VOUCHED,
+  ],
+  [
+    "planned, then asked about by a later triage",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\nplan", T3), answer("## Triage: questions\n\nWhich?", T3)],
+    },
+    NOT_VOUCHED,
+  ],
+  [
+    "whose needs-triage the bot removed without an answer",
+    { events: ANSWERED, edited: T1, labels: ["triaged"] },
+    NOT_VOUCHED,
+  ],
+  [
+    "planned by a look-alike comment from someone else",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [{ ...answer("## Triage\n\nplan", T3), user: person("dra") }],
+    },
+    NOT_VOUCHED,
   ],
   [
     "edited after the vouch",
@@ -233,3 +278,18 @@ for (const [name, setup, reason] of CASES) {
     assert.deepEqual(got[31].bodies, ["body of 31", "body of 31"]);
   });
 }
+
+// On a triage run for the issue itself, with the gate's hash, a failed
+// lookup gives its own reason, not a claim that the text changed.
+test("read_issue of the run's own issue gives the lookup's reason when it fails", async (t) => {
+  const s = await startServer(t, {
+    mode: "triage",
+    env: { TRIAGE_ISSUE: "30", TRIAGE_EVENT: "labeled", VOUCHED_TEXT_SHA256: "0".repeat(64) },
+    rules: rules({ timelineFails: true }),
+  });
+  const r = await s.call("read_issue", { number: 30 });
+  assert.equal(r.isError, false, r.text);
+  const got = JSON.parse(r.text);
+  assert.equal(got.title, null);
+  assert.match(got.withheld, /whether the operator vouched for its text could not be checked/);
+});

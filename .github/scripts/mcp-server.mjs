@@ -709,14 +709,18 @@ const isKitBotIssue = (i) => Boolean(i.user && i.user.type === "Bot" && i.user.l
 // signal #80 established: needs-triage added by a person with write access
 // after the title and body last changed (the latest of lastEditedAt and
 // the latest renamed and reopened events, strictly later, as the triage
-// gate reads it), and not removed since by anyone but the triage bot, which
-// removes it when it answers (a plan or questions) and leaves the text it
-// was vouched for unchanged. The text shown is the one read, with its
+// gate reads it), and still on the issue; or, once the triage bot has
+// removed it by answering, the state that follows from the vouch: the
+// issue carries triaged and the bot's latest triage comment is a plan
+// posted after that change (a questions answer, or none, withholds). A
+// removal by anyone else withdraws the vouch. The text shown is the one read, with its
 // lastEditedAt, in a query before the timeline and found unchanged in a
 // second query after it, so the vouch read covers that text and no other.
 // A failed lookup withholds.
 const UNVOUCHED_BOT = `${KIT_BOT} opened it and nobody with write access has vouched for its current text by adding needs-triage (the operator adds it to vouch)`;
-const SNAPSHOT = "title body lastEditedAt";
+const SNAPSHOT = "title body lastEditedAt labels(first: 100) { nodes { name } }";
+// The bot's triage comments, by their first line: a plan, or questions.
+const TRIAGE_HEADING = /^## Triage(?: \(revised\)|(: questions))?[ \t]*(?:\r?\n|$)/;
 function vouchedText(number) {
   try {
     const before = issueFields(number, SNAPSHOT);
@@ -753,10 +757,31 @@ function vouchedText(number) {
       }
     }
     if (at === -1 || !(marks[at].created_at > changedAt)) return { reason: UNVOUCHED_BOT };
-    const withdrawn = marks
-      .slice(at + 1)
-      .some((e) => e.event === "unlabeled" && !(e.actor && e.actor.login === KIT_BOT));
-    if (withdrawn) return { reason: UNVOUCHED_BOT };
+    const later = marks.slice(at + 1).filter((e) => e.event === "unlabeled");
+    if (later.some((e) => !(e.actor && e.actor.login === KIT_BOT)))
+      return { reason: UNVOUCHED_BOT };
+    if (later.length) {
+      const labels = ((before.labels && before.labels.nodes) || []).map((l) => l.name);
+      const answers = JSON.parse(
+        gh([
+          "api",
+          "--paginate",
+          "--slurp",
+          `repos/${repo}/issues/${number}/comments?per_page=100`,
+        ]),
+      )
+        .flat()
+        .filter(
+          (c) =>
+            c.user &&
+            c.user.login === KIT_BOT &&
+            typeof c.body === "string" &&
+            TRIAGE_HEADING.test(c.body),
+        );
+      const answer = answers[answers.length - 1];
+      const plan = answer && !TRIAGE_HEADING.exec(answer.body)[1] && answer.created_at > changedAt;
+      if (!labels.includes("triaged") || !plan) return { reason: UNVOUCHED_BOT };
+    }
     return { reason: null, title: before.title, body: before.body };
   } catch {
     return {
@@ -1554,7 +1579,7 @@ const triageTools = {
       // Anyone who can read the repository can open an issue a search
       // turns up, so it is screened as review mode's issue tool screens one.
       const { reason, title, body } = issueText(i);
-      if (unvouched({ number: i.number, title, body })) return fail(UNVOUCHED);
+      if (!reason && unvouched({ number: i.number, title, body })) return fail(UNVOUCHED);
       const item = {
         number: i.number,
         title,

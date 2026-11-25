@@ -717,8 +717,9 @@ The same vouch governs the other reads of such an issue: triage's
 `read_issue` and `search` on a run for another issue, and the reviewer's
 `issue` tool, show its title and body only while it has a `needs-triage`
 added by someone with write access after its last edit, retitle and
-reopen, and not removed since by anyone but the triage bot (which removes
-it when it answers). Otherwise they list it with its text withheld and the
+reopen and still on it, or, once the triage bot has answered and removed
+it, while the issue carries `triaged` and the bot's latest triage comment
+is a plan posted after that change. Otherwise they list it with its text withheld and the
 reason, as for an author without write access. So the reviewer can check
 a pull request against such an issue's criteria only once you vouched for
 it.
