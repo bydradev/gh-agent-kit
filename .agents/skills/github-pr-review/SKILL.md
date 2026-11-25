@@ -149,9 +149,10 @@ for a change of base branch, `edited-title` for a change of title alone, or
    per finding ID per pull request and returns the existing one when a
    round filed it before, so for a problem an earlier report filed, pass
    the ID that report filed it under, not a new one; it allows 5 per run.
-   The issue is labelled `needs-operator`: the triage bot never reads
-   an issue `github-actions[bot]` opened, so the operator triages it by
-   hand or closes it. Name each filed issue under *Questions and notes*
+   The issue is labelled `needs-operator`: the triage bot reads an issue
+   `github-actions[bot]` opened only once the operator adds
+   `needs-triage`, which vouches for its text, so the operator does that
+   to have it planned, or closes it. Name each filed issue under *Questions and notes*
    (`R2-03 filed as #57, for the operator`). A finding the pull request introduces or makes worse is never
    filed instead of reported.
 5. **Post the report.** Post the round's report, in the skill's

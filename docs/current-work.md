@@ -8,18 +8,16 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
-### Unmerged hardening branches (2026-11-24)
+### Triage for issues the reviewer files (2026-11-25)
 
-Five branches from 2026-10-29 to 2026-11-02 never had a pull request. Four
-landed on 2026-11-24:
-[#84](https://github.com/bydradev/gh-agent-kit/issues/84) (#87),
-[#85](https://github.com/bydradev/gh-agent-kit/issues/85) (#88),
-[#86](https://github.com/bydradev/gh-agent-kit/issues/86) (#89) and
-[#82](https://github.com/bydradev/gh-agent-kit/issues/82) (#91), and their
-branches are deleted. The fifth, `test/uncovered-workflow-rules`, is
-[#83](https://github.com/bydradev/gh-agent-kit/issues/83): its tests are
-ported to current `main`, and the branch is deleted once that pull
-request merges.
+[#80](https://github.com/bydradev/gh-agent-kit/issues/80): an issue
+`github-actions[bot]` opened (the reviewer's `file_issue`) is triaged once
+the operator adds `needs-triage`, which vouches for its text. Until a
+release with it reaches a target, agent work on such an issue there
+still needs a waiver or a re-file under the operator's account
+(bydradev/gh-repo-bootstrapper#288 met this). The five hardening branches of
+2026-10-29 to 2026-11-02 all landed by 2026-11-25 (#87, #88, #89, #91,
+#95) and are deleted.
 
 ### Target round for v0.5.x (2026-11-17)
 

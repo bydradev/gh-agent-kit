@@ -61,6 +61,13 @@ ways, and the check passes when all of the conditions for its way hold.
   yet), and has no assignee other than the operator. Before the claim in
   step 2 it does not carry `in-progress`; after it, it does.
 
+An issue `github-actions[bot]` opened, such as one the reviewer's
+`file_issue` filed, is approved by label too, with the same checks: the
+operator adds `needs-triage`, which vouches for its text as it stands, the
+triage bot posts its plan, and the operator applies `agent:approved`. Its
+banner says the reviewer wrote it; the plan, not the banner, sets the
+scope.
+
 **Approved by request.** The operator asked an agent for the work
 directly, and that agent filed the issue as `github-issue-file` says, with
 the request recorded in place of `agent:approved`:

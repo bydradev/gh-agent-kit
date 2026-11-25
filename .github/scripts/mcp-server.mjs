@@ -375,10 +375,11 @@ function unforged(t) {
 }
 const plain = (t) => noMentions(unforged(t));
 // The body of a filed issue in the Task form's layout (its headings, as
-// GitHub renders a submitted form), for the operator, who triages it by
-// hand or closes it: the triage bot never reads it, since its author is
-// github-actions[bot] (issue-triage.yml skips bot-authored issues), so it
-// is labelled needs-operator, not needs-triage. Under a fixed line the
+// GitHub renders a submitted form), for the operator, who adds needs-triage
+// to have it planned or closes it: its author is github-actions[bot], and
+// issue-triage.yml triages such an issue only once someone with write
+// access adds needs-triage, vouching for its text, so it is labelled
+// needs-operator, not needs-triage. Under a fixed line the
 // model cannot change: the reviewer wrote the text after reading the pull
 // request's conversation, which people without write access can add to,
 // so it is unverified until the operator checks.
@@ -1066,7 +1067,7 @@ const reviewTools = {
     },
   },
   file_issue: {
-    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator triages it by hand; the triage bot does not read bot-authored issues), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
+    description: `Open one backlog issue, in the Task form's layout and labelled needs-operator (the operator adds needs-triage to have the triage bot plan it, or closes it), for a real finding outside this pull request's scope (pre-existing, in code the pull request does not touch or make worse), instead of reporting it as this pull request's finding. At most ${ISSUE_LIMIT} per run, one per finding ID per pull request (an issue already filed for it, open or closed, is returned instead, so a later round passes the ID the earlier report filed the problem under); refused once the run is stale, like post_report. Name each filed issue in the report. The server puts a zero-width space after each @, so a mention notifies no one.`,
     schema: {
       type: "object",
       properties: {
