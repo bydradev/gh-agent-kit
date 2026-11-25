@@ -56,11 +56,19 @@ jobs:
       cancel-in-progress: true
     # The triage job's filters, so an event it skips costs no runner
     # either. Skip bot-authored issues (a CI notifier's, for example), and on a
-    # "labeled" event run only when the label applied is needs-triage.
+    # "labeled" event run only when the label applied is needs-triage. The one
+    # exception is an issue github-actions[bot] opened (the reviewer's
+    # file_issue, for one), on the event of needs-triage being added to it:
+    # the operator adding it vouches for the issue's text as it stands, and
+    # the gate step below checks that whoever added it has write access.
+    # Every other event on such an issue is skipped, so an edit after the
+    # label needs needs-triage again.
     if: >-
       github.event_name != 'issues' ||
       (github.event.issue.state == 'open' &&
-        github.event.issue.user.type != 'Bot' &&
+        (github.event.issue.user.type != 'Bot' ||
+          (github.event.issue.user.login == 'github-actions[bot]' &&
+            github.event.action == 'labeled' && github.event.label.name == 'needs-triage')) &&
         (github.event.action != 'labeled' || github.event.label.name == 'needs-triage') &&
         (github.event.action != 'opened' || !contains(github.event.issue.labels.*.name, 'needs-triage')))
     # One CPU is enough for reading settings, at a third of the standard
@@ -395,6 +403,18 @@ jobs:
       # skip, and every later step's if: checks it, so the job ends green
       # with the rest skipped. A dispatch by hand of such an issue still
       # fails, since someone asked for that run.
+      #
+      # An issue github-actions[bot] opened (the reviewer's file_issue, for
+      # one) has an author with no access, so the operator vouches for its
+      # text instead, by adding needs-triage: whoever added it is checked in
+      # the author's place. On an issue event the run must be that label
+      # being added (the settings job lets no other through) and its actor
+      # is checked. On a dispatch the issue must carry needs-triage, and the
+      # latest needs-triage label event must be later than the issue's last
+      # body edit, retitle and reopen, so the vouching covers the text the
+      # model reads; its actor is checked. Without that, a dispatch ends
+      # green with a notice that says how to vouch, not as a failure. Other
+      # bot authors are refused as before.
       - name: Refuse an issue whose author, or an issue event whose actor, lacks write access
         id: gate
         if: env.TRIAGE_ISSUE != ''
@@ -403,10 +423,46 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
         run: |
-          author=$(gh api --method GET "repos/$REPO/issues/$TRIAGE_ISSUE" --jq .user.login)
+          # The author's login and type, then the labels, one a line (a
+          # label name may contain a comma or a space).
+          info=$(gh api --method GET "repos/$REPO/issues/$TRIAGE_ISSUE" --jq '.user.login, .user.type, .labels[].name')
+          author=$(sed -n 1p <<<"$info")
+          type=$(sed -n 2p <<<"$info")
           logins="$author"
           if [ "$EVENT" = "issues" ]; then logins="$author $ACTOR"; fi
+          if [ "$author" = "github-actions[bot]" ] && [ "$type" = Bot ]; then
+            if [ "$EVENT" = "issues" ]; then
+              if [ "$ACTION" != labeled ] || [ "$LABEL" != needs-triage ]; then
+                echo "::notice::#$TRIAGE_ISSUE was opened by $author; only needs-triage added by someone with write access starts its triage; not triaged"
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              logins="$ACTOR"
+            else
+              # Plain assignments: a failed call fails the run. Every page
+              # of the timeline (30 events a page).
+              labels=$(tail -n +3 <<<"$info")
+              events=$(gh api --paginate "repos/$REPO/issues/$TRIAGE_ISSUE/timeline" \
+                --jq '.[] | select(.event == "labeled" or .event == "renamed" or .event == "reopened") | [.event, .created_at, (.label.name // ""), (.actor.login // "")] | @tsv')
+              edited=$(gh api graphql -F owner="${REPO%%/*}" -F name="${REPO#*/}" -F number="$TRIAGE_ISSUE" \
+                -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt } } }' \
+                --jq '.data.repository.issue.lastEditedAt // ""')
+              vouch=$(awk -F '\t' '$1 == "labeled" && $3 == "needs-triage"' <<<"$events" | sort -t $'\t' -k2,2 | tail -n 1)
+              at=$(cut -f 2 <<<"$vouch")
+              by=$(cut -f 4 <<<"$vouch")
+              later=$(awk -F '\t' '$1 == "renamed" || $1 == "reopened" { print $2 }' <<<"$events" | sort | tail -n 1)
+              [[ -z "$edited" || "$edited" < "$later" ]] || later=$edited
+              if ! grep -qxF needs-triage <<<"$labels" || [ -z "$by" ] || ! [[ "$at" > "$later" ]]; then
+                echo "::notice::#$TRIAGE_ISSUE was opened by $author; add needs-triage to it (after any edit) to vouch for its text and have it triaged; not triaged"
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              logins="$by"
+            fi
+          fi
           for login in $logins; do
             if permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission 2>"$RUNNER_TEMP/permission-error"); then
               :
@@ -1099,8 +1155,11 @@ jobs:
       # was touched. Every single-issue path posts one comment and leaves
       # the labels in the state the skill names for its event; a run that
       # posted the comment but failed a label move must not pass. The paths
-      # the skill ends without changes are exempt: a closed or bot-authored
-      # issue, and an in-progress issue on any event but edited or reopened
+      # the skill ends without changes are exempt: a closed issue, one
+      # authored by a bot other than github-actions[bot] (gh names it
+      # app/github-actions; the gate lets one of its issues through only
+      # once the operator vouched for it, and the skill then triages it),
+      # and an in-progress issue on any event but edited or reopened
       # (the dispatched stale check may have nothing to say).
       - name: Fail when the run left the issue in the wrong state
         if: env.TRIAGE_ISSUE != '' && steps.gate.outputs.skip != 'true'
@@ -1114,7 +1173,7 @@ jobs:
           # comma or a space.
           issue=$(gh issue view "$TRIAGE_ISSUE" --repo "$REPO" --json state,author,labels)
           state=$(jq -r .state <<<"$issue")
-          bot=$(jq -r .author.is_bot <<<"$issue")
+          bot=$(jq -r 'if .author.is_bot and .author.login != "app/github-actions" then "true" else "false" end' <<<"$issue")
           labels=$(jq -r '.labels[].name' <<<"$issue")
           shown=$(paste -sd ' ' - <<<"$labels")
           has() { grep -qxF -- "$1" <<<"$labels"; }

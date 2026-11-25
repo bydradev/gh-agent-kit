@@ -175,12 +175,12 @@ test("no closing pull request and no stale-claim comment fails the stale check",
 // A dispatched run on an unclaimed issue: an approved plan stands, and so
 // does the plan of a requested issue (filed for work the operator asked for
 // directly); a requested issue never triaged gets the full check.
-function dispatched(t, labels, comments = []) {
+function dispatched(t, labels, comments = [], author = { is_bot: false }) {
   const dir = tempDir(t);
   const stub = stubGh(dir, [
     {
       match: "^issue view 8 --repo acme/widgets --json state,author,labels$",
-      json: { state: "OPEN", author: { is_bot: false }, labels: labels.map((name) => ({ name })) },
+      json: { state: "OPEN", author, labels: labels.map((name) => ({ name })) },
     },
     { match: "^api --paginate repos/acme/widgets/issues/8/comments --jq", json: comments },
   ]);
@@ -210,4 +210,18 @@ test("a dispatch leaves an approved or a planned requested issue as it is", (t) 
   const r = dispatched(t, ["requested", "feature"]);
   assert.notEqual(r.status, 0);
   assert.match(r.stdout, /::error::triage posted no comment on issue 8/);
+});
+
+// An issue github-actions[bot] opened reaches the model only once the
+// operator vouched for it, and the skill then triages it, so it gets the
+// full check; another bot's issue is still left alone.
+test("a vouched github-actions[bot] issue gets the full check; another bot's is exempt", (t) => {
+  const actions = dispatched(t, ["needs-triage"], [], {
+    is_bot: true,
+    login: "app/github-actions",
+  });
+  assert.notEqual(actions.status, 0);
+  assert.match(actions.stdout, /::error::triage posted no comment on issue 8/);
+  const other = dispatched(t, ["needs-triage"], [], { is_bot: true, login: "app/dependabot" });
+  assert.equal(other.status, 0, other.stdout + other.stderr);
 });
