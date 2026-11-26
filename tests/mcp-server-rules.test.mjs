@@ -424,3 +424,63 @@ test("info gives empty dates for an issue never approved, reopened or retitled",
     ["", "", "", "", false],
   );
 });
+
+test("a sweep dispatches an issue still open and untriaged, or claimed and idle for a week, and nothing else", async (t) => {
+  const dir = tempDir(t);
+  const eligible = path.join(dir, "eligible");
+  const log = path.join(dir, "dispatched");
+  const queue = path.join(dir, "queue");
+  fs.writeFileSync(eligible, "1\n2\n3\n4\n5\n");
+  fs.writeFileSync(log, "");
+  fs.writeFileSync(queue, "");
+  const day = 86400000;
+  const ago = (days) => new Date(Date.now() - days * day).toISOString();
+  const states = {
+    1: { state: "closed", labels: ["needs-triage"], updated_at: ago(1) },
+    2: { state: "open", labels: ["bug"], updated_at: ago(1) },
+    3: { state: "open", labels: ["in-progress"], updated_at: ago(8) },
+    4: { state: "open", labels: ["in-progress"], updated_at: ago(2) },
+    5: { state: "open", labels: ["triaged"], updated_at: ago(30) },
+  };
+  const server = await startServer(t, {
+    mode: "sweep",
+    env: { ELIGIBLE_ISSUES: eligible, DISPATCH_LOG: log, DISPATCH_QUEUE: queue, GITHUB_REF_NAME: "main" },
+    rules: Object.entries(states).map(([n, s]) => ({
+      match: `issues/${n}$`,
+      stdout: { ...s, labels: s.labels.map((name) => ({ name })) },
+    })),
+  });
+  const said = {};
+  for (const number of [1, 2, 3, 4, 5]) said[number] = (await server.call("dispatch", { number })).text;
+  assert.match(said[1], /^not dispatched: #1 is closed/);
+  assert.match(said[2], /^queued issue-triage\.yml for #2/);
+  assert.match(said[3], /^queued issue-triage\.yml for #3/);
+  assert.match(said[4], /^not dispatched: #4 was claimed 2 day\(s\) ago/);
+  assert.match(said[5], /^not dispatched: #5 now carries triaged/);
+  assert.equal(fs.readFileSync(queue, "utf8"), "2\n3\n");
+  const bad = await server.call("dispatch", { number: "2" });
+  assert.match(bad.text, /^number must be a positive integer/);
+});
+
+test("open_prs reads every page of open pull requests, and comment refuses a body that is not text", async (t) => {
+  const pr = (number, body) => ({
+    number,
+    title: `pr ${number}`,
+    body,
+    base: { ref: "main" },
+    user: { login: "renovate[bot]", type: "Bot" },
+  });
+  const server = await triage(t, [
+    { match: "^api --method GET repos/acme/widgets$", stdout: { default_branch: "main", owner: { type: "User" } } },
+    {
+      match: "^api --method GET repos/acme/widgets/pulls\\?state=open&per_page=100&page=1$",
+      stdout: Array.from({ length: 100 }, (_, k) => pr(100 + k, "unrelated")),
+    },
+    { match: "^api --method GET repos/acme/widgets/pulls\\?state=open&per_page=100&page=2$", stdout: [pr(300, "Closes #8")] },
+  ]);
+  const p = await page(server, "open_prs", {});
+  assert.deepEqual(p.items.map((i) => [i.number, i.closes_this_issue]), [[300, true]]);
+  const r = await server.call("comment", { body: 5 });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /^body must be non-empty text/);
+});
