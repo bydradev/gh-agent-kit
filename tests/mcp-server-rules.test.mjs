@@ -411,6 +411,14 @@ test("triage's reads refuse a kind, terms or number of the wrong type", async (t
   assert.deepEqual(ghCalls(server), []);
 });
 
+test("search keeps next_start when a page fills before the results end", async (t) => {
+  const long = (number) => ({ ...found(number), title: `issue ${number} ${"x".repeat(5000)}` });
+  const server = await triage(t, [searchPage(1, Array.from({ length: 10 }, (_, k) => long(k + 1)))]);
+  const first = await page(server, "search", { terms: "x" });
+  assert.ok(first.count > 0 && first.count < 10, String(first.count));
+  assert.equal(first.next_start, first.count);
+});
+
 test("search fails when GitHub cut it short, and ends at the 1,000th result without asking for more", async (t) => {
   const cut = await triage(t, [searchPage(1, [found(1)], true)]);
   const r = await cut.call("search", { terms: "x" });
