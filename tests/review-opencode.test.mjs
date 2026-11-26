@@ -700,6 +700,18 @@ test("pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, 
   assert.match(huge.stdout, /a wait of 3600 s would not fit/);
 });
 
+test("pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish", (t) => {
+  // An event after the refusal that is not an error leaves it the last error.
+  const trailing = sess([{ type: "step_start", part: {} }, capacity(), { type: "text", part: { type: "text", text: "" } }]);
+  const r = run(t, { runs: [{ events: trailing, exit: 1 }, { events: DONE }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60"]);
+  // An event after the last step_finish leaves its reason the last step's.
+  const after = run(t, { events: [...SUCCESS, { type: "text", part: { type: "text", text: "" } }] });
+  assert.equal(after.status, 0, after.stdout + after.stderr);
+  assert.match(after.stdout, /^last step: stop$/m);
+});
+
 test("pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run", (t) => {
   for (const opts of [
     { runs: [{ events: sess([{ type: "step_start", part: {} }, { type: "error", error: { name: "APIError", data: { message: "Upstream request failed: Invalid credential" } } }]), exit: 1 }] },

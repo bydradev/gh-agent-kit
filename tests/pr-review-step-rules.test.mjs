@@ -241,7 +241,14 @@ test("the review step reads the last result from a stream that Claude Code wrote
     usage: { input_tokens: 1, cache_read_input_tokens: 2, cache_creation_input_tokens: 3, output_tokens: 4 },
     result: "Reported.",
   };
-  const stream = [{ type: "system", subtype: "init" }, { ...result, subtype: "error_during_execution", is_error: true }, result];
+  // The result is not the stream's last element: the step picks the last
+  // element that is a result.
+  const stream = [
+    { type: "system", subtype: "init" },
+    { ...result, subtype: "error_during_execution", is_error: true },
+    result,
+    { type: "system", subtype: "status" },
+  ];
   fs.writeFileSync(path.join(dir, "answer.json"), JSON.stringify(stream));
   fs.writeFileSync(stub, `#!/bin/bash\ncat "${path.join(dir, "answer.json")}"\n`, { mode: 0o755 });
   const script = stepScript(FILE, "Run the review").replaceAll("/opt/agent-kit/claude", stub);
@@ -283,4 +290,9 @@ test("the settings step hands both runners the denied and allowed tool lists", (
   for (const tool of ["Bash", "Edit", "Write", "WebFetch", "Agent", "Read(//proc/**)", "Read(//work/ws/.git/**)"])
     assert.ok(denied.includes(tool), `${tool} is not denied`);
   assert.ok(env.REVIEW_ALLOWED.split(",").includes("mcp__agent-kit__post_report"));
+  // Claude Code's own settings file, which its run reads with --settings.
+  const claude = JSON.parse(fs.readFileSync(path.join(dir, "claude-settings.json"), "utf8"));
+  assert.equal(claude.permissions.blockReadsOutsideWorkingDirectories, true);
+  assert.deepEqual(claude.permissions.deny, denied);
+  assert.deepEqual(claude.env, { GH_TOKEN: "", GITHUB_TOKEN: "" });
 });
