@@ -15,16 +15,16 @@ files first:
 | --- | --- | --- |
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 
-**In short (phase 1):** of 1,068 rules, 1,028 are caught by a test, 10
+**In short (phase 1):** of 1,129 rules, 1,083 are caught by a test, 10
 of them by a time limit (the test never ends: an endless loop, or a
-reply it waits for never comes). The 40 left are listed
+reply it waits for never comes). The 46 left are listed
 with the reason:
 
 | Reason | `pr-review.yml` | `mcp-server.mjs` |
 | --- | --- | --- |
 | Equivalent: switching it off changes nothing the code can do | 5 | 15 |
 | Unreachable: no input reaches the other branch | 1 | 5 |
-| Not a rule: a message's wording, a cache, or removing a scratch file | 4 | 4 |
+| Not a rule: a message's wording, a count only the log shows, a cache, or removing a scratch file | 10 | 4 |
 | Left untested: runner provisioning only a GitHub runner can run | 6 | 0 |
 
 The tests this phase added cover, among others: which events and states run each
@@ -55,12 +55,13 @@ practice, each of these is switched off on its own:
   one line): every `if`, `elif` and `while` condition, forced to `true`
   and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains;
   the condition of a command list such as `[ -z "$x" ] && exit 1`; every
-  `case` arm, `*)` included, given a pattern nothing matches; each `and` and `or`
-  operand of a jq `select()`, and each jq `if` and `elif` condition, forced
-  to `true` and to `false`;
+  `case` arm, `*)` included, given a pattern nothing matches; each jq `select()`
+  predicate and each of its `and` and `or` operands, and each jq `if` and
+  `elif` condition, forced to `true` and to `false`;
   every `continue`, `break`, `exit 0` and `return 0`; and every line that
-  writes `GITHUB_OUTPUT` or `GITHUB_ENV`, removes or moves a file, or
-  writes to GitHub (`gh issue`, `gh pr`, `gh label`, or a POST, PATCH, PUT
+  writes `GITHUB_OUTPUT` or `GITHUB_ENV`, writes a file in `RUNNER_TEMP` or
+  the run's result file, removes or moves a
+  file, or writes to GitHub (`gh issue`, `gh pr`, `gh label`, or a POST, PATCH, PUT
   or DELETE).
 
 ## How it was checked
@@ -108,12 +109,12 @@ form GitHub accepts.
 
 | File | Rules | Caught | Left, with the reason |
 | --- | --- | --- | --- |
-| `.github/workflows/pr-review.yml` | 526 | 510 | 16 |
+| `.github/workflows/pr-review.yml` | 587 | 565 | 22 |
 | `.github/scripts/mcp-server.mjs` | 542 | 518 | 24 |
 
 ### `.github/workflows/pr-review.yml`
 
-526 rules: 510 caught (4 of them by a time limit), 16 left with the reason given.
+587 rules: 565 caught (4 of them by a time limit), 22 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
 
@@ -235,6 +236,8 @@ form GitHub accepts.
 | 399 | sh if whole | `busy=$( { gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs…` | `true` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
 | 399 | sh if whole | `busy=$( { gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs…` | `false` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
 | 403 | jq select and operand | `.id != $self` | `true` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
+| 403 | jq select whole | `.id != $self and .status != "completed"` | `true` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
+| 403 | jq select whole | `.id != $self and .status != "completed"` | `false` | `pr-review-body-edit.test.mjs`: "a run in flight on the branch defers the early skip" |
 | 403 | jq select and operand | `.status != "completed"` | `true` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
 | 404 | sh if whole | `[ "$busy" -eq 0 ]` | `true` | `pr-review-body-edit.test.mjs`: "a run in flight on the branch defers the early skip" |
 | 404 | sh if whole | `[ "$busy" -eq 0 ]` | `false` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
@@ -252,12 +255,18 @@ form GitHub accepts.
 | 418 | if: \|\| operand | `env.KIT_REVIEW_MODE == 'push'` | `false` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 418 | if: \|\| operand | `env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 456 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 456 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 456 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 459 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 459 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 460 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 460 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 462 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 472 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 472 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 492 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 492 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
@@ -339,12 +348,18 @@ form GitHub accepts.
 | 783 | if: && operand | `github.event.changes.base == null` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 783 | if: && operand | `github.event.changes.title == null` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 820 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 820 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 820 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 823 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 823 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 824 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 824 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 826 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 836 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 836 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 856 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 856 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
@@ -372,12 +387,18 @@ form GitHub accepts.
 | 896 | if: whole | `github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 896 | if: && operand | `env.KIT_REVIEW_MODE == 'open'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 914 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
+| 914 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
+| 914 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 914 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 914 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
+| 917 | jq select whole | `.name == "pr-review"` | `true` | `kit-settings.test.mjs`: "a run whose review job was skipped does not stand for a review" |
+| 917 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 918 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `kit-settings.test.mjs`: "a run whose review job was skipped does not stand for a review" |
 | 918 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 920 | sh skip statement | `return 0` | `:` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 927 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-step-rules.test.mjs`: "the push skip reads the head only from the bot's reports, and reviews when there is none" |
+| 927 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-step-rules.test.mjs`: "the push skip reads the head only from the bot's reports, and reviews when there is none" |
+| 927 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 927 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-step-rules.test.mjs`: "the push skip reads the head only from the bot's reports, and reviews when there is none" |
 | 929 | sh if whole | `[ -z "$last_head" ]` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 929 | sh if whole | `[ -z "$last_head" ]` | `false` | `pr-review-step-rules.test.mjs`: "the push skip reads the head only from the bot's reports, and reviews when there is none" |
@@ -417,8 +438,11 @@ form GitHub accepts.
 | 1074 | sh case arm | `*[!0-9a-f]*\|''` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
 | 1077 | sh list condition | `[ -n "$base" ]` | `true` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
 | 1077 | sh list condition | `[ -n "$base" ]` | `false` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1078 | sh file write | (before `cat > "$RUNNER_TEMP/claude-settings.json" <<EOF`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1088 | sh file write | (before `(umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-tok`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
 | 1091 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `true` | `public-content-install.test.mjs`: "pr-review.yml: without a check the server's configuration is as before" |
 | 1091 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `false` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
+| 1092 | sh file write | (before `(umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_T`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
 | 1095 | jq if whole | `$check == ""` | `true` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
 | 1095 | jq if whole | `$check == ""` | `false` | `public-content-install.test.mjs`: "pr-review.yml: without a check the server's configuration is as before" |
 | 1096 | sh output statement | (before `echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"`) | `: ` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
@@ -459,6 +483,8 @@ form GitHub accepts.
 | 1246 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run that ends in error, or with no result, fails" |
 | 1251 | jq if whole | `type == "array"` | `true` | `model-provider.test.mjs`: "pr-review.yml, Run the review: the effort level reaches the CLI, and none when unset" |
 | 1251 | jq if whole | `type == "array"` | `false` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
+| 1251 | jq select whole | `.type == "result"` | `true` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
+| 1251 | jq select whole | `.type == "result"` | `false` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
 | 1258 | sh list condition | `[ "$closed" != true ]` | `true` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run closed on a private name withholds its last message and fails" |
 | 1258 | sh list condition | `[ "$closed" != true ]` | `false` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run closed on a private name withholds its last message and fails" |
 | 1263 | sh list condition | `[ "$KIT_REVIEW_PROVIDER" != opencode-go ]` | `true` | `model-provider.test.mjs`: "pr-review.yml, Run the review: OpenCode Go gets its key as a bearer token, and nothing else" |
@@ -509,8 +535,16 @@ form GitHub accepts.
 | 1431 | sh while whole | `:` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1433 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_REVIEW_MODE…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1433 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_REVIEW_MODE…` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1436 | sh file write | (before `jq -cR 'fromjson? \| objects' "$RUNNER_TEMP/opencode-attempt.`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1437 | sh file write | (before `cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1440 | jq select whole | `.type == "error"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish" |
+| 1440 | jq select whole | `.type == "error"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1441 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run" |
+| 1441 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1442 | jq if whole | `. > 3600` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1442 | jq if whole | `. > 3600` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
+| 1445 | jq select whole | `.type == "step_start"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1445 | jq select whole | `.type == "step_start"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1446 | sh if \|\| operand | `[ -z "$pause" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1446 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1446 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `false` | `review-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
@@ -519,6 +553,8 @@ form GitHub accepts.
 | 1447 | sh skip statement | `break` | `:` | `review-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1450 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1450 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
+| 1450 | jq select whole | `.type == "step_finish"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
+| 1450 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1455 | sh list condition | `[ "$pause" -le "$delay" ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1455 | sh list condition | `[ "$pause" -le "$delay" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1457 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
@@ -528,6 +564,26 @@ form GitHub accepts.
 | 1474 | sh if whole | `[ -z "$events" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1475 | sh if whole | `[ "$closed" = true ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a closed run withholds its errors only when it had some, and a run with no events shows the log" |
 | 1475 | sh if whole | `[ "$closed" = true ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run closed on a private name withholds its message and log" |
+| 1487 | jq select whole | `.type == "step_start"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1487 | jq select whole | `.type == "step_start"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1488 | jq select whole | `.type == "step_finish"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish" |
+| 1488 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1489 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1489 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1490 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1490 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1491 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1491 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1492 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1492 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1493 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1493 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1494 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
+| 1494 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1495 | jq select whole | `.type == "error"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1495 | jq select whole | `.type == "error"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1496 | jq select whole | `.type == "text"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1496 | jq select whole | `.type == "text"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1498 | sh list condition | `[ "$closed" != true ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run closed on a private name withholds its message and log" |
 | 1498 | sh list condition | `[ "$closed" != true ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1498 | jq if whole | `.errors == ""` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a closed run withholds its errors only when it had some, and a run with no events shows the log" |
@@ -555,6 +611,8 @@ form GitHub accepts.
 | 1544 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1544 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1555 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the report check passes a report whose reviewed lines match the pull request" |
+| 1555 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- pr-review ru…` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the report check passes a report whose reviewed lines match the pull request" |
+| 1555 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- pr-review ru…` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: the report check passes a report whose reviewed lines match the pull request" |
 | 1555 | jq select and operand | `(.body \| contains(\"<!-- pr-review run $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT -->\")…` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the run fails when it posted no report" |
 | 1555 | jq select and operand | `(.body \| contains(\"## Review R\"))` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the run fails when it posted no report" |
 | 1561 | sh if && operand | `[ -z "$reports" ]` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: a report with this run's marker counts whatever the server, and the current server allows no fallback" |
@@ -564,6 +622,8 @@ form GitHub accepts.
 | 1567 | sh list condition | `grep -q 'pr-review run' /opt/agent-kit/mcp-server.mjs` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes the run id alone, the report must carry it" |
 | 1567 | sh list condition | `grep -q 'pr-review run' /opt/agent-kit/mcp-server.mjs` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
 | 1569 | jq select and operand | `.id > $LAST_COMMENT_ID` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
+| 1569 | jq select whole | `.id > $LAST_COMMENT_ID and .created_at >= \"$STARTED\" and .user.login == \"gith…` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
+| 1569 | jq select whole | `.id > $LAST_COMMENT_ID and .created_at >= \"$STARTED\" and .user.login == \"gith…` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
 | 1569 | jq select and operand | `.created_at >= \"$STARTED\"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
 | 1569 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
 | 1569 | jq select and operand | `(.body \| contains(\"## Review R\"))` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start" |
@@ -593,6 +653,8 @@ form GitHub accepts.
 | 1638 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1638 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1649 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict comes from the bot's report, not a comment with its marker" |
+| 1649 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict comes from the bot's report, not a comment with its marker" |
+| 1649 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
 | 1649 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict is this run's report, not a later one or a bot comment that is no report" |
 | 1662 | sh while whole | `IFS= read -r line` | `true` | `pr-review-steps.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1662 | sh while whole | `IFS= read -r line` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
