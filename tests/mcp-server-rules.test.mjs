@@ -321,3 +321,89 @@ test("file_issue finds an earlier issue for the finding on any page, not in a pu
   const twice = await filer(t, [[marked(60, "R1-01"), marked(59, "R1-01")]]);
   assert.match((await twice.call("file_issue", ISSUE)).text, /^already filed for R1-01: #60 /);
 });
+
+test("post_report refuses a body that is not text", async (t) => {
+  const c = checkout(t);
+  const server = await startServer(t, { mode: "review", env: c.env, rules: [pullRule(c)] });
+  for (const body of [5, ["## Review R1"]]) {
+    const r = await server.call("post_report", { body });
+    assert.equal(r.isError, true, JSON.stringify(body));
+    assert.match(r.text, /^body must be non-empty text/);
+  }
+});
+
+test("a sweep starts before its dispatch log exists, and its first dispatch writes it", async (t) => {
+  const dir = tempDir(t);
+  const eligible = path.join(dir, "eligible");
+  fs.writeFileSync(eligible, "8\n");
+  const log = path.join(dir, "dispatched");
+  const queue = path.join(dir, "queue");
+  fs.writeFileSync(queue, "");
+  const server = await startServer(t, {
+    mode: "sweep",
+    env: { ELIGIBLE_ISSUES: eligible, DISPATCH_LOG: log, DISPATCH_QUEUE: queue, GITHUB_REF_NAME: "main" },
+    rules: [
+      {
+        match: "issues/8$",
+        stdout: { state: "open", labels: [{ name: "needs-triage" }], updated_at: "2026-10-01T00:00:00Z" },
+      },
+    ],
+  });
+  const r = await server.call("dispatch", { number: 8 });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(fs.readFileSync(log, "utf8"), "8\n");
+});
+
+// Triage mode on #8, with the given search pages.
+const app = { login: "renovate[bot]", type: "Bot" };
+const found = (number) => ({
+  number,
+  title: `issue ${number}`,
+  labels: [],
+  user: app,
+  repository_url: "https://api.github.com/repos/acme/widgets",
+});
+const searchPage = (page, items, incomplete = false) => ({
+  match: `^api --method GET search/issues\\?per_page=100&page=${page} -f q=`,
+  stdout: { incomplete_results: incomplete, total_count: 1000, items },
+});
+const triage = (t, rules) =>
+  startServer(t, { mode: "triage", env: { TRIAGE_ISSUE: "8", TRIAGE_EVENT: "opened" }, rules });
+
+test("search starts at 0 for a start it cannot use, from the start it is given otherwise", async (t) => {
+  const server = await triage(t, [searchPage(1, [found(1), found(2), found(3)])]);
+  for (const start of [-1, 1.5, "1"]) {
+    const p = await page(server, "search", { terms: "x", start });
+    assert.deepEqual(p.items.map((i) => i.number), [1, 2, 3], String(start));
+  }
+  const from = await page(server, "search", { terms: "x", start: 1 });
+  assert.deepEqual(from.items.map((i) => i.number), [2, 3]);
+});
+
+test("search fails when GitHub cut it short, and ends at the 1,000th result without asking for more", async (t) => {
+  const cut = await triage(t, [searchPage(1, [found(1)], true)]);
+  const r = await cut.call("search", { terms: "x" });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /GitHub cut the search short \(incomplete_results/);
+  const tenth = Array.from({ length: 100 }, (_, k) => found(901 + k));
+  const server = await triage(t, [searchPage(10, tenth)]);
+  const last = await page(server, "search", { terms: "x", start: 999 });
+  assert.deepEqual([last.items.map((i) => i.number), last.next_start, last.truncated], [[1000], null, true]);
+  assert.ok(!ghCalls(server).some((call) => call.args.join(" ").includes("page=11")));
+});
+
+test("info gives empty dates for an issue never approved, reopened or retitled", async (t) => {
+  const server = await triage(t, [
+    { match: "^api graphql .* -F n=8$", stdout: { data: { repository: { issue: { lastEditedAt: null } } } } },
+    { match: "^api --paginate --slurp repos/acme/widgets/issues/8/timeline", stdout: [[]] },
+    {
+      match: "^api --method GET repos/acme/widgets/issues/8$",
+      stdout: { number: 8, state: "open", updated_at: "2026-10-01T00:00:00Z", repository_url: "https://api.github.com/repos/acme/widgets" },
+    },
+  ]);
+  const info = await page(server, "info", {});
+  assert.deepEqual(
+    [info.last_edited_at, info.reopened_at, info.renamed_at, info.approved_at, info.edited_after_approval],
+    ["", "", "", "", false],
+  );
+});
