@@ -274,3 +274,50 @@ test("range_diff takes only text shas, and sees an old commit the base now holds
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /so only which commits the base holds changed\.$/);
 });
+
+const FILED = "issues\\?state=all&creator=github-actions%5Bbot%5D";
+const marked = (number, finding, extra = {}) => ({
+  number,
+  state: "open",
+  html_url: `https://github.com/acme/widgets/issues/${number}`,
+  body: `Text.\n\n<!-- pr-review finding acme/widgets#7 ${finding} -->\n`,
+  ...extra,
+});
+async function filer(t, listed) {
+  const c = checkout(t);
+  const rules = [
+    pullRule(c),
+    ...listed.map((stdout, k) => ({ match: `${FILED}&per_page=100&page=${k + 1}$`, stdout })),
+    { match: "^api -X POST repos/acme/widgets/issues ", stdout: "https://github.com/acme/widgets/issues/99" },
+  ];
+  return startServer(t, { mode: "review", env: c.env, rules });
+}
+const ISSUE = { finding: "R1-01", title: "Cache the listing", outcome: "It is cached.", acceptance: "- [ ] cached" };
+
+test("file_issue and inline_comment refuse arguments of the wrong type, and a blank title", async (t) => {
+  const server = await filer(t, [[]]);
+  for (const [tool, args, message] of [
+    ["inline_comment", { path: "b.txt", line: "1", body: "x" }, /^line must be a positive integer/],
+    ["inline_comment", { path: "b.txt", line: 1, body: 5 }, /^body must be non-empty text/],
+    ["file_issue", { ...ISSUE, finding: ["R1-01"] }, /^finding must be a finding ID such as R2-03/],
+    ["file_issue", { ...ISSUE, title: ["Cache"] }, /^title must be one non-empty line/],
+    ["file_issue", { ...ISSUE, title: "   " }, /^title must be one non-empty line/],
+    ["file_issue", { ...ISSUE, outcome: 5 }, /^outcome must be non-empty text/],
+    ["file_issue", { ...ISSUE, acceptance: ["- [ ] x"] }, /^acceptance must be non-empty text/],
+  ]) {
+    const r = await server.call(tool, args);
+    assert.equal(r.isError, true, `${tool} ${JSON.stringify(args)}: ${r.text}`);
+    assert.match(r.text, message, `${tool} ${JSON.stringify(args)}`);
+  }
+  assert.ok(!ghCalls(server).some((call) => call.args.includes("POST")));
+});
+
+test("file_issue finds an earlier issue for the finding on any page, not in a pull request, and names the first listed", async (t) => {
+  const others = Array.from({ length: 100 }, (_, k) => marked(200 + k, "R9-09"));
+  const paged = await filer(t, [others, [marked(57, "R1-01")]]);
+  assert.match((await paged.call("file_issue", ISSUE)).text, /^already filed for R1-01: #57 \(open\)/);
+  const pr = await filer(t, [[marked(58, "R1-01", { pull_request: {} })]]);
+  assert.equal((await pr.call("file_issue", ISSUE)).text, "filed https://github.com/acme/widgets/issues/99");
+  const twice = await filer(t, [[marked(60, "R1-01"), marked(59, "R1-01")]]);
+  assert.match((await twice.call("file_issue", ISSUE)).text, /^already filed for R1-01: #60 /);
+});
