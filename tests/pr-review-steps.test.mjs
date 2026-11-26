@@ -412,7 +412,7 @@ test("pr-review.yml: a report with this run's marker counts whatever the server,
   assert.equal(marked.status, 0, marked.stdout + marked.stderr);
   assert.doesNotMatch(marked.stdout, WARNED);
   // The current server writes the full marker: an id-only one is not this run's report.
-  const r = reportCheck(t, [bot(60, report(reviewed(), "<!-- pr-review run 1001 -->"))]);
+  const r = reportCheck(t, [at(bot(0, report(reviewed(), "<!-- pr-review run 1001 -->")), 60)]);
   assert.equal(r.status, 1, r.stdout);
 });
 
