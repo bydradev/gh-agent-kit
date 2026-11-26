@@ -172,6 +172,9 @@ for (const [name, mutate] of [
     "a malformed Closes reviewed line",
     (b) => b.replace("Closes reviewed: none", "Closes reviewed: issue 3"),
   ],
+  // The workflow reads every prefixed line, so a malformed one fails it
+  // beside a valid one.
+  ["a malformed Head reviewed line beside a valid one", (b) => `${b}\nHead reviewed: abc`],
 ]) {
   test(`post_report refuses ${name} and posts nothing`, async (t) => {
     const f = reviewFixture(t);
@@ -1131,4 +1134,38 @@ test("dispatch queues a run once per eligible issue still eligible now, and star
   assert.equal(ghCalls(next).length, 0);
   assert.equal(fs.readFileSync(log, "utf8"), "8\n9\n");
   assert.equal(fs.readFileSync(queue, "utf8"), "8\n");
+});
+
+// ---------- rules a rule-by-rule sweep found no test for (#94) ----------
+
+test("range_diff finds the report that recorded an old_base on any page, reading no page past it", async (t) => {
+  const other = (id) => ({ id, user: { login: "dev", type: "User" }, body: "a comment" });
+  const page = (n, stdout) => ({
+    match: `^api --method GET repos/acme/widgets/issues/7/comments\\?per_page=100&page=${n}$`,
+    stdout,
+  });
+  // Each case on a fresh checkout, which the fetch has not reached yet.
+  const call = async (pagesOf) => {
+    const f = goneBaseFixture(t);
+    const report = {
+      id: 500,
+      user: { login: "github-actions[bot]", type: "Bot" },
+      body: `${REPORT(f.gone, f.head)}\n\n<!-- pr-review run 1001.1 -->\n`,
+    };
+    const server = await startServer(t, {
+      mode: "review",
+      env: { ...f.env, HEAD_SHA: f.head },
+      rules: pagesOf(report).map((stdout, k) => page(k + 1, stdout)),
+    });
+    const r = await server.call("range_diff", { old_head: f.head, new_head: f.head, old_base: f.gone });
+    return { r, pages: ghCalls(server).filter((c) => c.args.join(" ").includes("/comments?")).length };
+  };
+  // On the second page, after a full first one.
+  const second = await call((report) => [Array.from({ length: 100 }, (_, k) => other(k + 1)), [report]]);
+  assert.equal(second.r.isError, false, second.r.text);
+  assert.equal(second.pages, 2);
+  // On a full first page: found there, so no second page is read.
+  const first = await call((report) => [[...Array.from({ length: 99 }, (_, k) => other(k + 1)), report]]);
+  assert.equal(first.r.isError, false, first.r.text);
+  assert.equal(first.pages, 1);
 });

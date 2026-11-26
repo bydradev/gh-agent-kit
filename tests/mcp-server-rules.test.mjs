@@ -196,3 +196,44 @@ test("a long text is served from page 1 for a page it cannot use", async (t) => 
   const last = await server.call("show", { ref: "HEAD", path: "big.txt", page: 9 });
   assert.match(last.text, /^\[page 3 of 3, 24000 characters each; the last\]\n/);
 });
+
+test("file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty", async (t) => {
+  const c = checkout(t);
+  const rules = [
+    pullRule(c),
+    { match: "issues\\?state=all&creator=github-actions%5Bbot%5D&per_page=100&page=1$", stdout: [] },
+    { match: "^api -X POST repos/acme/widgets/issues ", stdout: "https://github.com/acme/widgets/issues/57" },
+  ];
+  const server = await startServer(t, { mode: "review", env: c.env, rules });
+  const args = { finding: "R1-01", title: "Cache the listing", outcome: "It is cached.", acceptance: "- [ ] cached" };
+  assert.equal((await server.call("file_issue", { ...args, out_of_scope: "Not the search." })).isError, false);
+  assert.equal((await server.call("file_issue", { ...args, finding: "R1-02" })).isError, false);
+  const [given, empty] = ghCalls(server)
+    .filter((call) => call.args.includes("POST"))
+    .map((call) => JSON.parse(call.stdin).body);
+  assert.match(given, /### Out of scope\n\nNot the search\.\n/);
+  for (const h of ["References", "Out of scope", "Size"]) assert.match(empty, new RegExp(`### ${h}\\n\\n_No response_\\n`), h);
+});
+
+test("the issue tools name a repo option that is not text as another repository's, and an author without a login as unknown", async (t) => {
+  const c = checkout(t);
+  const server = await startServer(t, {
+    mode: "review",
+    env: c.env,
+    rules: [
+      pullRule(c),
+      {
+        match: "^api --method GET repos/acme/widgets/issues/7/comments\\?per_page=100&page=1$",
+        stdout: [{ id: 3, user: { login: null, type: "User" }, created_at: "2026-10-22T08:00:00Z", body: "x" }],
+      },
+    ],
+  });
+  for (const repo of [5, ["acme/widgets"]]) {
+    const r = await server.call("issue", { number: 12, repo });
+    assert.equal(r.isError, true, JSON.stringify(repo));
+    assert.match(r.text, /^repo is not an option: the issue tools read this repository only/, JSON.stringify(repo));
+  }
+  const p = await page(server, "conversation", {});
+  assert.equal(p.items[0].withheld, "the author is unknown; the body is not shown");
+  assert.ok(!ghCalls(server).some((call) => call.args.join(" ").includes("/collaborators/")));
+});
