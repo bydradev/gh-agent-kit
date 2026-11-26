@@ -8,6 +8,18 @@ Date each entry, and delete it once it no longer applies.
 
 ## In progress
 
+### Rule inventory, in phases (2026-11-26)
+
+[#94](https://github.com/bydradev/gh-agent-kit/issues/94): every rule of
+the workflows, the MCP server and the installer, each switched off alone
+against the tests, recorded in
+[the rule inventory](reports/2026-11-26-rule-inventory.md). The operator
+chose separate pull requests by file group on 2026-11-26: (1) the server
+and `pr-review.yml`, done; (2) `security-scan.yml`; (3) `issue-triage.yml`,
+`pr-issue-link.yml` and `kit-update-check.yml`; (4) `install.sh`,
+`sync-labels.sh`, `public-content.mjs` and the other workflows. The last
+one closes the issue. The mutation script stays out of the repository.
+
 ### Triage for issues the reviewer files (2026-11-25)
 
 [#80](https://github.com/bydradev/gh-agent-kit/issues/80): an issue
