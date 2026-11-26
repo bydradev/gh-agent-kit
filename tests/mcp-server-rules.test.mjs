@@ -484,3 +484,24 @@ test("open_prs reads every page of open pull requests, and comment refuses a bod
   assert.equal(r.isError, true);
   assert.match(r.text, /^body must be non-empty text/);
 });
+
+test("the server answers each request once, a notification never, and an unknown method as one", async (t) => {
+  const c = checkout(t);
+  const server = await startServer(t, {
+    mode: "review",
+    env: c.env,
+    rules: [{ match: "^api --method GET repos/acme/widgets/pulls/7$", stderr: "gh: Not Found (HTTP 404)\n", status: 1 }],
+  });
+  // Notifications, known and unknown: no reply.
+  for (const method of ["notifications/initialized", "notifications/unknown"])
+    server.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method }) + "\n");
+  const ping = await server.request("ping", {});
+  assert.deepEqual(ping.result, {});
+  assert.equal(server.lines.length, 1, server.lines.join("\n"));
+  const unknown = await server.request("resources/list", {});
+  assert.deepEqual(unknown.error, { code: -32601, message: "unknown method resources/list" });
+  // A failed gh call answers with gh's own message, which says why.
+  const r = await server.call("pr");
+  assert.equal(r.isError, true);
+  assert.equal(r.text, "pr failed: gh: Not Found (HTTP 404)");
+});
