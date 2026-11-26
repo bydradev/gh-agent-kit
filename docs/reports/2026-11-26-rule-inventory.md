@@ -55,7 +55,7 @@ practice, each of these is switched off on its own:
   one line): every `if`, `elif` and `while` condition, forced to `true`
   and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains;
   the condition of a command list such as `[ -z "$x" ] && exit 1`; every
-  `case` arm but `*)`, given a pattern nothing matches; each `and` and `or`
+  `case` arm, `*)` included, given a pattern nothing matches; each `and` and `or`
   operand of a jq `select()`, and each jq `if` and `elif` condition, forced
   to `true` and to `false`;
   every `continue`, `break`, `exit 0` and `return 0`; and every line that
@@ -176,8 +176,8 @@ form GitHub accepts.
 | 220 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | `kit-settings.test.mjs`: "a switch takes only its states, so a typo fails instead of turning a workflow off" |
 | 220 | sh if && operand | `[ -n "$v" ]` | `true` | `kit-settings.test.mjs`: "a switch takes only its states, so a typo fails instead of turning a workflow off" |
 | 220 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
-| 224 | sh output statement | (the line's start) | `: ` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
-| 225 | sh output statement | (the line's start) | `: ` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
+| 224 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
+| 225 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 234 | if: \|\| operand | `env.KIT_REVIEW_MODE == 'push'` | `false` | `pr-review-conditions.test.mjs`: "the settings job reads the review settings only in a mode that reviews" |
 | 234 | if: whole | `env.KIT_REVIEW_MODE == 'push' \|\| env.KIT_REVIEW_MODE == 'open'` | `true` | `pr-review-conditions.test.mjs`: "the settings job reads the review settings only in a mode that reviews" |
 | 234 | if: whole | `env.KIT_REVIEW_MODE == 'push' \|\| env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the settings job reads the review settings only in a mode that reviews" |
@@ -189,19 +189,19 @@ form GitHub accepts.
 | 251 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `false` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 251 | sh if \|\| operand | `[ "${#value}" -gt 6 ]` | `false` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 251 | sh if \|\| operand | `[ "$value" -gt "$max" ]` | `false` | `kit-settings.test.mjs`: "a value out of range names where it came from" |
-| 255 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
+| 255 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 261 | sh list condition | `[ -n "$value" ]` | `true` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 261 | sh list condition | `[ -n "$value" ]` | `false` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
 | 262 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `true` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 262 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `false` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
-| 266 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 266 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 283 | sh list condition | `[ -n "$value" ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 283 | sh list condition | `[ -n "$value" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 284 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 284 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `false` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
 | 288 | sh if whole | `[[ "$value" == *-contributor ]]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 288 | sh if whole | `[[ "$value" == *-contributor ]]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
-| 292 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 292 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 309 | sh case arm | `''` | `__mutant_never__` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 311 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 311 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
@@ -212,17 +212,17 @@ form GitHub accepts.
 | 318 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 318 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 323 | sh case arm | `*` | `__mutant_never__` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
-| 327 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 327 | sh output statement | (before `echo "KIT_REVIEW_RUNNER=$runner" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 330 | sh case arm | `''\|anthropic` | `__mutant_never__` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
-| 331 | sh output statement | (the line's start) | `: ` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
+| 331 | sh output statement | (before `echo "KIT_REVIEW_PROVIDER=anthropic" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
 | 334 | sh case arm | `opencode-go` | `__mutant_never__` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
-| 335 | sh output statement | (the line's start) | `: ` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
+| 335 | sh output statement | (before `echo "KIT_REVIEW_PROVIDER=opencode-go" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
 | 338 | sh case arm | `*` | `__mutant_never__` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
 | 350 | sh if && operand | `[ -n "$value" ]` | `true` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 350 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
 | 350 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 350 | sh if && operand | `! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
-| 354 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 354 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 383 | if: && operand | `github.event.action == 'edited'` | `true` | `pr-review-conditions.test.mjs`: "the early skip's in-flight check runs only for a first-attempt edit of the body alone" |
 | 383 | if: whole | `github.event.action == 'edited' && github.event.changes.base == null && github.e…` | `true` | `pr-review-conditions.test.mjs`: "the early skip's in-flight check runs only for a first-attempt edit of the body alone" |
 | 383 | if: whole | `github.event.action == 'edited' && github.event.changes.base == null && github.e…` | `false` | `pr-review-conditions.test.mjs`: "the early skip's in-flight check runs only for a first-attempt edit of the body alone" |
@@ -239,7 +239,7 @@ form GitHub accepts.
 | 404 | sh if whole | `[ "$busy" -eq 0 ]` | `true` | `pr-review-body-edit.test.mjs`: "a run in flight on the branch defers the early skip" |
 | 404 | sh if whole | `[ "$busy" -eq 0 ]` | `false` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
 | 406 | sh skip statement | `exit 0` | `:` | `pr-review-body-edit.test.mjs`: "the early skip goes ahead when only this run is in flight" |
-| 412 | sh output statement | (the line's start) | `: ` | `pr-review-body-edit.test.mjs`: "a run in flight on the branch defers the early skip" |
+| 412 | sh output statement | (before `echo "DEFER=true" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "a run in flight on the branch defers the early skip" |
 | 415 | if: && operand | `steps.inflight.outcome == 'success'` | `true` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 415 | if: whole | `steps.inflight.outcome == 'success' && env.DEFER != 'true' && github.event.actio…` | `true` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 415 | if: whole | `steps.inflight.outcome == 'success' && env.DEFER != 'true' && github.event.actio…` | `false` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
@@ -279,11 +279,11 @@ form GitHub accepts.
 | 509 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 514 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 514 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 515 | sh output statement | (the line's start) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 527 | sh output statement | (the line's start) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 515 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 527 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
 | 529 | sh if whole | `[ "${RUN:-}" = false ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
 | 529 | sh if whole | `[ "${RUN:-}" = false ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
-| 530 | sh output statement | (the line's start) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 530 | sh output statement | (before `echo "SKIP=true" >> "$GITHUB_OUTPUT"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
 | 554 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| (needs.settings.outpu…` | `true` | `pr-review-conditions.test.mjs`: "the review job runs after the settings job failed or chose a mode that reviews, and not once cancelled" |
 | 554 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| (needs.settings.outpu…` | `false` | `pr-review-conditions.test.mjs`: "the review job runs after the settings job failed or chose a mode that reviews, and not once cancelled" |
 | 554 | if: && operand | `!cancelled()` | `true` | `pr-review-conditions.test.mjs`: "the review job runs after the settings job failed or chose a mode that reviews, and not once cancelled" |
@@ -305,19 +305,19 @@ form GitHub accepts.
 | 629 | sh case arm | `''\|*[!0-9]*` | `__mutant_never__` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 631 | sh if whole | `[ "$(gh pr view "$PR" --json isCrossRepository --jq .isCrossRepository)" = "true…` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 631 | sh if whole | `[ "$(gh pr view "$PR" --json isCrossRepository --jq .isCrossRepository)" = "true…` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
-| 639 | sh output statement | (the line's start) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
-| 640 | sh output statement | (the line's start) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
+| 639 | sh output statement | (before `echo "BASE=$(gh pr view "$PR" --json baseRefName --jq .baseR`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
+| 640 | sh output statement | (before `echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 690 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 690 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 692 | sh list condition | `[ -L "$dir" ]` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 692 | sh list condition | `[ -L "$dir" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
-| 692 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
-| 694 | sh output statement | (the line's start) | `: ` | Not caught, equivalent: git checkout replaces a file, directory or symlink at the path itself (git 2.54, checked 2026-11-26), so the removal before it changes nothing |
+| 692 | sh output statement | (before `rm -f -- "$dir"`) | `: ` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
+| 694 | sh output statement | (before `rm -rf -- "$f"`) | `: ` | Not caught, equivalent: git checkout replaces a file, directory or symlink at the path itself (git 2.54, checked 2026-11-26), so the removal before it changes nothing |
 | 699 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
 | 699 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
-| 699 | sh output statement | (the line's start) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
+| 699 | sh output statement | (before `rm -f -- "$f"`) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
 | 702 | sh if whole | `[ -L "$p" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 702 | sh if whole | `[ -L "$p" ]` | `false` | `pr-review-rules.test.mjs`: "a first adoption whose server is a symlink is refused before root copies it" |
 | 717 | sh list condition | `[ -n "$entry" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
@@ -328,11 +328,11 @@ form GitHub accepts.
 | 730 | sh case arm | `*` | `__mutant_never__` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 732 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `true` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 732 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `false` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
-| 736 | sh output statement | (the line's start) | `: ` | Not a rule: removes a scratch file in RUNNER_TEMP, which the runner discards |
-| 739 | sh output statement | (the line's start) | `: ` | Not a rule: removes a scratch copy in RUNNER_TEMP, which the runner discards |
-| 740 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
+| 736 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/public-content-empty"`) | `: ` | Not a rule: removes a scratch file in RUNNER_TEMP, which the runner discards |
+| 739 | sh output statement | (before `rm -f -- "$tmp"`) | `: ` | Not a rule: removes a scratch copy in RUNNER_TEMP, which the runner discards |
+| 740 | sh output statement | (before `echo "PUBLIC_CONTENT_CHECK=$dest" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 741 | sh skip statement | `break` | `:` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
-| 753 | sh output statement | (the line's start) | `: ` | `pr-review-rules.test.mjs`: "every symlink in the checkout is removed, a directory link inside it too" |
+| 753 | sh output statement | (before `rm -f -- "$link"`) | `: ` | `pr-review-rules.test.mjs`: "every symlink in the checkout is removed, a directory link inside it too" |
 | 783 | if: && operand | `github.event.action == 'edited'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 783 | if: whole | `github.event.action == 'edited' && github.event.changes.base == null && github.e…` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 783 | if: whole | `github.event.action == 'edited' && github.event.changes.base == null && github.e…` | `false` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
@@ -366,7 +366,7 @@ form GitHub accepts.
 | 873 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 878 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 878 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 879 | sh output statement | (the line's start) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 879 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
 | 896 | if: && operand | `github.event.action == 'synchronize'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 896 | if: whole | `github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 896 | if: whole | `github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
@@ -384,10 +384,10 @@ form GitHub accepts.
 | 931 | sh skip statement | `exit 0` | `:` | `pr-review-step-rules.test.mjs`: "the push skip reads the head only from the bot's reports, and reviews when there is none" |
 | 934 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 934 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
-| 935 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
+| 935 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 949 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 949 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
-| 960 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
+| 960 | sh output statement | (before `echo "VERDICT_CHECK_ID=$id" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
 | 971 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 971 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 979 | sh if \|\| operand | `[ "$changed" -gt "$KIT_REVIEW_MAX_FILES" ]` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: a pull request beyond the diff limits, or with files the checkout lacks, is refused" |
@@ -410,8 +410,8 @@ form GitHub accepts.
 | 1015 | sh if whole | `[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]` | `false` | Left untested: runner provisioning (the runner's AppArmor setting); every Claude Code review run exercises it |
 | 1019 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1019 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
-| 1024 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
-| 1028 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
+| 1024 | sh output statement | (before `echo "STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_EN`) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
+| 1028 | sh output statement | (before `echo "LAST_COMMENT_ID=${last:-0}" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
 | 1058 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1058 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1074 | sh case arm | `*[!0-9a-f]*\|''` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
@@ -421,24 +421,24 @@ form GitHub accepts.
 | 1091 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `false` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
 | 1095 | jq if whole | `$check == ""` | `true` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
 | 1095 | jq if whole | `$check == ""` | `false` | `public-content-install.test.mjs`: "pr-review.yml: without a check the server's configuration is as before" |
-| 1096 | sh output statement | (the line's start) | `: ` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
-| 1097 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
-| 1098 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1096 | sh output statement | (before `echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"`) | `: ` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
+| 1097 | sh output statement | (before `echo "REVIEW_ALLOWED=Read,Grep,Glob,mcp__agent-kit__inline_c`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1098 | sh output statement | (before `echo "REVIEW_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,We`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
 | 1117 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1117 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1117 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1117 | if: && operand | `env.KIT_REVIEW_RUNNER != 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
-| 1133 | sh output statement | (the line's start) | `: ` | Not a rule: removes the downloaded binary from RUNNER_TEMP after installing it |
+| 1133 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Not a rule: removes the downloaded binary from RUNNER_TEMP after installing it |
 | 1144 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1144 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1144 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1144 | if: && operand | `env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
-| 1146 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the checkout's OpenCode configuration goes before OpenCode first runs" |
+| 1146 | sh output statement | (before `rm -rf -- .opencode opencode.json opencode.jsonc`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: the checkout's OpenCode configuration goes before OpenCode first runs" |
 | 1155 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1155 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1155 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1155 | if: && operand | `env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
-| 1167 | sh output statement | (the line's start) | `: ` | Not a rule: removes the downloaded archive from RUNNER_TEMP after installing it |
+| 1167 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Not a rule: removes the downloaded archive from RUNNER_TEMP after installing it |
 | 1198 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1198 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'claude-code'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1198 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'claude-code'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
@@ -474,7 +474,7 @@ form GitHub accepts.
 | 1288 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1288 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1288 | if: && operand | `env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
-| 1290 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
+| 1290 | sh output statement | (before `mv -- .git "$RUNNER_TEMP/checkout-git"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
 | 1327 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1327 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1327 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
@@ -504,7 +504,7 @@ form GitHub accepts.
 | 1423 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1423 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a carried-on step keeps its start, and a run without GITHUB_ENV writes none" |
 | 1423 | sh list \|\| operand | `[ -z "${GITHUB_ENV:-}" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a carried-on step keeps its start, and a run without GITHUB_ENV writes none" |
-| 1423 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1423 | sh output statement | (before `echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1431 | sh while whole | `:` | `true` | Not caught, equivalent: `while :` and `while true` are the same loop |
 | 1431 | sh while whole | `:` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1433 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_REVIEW_MODE…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -549,7 +549,7 @@ form GitHub accepts.
 | 1531 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
 | 1531 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
 | 1531 | sh if && operand | `[ ! -e .git ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml: .git comes back only when it was moved out and nothing took its place" |
-| 1532 | sh output statement | (the line's start) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
+| 1532 | sh output statement | (before `mv -- "$RUNNER_TEMP/checkout-git" .git`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
 | 1535 | if: whole | `always()` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1535 | if: whole | `always()` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1544 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
@@ -614,14 +614,14 @@ form GitHub accepts.
 | 1694 | sh case arm | `*` | `__mutant_never__` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
 | 1697 | sh list condition | `[ -z "$url" ]` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict is this run's report, not a later one or a bot comment that is no report" |
 | 1697 | sh list condition | `[ -z "$url" ]` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: a verdict with no report of this run links no report" |
-| 1701 | sh output statement | (the line's start) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
+| 1701 | sh output statement | (before `gh api -X PATCH "repos/$REPO/check-runs/$VERDICT_CHECK_ID" -`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
 | 1706 | if: && operand | `(failure() \|\| cancelled())` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1706 | if: whole | `(failure() \|\| cancelled()) && env.VERDICT_CHECK_ID != ''` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1706 | if: whole | `(failure() \|\| cancelled()) && env.VERDICT_CHECK_ID != ''` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1706 | if: \|\| operand | `failure()` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1706 | if: \|\| operand | `cancelled()` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1706 | if: && operand | `env.VERDICT_CHECK_ID != ''` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
-| 1714 | sh output statement | (the line's start) | `: ` | `pr-review-step-rules.test.mjs`: "a review that did not finish completes its pending verdict as action_required" |
+| 1714 | sh output statement | (before `gh api -X PATCH "repos/$REPO/check-runs/$VERDICT_CHECK_ID" -`) | `: ` | `pr-review-step-rules.test.mjs`: "a review that did not finish completes its pending verdict as action_required" |
 | 1725 | if: && operand | `failure()` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1725 | if: whole | `failure() && env.VERDICT_CHECK_ID == '' && env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1725 | if: whole | `failure() && env.VERDICT_CHECK_ID == '' && env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
@@ -644,7 +644,7 @@ form GitHub accepts.
 | 1763 | sh if whole | `[ "$(jq -r .isCrossRepository <<<"$pr")" != "false" ]` | `true` | `pr-review-no-verdict.test.mjs`: "a dispatch that failed before its checkout records on the pull request's head" |
 | 1763 | sh if whole | `[ "$(jq -r .isCrossRepository <<<"$pr")" != "false" ]` | `false` | `pr-review-no-verdict.test.mjs`: "a dispatch for a fork's pull request records nothing" |
 | 1765 | sh skip statement | `exit 0` | `:` | `pr-review-no-verdict.test.mjs`: "a dispatch for a fork's pull request records nothing" |
-| 1772 | sh output statement | (the line's start) | `: ` | `pr-review-no-verdict.test.mjs`: "an event by writers records no verdict on the event's head" |
+| 1772 | sh output statement | (before `gh api -X POST "repos/$REPO/check-runs" --input - --jq '"rec`) | `: ` | `pr-review-no-verdict.test.mjs`: "an event by writers records no verdict on the event's head" |
 
 </details>
 
