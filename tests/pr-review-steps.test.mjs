@@ -336,3 +336,116 @@ test("pr-review.yml: the verdict is the report's first heading, and a bare adden
     ["action_required", "R?: Verdict not stated"],
   );
 });
+
+// ---------- rules a rule-by-rule sweep found no test for (#94) ----------
+
+test("pr-review.yml: a doubled title line fails the report check too", (t) => {
+  const r = reportCheck(t, [bot(1, report([...reviewed(), "Title reviewed: fix: page the listing"]))]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /found 1, 1, 2 and 1\)/);
+});
+
+test("pr-review.yml: an unmoved base is compared without asking for merge bases", (t) => {
+  const r = reportCheck(t, [bot(1, report(reviewed()))]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.ok(!r.args.some((a) => a.includes("/compare/")), r.args.join("\n"));
+});
+
+// The report check with the base branch's server one that predates the run
+// marker (none) or writes only the run id (id).
+function legacyCheck(t, server, comments) {
+  const dir = tempDir(t);
+  const kit = path.join(dir, "mcp-server.mjs");
+  fs.writeFileSync(
+    kit,
+    server === "id" ? "// marks a report <!-- pr-review run ID -->\n" : "// no marker\n",
+  );
+  const script = stepScript(FILE, "Fail when no review report was posted").replaceAll(
+    "/opt/agent-kit/mcp-server.mjs",
+    '"$KIT_SERVER"',
+  );
+  return step(t, null, {
+    script,
+    env: {
+      GITHUB_RUN_ID: "1001",
+      GITHUB_RUN_ATTEMPT: "1",
+      LAST_COMMENT_ID: "50",
+      STARTED: "2026-01-01T00:00:00Z",
+      KIT_SERVER: kit,
+    },
+    rules: [
+      { match: "^api --paginate repos/acme/widgets/issues/7/comments --jq", json: comments },
+      { match: "^api --method GET repos/acme/widgets/pulls/7$", stdout: PULL },
+    ],
+  });
+}
+const at = (c, id, created_at = "2026-01-01T00:00:05Z") => ({ ...c, id, created_at });
+const WARNED = /::warning::the base branch's server predates the run marker/;
+
+test("pr-review.yml: with a base server that writes no marker, the report is the bot's first one after the start", (t) => {
+  const ok = legacyCheck(t, "none", [at(bot(0, report(reviewed(), "")), 51)]);
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.match(ok.stdout, WARNED);
+  for (const [name, c] of [
+    ["a comment from before the review", at(bot(0, report(reviewed(), "")), 50)],
+    ["one in the review's first second but older", at(bot(0, report(reviewed(), "")), 51, "2025-12-31T23:59:59Z")],
+    ["a person's", at(human(0, report(reviewed(), "")), 51)],
+    ["a bot comment that is no report", at(bot(0, "Not a report."), 51)],
+  ]) {
+    const r = legacyCheck(t, "none", [c]);
+    assert.equal(r.status, 1, `${name}: ${r.stdout}`);
+    assert.match(r.stdout, /::error::the reviewer posted no report on pull request 7/, name);
+    assert.doesNotMatch(r.stdout, WARNED, name);
+  }
+});
+
+test("pr-review.yml: with a base server that writes the run id alone, the report must carry it", (t) => {
+  const ok = legacyCheck(t, "id", [at(bot(0, report(reviewed(), "<!-- pr-review run 1001 -->")), 51)]);
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  const other = legacyCheck(t, "id", [at(bot(0, report(reviewed(), "<!-- pr-review run 1000 -->")), 51)]);
+  assert.equal(other.status, 1, other.stdout);
+});
+
+test("pr-review.yml: a report with this run's marker counts whatever the server, and the current server allows no fallback", (t) => {
+  // The marker decides, even for a comment older than the start boundary.
+  const marked = legacyCheck(t, "none", [at(bot(0, report(reviewed())), 3)]);
+  assert.equal(marked.status, 0, marked.stdout + marked.stderr);
+  assert.doesNotMatch(marked.stdout, WARNED);
+  // The current server writes the full marker: an id-only one is not this run's report.
+  const r = reportCheck(t, [bot(60, report(reviewed(), "<!-- pr-review run 1001 -->"))]);
+  assert.equal(r.status, 1, r.stdout);
+});
+
+test("pr-review.yml: the verdict is this run's report, not a later one or a bot comment that is no report", (t) => {
+  const later = "## Review R3: No blocking findings\n\n<!-- pr-review run 1002.1 -->";
+  const check = verdict(t, [mine("## Review R2: Changes required"), later]);
+  assert.deepEqual([check.conclusion, check.output.title], ["failure", "R2: Changes required"]);
+  assert.match(check.output.summary, /See \[the report\]\(https:\/\/github\.com\/acme\/widgets\/pull\/7#c1\)\./);
+  const record = verdict(t, [`Security scan record.\n\n${MARKER}`, mine("## Review R2: Changes required")]);
+  assert.deepEqual([record.conclusion, record.output.title], ["failure", "R2: Changes required"]);
+});
+
+test("pr-review.yml: a bare addendum keeps only a stated verdict, through earlier bare addenda", (t) => {
+  const old = (heading, n) => `${heading}\n\nOld.\n\n<!-- pr-review run 90${n}.1 -->`;
+  const through = verdict(t, [
+    old("## Review R1: Changes required", 1),
+    old("## Review R1 addendum", 2),
+    mine("## Review R1 addendum"),
+  ]);
+  assert.deepEqual([through.conclusion, through.output.title], ["failure", "R1: Changes required"]);
+  const unstated = verdict(t, [old("## Review R1: unclear", 1), mine("## Review R1 addendum")]);
+  assert.deepEqual([unstated.conclusion, unstated.output.title], ["action_required", "R?: Verdict not stated"]);
+  const reset = verdict(t, [
+    old("## Review R1: No blocking findings", 1),
+    old("## Review R2: unclear", 2),
+    mine("## Review R2 addendum"),
+  ]);
+  assert.deepEqual([reset.conclusion, reset.output.title], ["action_required", "R?: Verdict not stated"]);
+});
+
+test("pr-review.yml: a verdict with no report of this run links no report", (t) => {
+  const check = verdict(t, ["## Review R1: No blocking findings\n\nNo marker."]);
+  assert.equal(check.conclusion, "success");
+  assert.doesNotMatch(check.output.summary, /See \[the report\]/);
+  assert.equal(check.details_url, "https://github.com/acme/widgets/pull/7");
+});

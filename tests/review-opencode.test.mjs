@@ -635,3 +635,31 @@ test("pr-review.yml, Run the review on OpenCode: the server gets the public-cont
   assert.equal(env.PUBLIC_CONTENT_CHECK, serverEnv.PUBLIC_CONTENT_CHECK);
   assert.equal(env.PRIVATE_REPO_NAMES_FILE, serverEnv.PRIVATE_REPO_NAMES_FILE);
 });
+
+test("pr-review.yml: .git comes back only when it was moved out and nothing took its place", (t) => {
+  const dir = tempDir(t);
+  const temp = path.join(dir, "runner-temp");
+  const work = path.join(dir, "checkout");
+  fs.mkdirSync(temp);
+  fs.mkdirSync(work);
+  const back = () =>
+    spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", stepScript(FILE, "Put .git back in the checkout")], {
+      cwd: work,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, HOME: dir, RUNNER_TEMP: temp },
+    });
+  // Neither: a run that failed before the checkout had a .git.
+  const neither = back();
+  assert.equal(neither.status, 0, neither.stdout + neither.stderr);
+  assert.ok(!fs.existsSync(path.join(work, ".git")));
+  // Both: a .git is there already; the saved one is left where it is.
+  fs.mkdirSync(path.join(work, ".git"));
+  fs.writeFileSync(path.join(work, ".git", "HEAD"), "ref: refs/heads/main\n");
+  fs.mkdirSync(path.join(temp, "checkout-git"));
+  fs.writeFileSync(path.join(temp, "checkout-git", "HEAD"), "ref: refs/heads/saved\n");
+  const both = back();
+  assert.equal(both.status, 0, both.stdout + both.stderr);
+  assert.deepEqual(fs.readdirSync(path.join(work, ".git")), ["HEAD"]);
+  assert.equal(fs.readFileSync(path.join(work, ".git", "HEAD"), "utf8"), "ref: refs/heads/main\n");
+  assert.ok(fs.existsSync(path.join(temp, "checkout-git", "HEAD")));
+});
