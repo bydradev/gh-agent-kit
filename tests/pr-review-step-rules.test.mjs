@@ -197,3 +197,33 @@ test("a base with both public-content checks installs only the Node one", (t) =>
   assert.equal(step.env.match(/^PUBLIC_CONTENT_CHECK=/gm).length, 1);
   assert.match(step.env, /^PUBLIC_CONTENT_CHECK=\/opt\/agent-kit\/public-content\.mjs$/m);
 });
+
+test("the review step reads the last result from a stream that Claude Code wrote as an array", (t) => {
+  const dir = tempDir(t);
+  const stub = path.join(dir, "claude");
+  const result = {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    num_turns: 3,
+    total_cost_usd: 0.25,
+    usage: { input_tokens: 1, cache_read_input_tokens: 2, cache_creation_input_tokens: 3, output_tokens: 4 },
+    result: "Reported.",
+  };
+  const stream = [{ type: "system", subtype: "init" }, { ...result, subtype: "error_during_execution", is_error: true }, result];
+  fs.writeFileSync(path.join(dir, "answer.json"), JSON.stringify(stream));
+  fs.writeFileSync(stub, `#!/bin/bash\ncat "${path.join(dir, "answer.json")}"\n`, { mode: 0o755 });
+  const script = stepScript(FILE, "Run the review").replaceAll("/opt/agent-kit/claude", stub);
+  const r = runStep(dir, script, {
+    RUNNER_TEMP: dir,
+    RESULT: path.join(dir, "result.json"),
+    KIT_REVIEW_PROVIDER: "anthropic",
+    ANTHROPIC_API_KEY: "ak",
+    KIT_REVIEW_MODEL: "claude-opus-5-5",
+    KIT_REVIEW_MAX_TURNS: "80",
+    PROMPT: "review",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^subtype: success$/m);
+  assert.match(r.stdout, /^turns: 3$/m);
+});

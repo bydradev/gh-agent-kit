@@ -536,16 +536,19 @@ test("the server answers each request once, a notification never, and an unknown
   assert.equal(r.text, "pr failed: gh: Not Found (HTTP 404)");
 });
 
-test("with no private names configured, the public-content check gets no PRIVATE_REPO_NAMES at all", async (t) => {
+test("with no private names configured, the public-content check gets no PRIVATE_REPO_NAMES at all, and no text is left on disk", async (t) => {
   const c = checkout(t);
+  const tmp = tempDir(t);
   // A check that cannot run (exit 2) when the variable is there, even empty.
   const check = path.join(tempDir(t), "check.mjs");
   fs.writeFileSync(check, 'process.exit("PRIVATE_REPO_NAMES" in process.env ? 2 : 0);\n');
   const server = await startServer(t, {
     mode: "review",
-    env: { ...c.env, PUBLIC_CONTENT_CHECK: check },
+    env: { ...c.env, PUBLIC_CONTENT_CHECK: check, TMPDIR: tmp },
     rules: [pullRule(c), { match: "^api -X POST repos/acme/widgets/pulls/7/comments ", stdout: { html_url: "u" } }],
   });
   const r = await server.call("inline_comment", { path: "b.txt", line: 1, body: "A finding." });
   assert.equal(r.isError, false, r.text);
+  // The text the check read is removed with its folder.
+  assert.deepEqual(fs.readdirSync(tmp), []);
 });
