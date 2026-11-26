@@ -971,6 +971,13 @@ test("remove_label takes agent:approved off only on a fresh triage or a later ed
   });
   assert.equal((await reopened.call("remove_label", { label: "agent:approved" })).isError, false);
   assert.equal((await reopened.call("remove_label", { label: "in-progress" })).isError, false);
+  // Each removal is the edit itself, not just an answer that it was made.
+  assert.deepEqual(
+    ghCalls(reopened)
+      .filter((c) => c.args[0] === "issue")
+      .map((c) => c.args.slice(-2).join(" ")),
+    ["--remove-label agent:approved", "--remove-label in-progress"],
+  );
   // requested records the operator's request and is never the bot's to
   // remove; ready, blocked and docs are no longer kit labels.
   for (const label of ["wontfix", "requested", "ready", "blocked", "docs"]) {
@@ -1027,6 +1034,12 @@ test("add_label adds only the bot's labels, never needs-triage", async (t) => {
     ],
   });
   assert.equal((await server.call("add_label", { label: "P2" })).isError, false);
+  assert.deepEqual(
+    ghCalls(server)
+      .filter((c) => c.args[0] === "issue")
+      .map((c) => c.args.join(" ")),
+    ["issue edit 8 --repo acme/widgets --add-label P2"],
+  );
   for (const label of ["needs-triage", "agent:approved", "requested", "ready", "blocked", "docs"])
     assert.match((await server.call("add_label", { label })).text, /may not add/);
 });

@@ -137,6 +137,37 @@ test("the verdict and start steps write what the later steps read", (t) => {
   assert.equal(started([]).env.LAST_COMMENT_ID, "0");
 });
 
+test("a review that did not finish completes its pending verdict as action_required", (t) => {
+  const r = run(t, "Close the pending verdict when the review did not finish", {
+    rules: [{ match: "^api -X PATCH repos/acme/widgets/check-runs/4242 ", stdout: "recorded\n" }],
+    env: {
+      REPO: "acme/widgets",
+      VERDICT_CHECK_ID: "4242",
+      GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_RUN_ID: "1001",
+      GITHUB_RUN_ATTEMPT: "2",
+    },
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const calls = r
+    .calls()
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .filter((c) => c.args.join(" ").includes("check-runs/4242"));
+  assert.equal(calls.length, 1);
+  const check = JSON.parse(calls[0].stdin);
+  assert.deepEqual(
+    [check.status, check.conclusion, check.details_url, check.output.title],
+    [
+      "completed",
+      "action_required",
+      "https://github.com/acme/widgets/actions/runs/1001/attempts/2",
+      "No verdict: the review did not finish",
+    ],
+  );
+});
+
 // The reviewer rules step, with sudo stubbed to keep what it installs.
 function runRules(t, dir) {
   const bin = tempDir(t);
