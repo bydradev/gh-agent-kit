@@ -16,7 +16,8 @@ files first:
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 
 **In short (phase 1):** of 1,068 rules, 1,028 are caught by a test, 10
-of them by a time limit (the mutant never ends). The 40 left are listed
+of them by a time limit (the test never ends: an endless loop, or a
+reply it waits for never comes). The 40 left are listed
 with the reason:
 
 | Reason | `pr-review.yml` | `mcp-server.mjs` |
@@ -142,7 +143,7 @@ form GitHub accepts.
 | 146 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | `kit-settings.test.mjs`: "a file that cannot be read fails the run instead of using the defaults" |
 | 146 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | `kit-settings.test.mjs`: "no file leaves the variables and the defaults" |
 | 161 | sh while \|\| operand | `IFS= read -r l` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
-| 161 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | `kit-settings.test.mjs`: never ends, caught by the time limit |
+| 161 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | `kit-settings.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 161 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 161 | sh while \|\| operand | `[ -n "$l" ]` | `false` | Not caught, equivalent: the lines come from a here-string, which always ends its last line with a newline (bash 5.2, checked 2026-11-27), so `read` never ends on an unterminated line here |
 | 164 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
@@ -512,10 +513,10 @@ form GitHub accepts.
 | 1442 | jq if whole | `. > 3600` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1446 | sh if \|\| operand | `[ -z "$pause" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1446 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
-| 1446 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `false` | `review-opencode.test.mjs`: never ends, caught by the time limit |
+| 1446 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `false` | `review-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1446 | sh if \|\| operand | `[ -z "$session" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run" |
 | 1446 | sh if \|\| operand | `[ "$left" -le 0 ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run" |
-| 1447 | sh skip statement | `break` | `:` | `review-opencode.test.mjs`: never ends, caught by the time limit |
+| 1447 | sh skip statement | `break` | `:` | `review-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1450 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1450 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
 | 1455 | sh list condition | `[ "$pause" -le "$delay" ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most" |
@@ -593,7 +594,7 @@ form GitHub accepts.
 | 1638 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1649 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict comes from the bot's report, not a comment with its marker" |
 | 1649 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict is this run's report, not a later one or a bot comment that is no report" |
-| 1662 | sh while whole | `IFS= read -r line` | `true` | `pr-review-steps.test.mjs`: never ends, caught by the time limit |
+| 1662 | sh while whole | `IFS= read -r line` | `true` | `pr-review-steps.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1662 | sh while whole | `IFS= read -r line` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
 | 1663 | sh list condition | `[ -n "$line" ]` | `true` | Not caught, equivalent: an empty line comes only from an empty listing, which leaves no report either way |
 | 1663 | sh list condition | `[ -n "$line" ]` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: the verdict check passes only on No blocking findings" |
@@ -760,7 +761,7 @@ form GitHub accepts.
 | 310 | js ternary test | `found.length > CONTENT_SHOWN` | `true` | Not a rule: the wording of the refusal (an "and 0 more" tail); the post is refused either way |
 | 310 | js ternary test | `found.length > CONTENT_SHOWN` | `false` | `public-content-guard.test.mjs`: "an exit 1 without a line the check names, and a long list of findings" |
 | 316 | js output statement | `fs.rmSync(dir, { recursive: true, force: true });` | `void 0;` | `mcp-server-rules.test.mjs`: "with no private names configured, the public-content check gets no PRIVATE_REPO_NAMES at all, and no text is left on disk" |
-| 367 | js for test | `prev !== out` | `true` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
+| 367 | js for test | `prev !== out` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 367 | js for test | `prev !== out` | `false` | `file-issue.test.mjs`: "file_issue keeps the reviewer's text from forging headings or another finding's marker" |
 | 393 | js ternary test | `references` | `true` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
 | 393 | js ternary test | `references` | `false` | `file-issue.test.mjs`: "file_issue keeps the reviewer's text from forging headings or another finding's marker" |
@@ -1175,9 +1176,9 @@ form GitHub accepts.
 | 1827 | js \|\| operand (if) | `!env.DISPATCH_LOG` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 1828 | js \|\| operand (if) | `!env.DISPATCH_QUEUE` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 1829 | js \|\| operand (if) | `!env.GITHUB_REF_NAME` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
-| 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `true` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
-| 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `false` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
-| 1871 | js if test | `!line.trim()` | `true` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
+| 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1871 | js if test | `!line.trim()` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1871 | js if test | `!line.trim()` | `false` | Not caught, equivalent: a blank line fails JSON.parse just below, which also drops it |
 | 1879 | js if test | `method === "initialize"` | `true` | `mcp-server-rules.test.mjs`: "the server reads the job token from GH_TOKEN_FILE and gives it to gh" |
 | 1879 | js if test | `method === "initialize"` | `false` | `mcp-server.test.mjs`: "tools/list names every review tool and an unknown tool is an error" |
@@ -1186,7 +1187,7 @@ form GitHub accepts.
 | 1885 | js if test | `method === "notifications/initialized" \|\| method === "ping"` | `false` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
 | 1885 | js \|\| operand (if) | `method === "ping"` | `false` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
 | 1886 | js if test | `id !== undefined` | `true` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
-| 1886 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
+| 1886 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1887 | js if test | `method === "tools/list"` | `true` | `mcp-server-rules.test.mjs`: "the server reads the job token from GH_TOKEN_FILE and gives it to gh" |
 | 1887 | js if test | `method === "tools/list"` | `false` | `mcp-server.test.mjs`: "tools/list names every review tool and an unknown tool is an error" |
 | 1895 | js if test | `method === "tools/call"` | `true` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
@@ -1196,7 +1197,7 @@ form GitHub accepts.
 | 1906 | js ternary test | `typeof e.stderr === "string"` | `true` | `mcp-server-rules.test.mjs`: "search fails when GitHub cut it short, and ends at the 1,000th result without asking for more" |
 | 1906 | js ternary test | `typeof e.stderr === "string"` | `false` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
 | 1914 | js if test | `id !== undefined` | `true` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
-| 1914 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: never ends, caught by the time limit |
+| 1914 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 
 </details>
 
