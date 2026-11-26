@@ -378,6 +378,23 @@ test("search starts at 0 for a start it cannot use, from the start it is given o
   }
   const from = await page(server, "search", { terms: "x", start: 1 });
   assert.deepEqual(from.items.map((i) => i.number), [2, 3]);
+  // Well short of GitHub's cap: nothing was cut.
+  assert.equal(from.truncated, undefined);
+});
+
+test("triage's reads refuse a kind, terms or number of the wrong type", async (t) => {
+  const server = await triage(t, []);
+  for (const [tool, args, message] of [
+    ["comment_body", { kind: "inline", id: 5 }, /^kind must be issue/],
+    ["search", { terms: 5 }, /^terms must be non-empty text/],
+    ["search", { terms: ["x"] }, /^terms must be non-empty text/],
+    ["read_issue", { number: "12" }, /^number must be a positive integer/],
+  ]) {
+    const r = await server.call(tool, args);
+    assert.equal(r.isError, true, `${tool} ${JSON.stringify(args)}: ${r.text}`);
+    assert.match(r.text, message, `${tool} ${JSON.stringify(args)}`);
+  }
+  assert.deepEqual(ghCalls(server), []);
 });
 
 test("search fails when GitHub cut it short, and ends at the 1,000th result without asking for more", async (t) => {
