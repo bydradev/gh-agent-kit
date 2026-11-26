@@ -227,3 +227,29 @@ test("the review step reads the last result from a stream that Claude Code wrote
   assert.match(r.stdout, /^subtype: success$/m);
   assert.match(r.stdout, /^turns: 3$/m);
 });
+
+test("the settings step hands both runners the denied and allowed tool lists", (t) => {
+  const dir = tempDir(t);
+  const githubEnv = path.join(dir, "github-env");
+  fs.writeFileSync(githubEnv, "");
+  const r = runStep(dir, stepScript(FILE, "Write the model's settings and the MCP server's configuration"), {
+    RUNNER_TEMP: dir,
+    GITHUB_ENV: githubEnv,
+    GITHUB_WORKSPACE: "/work/ws",
+    GITHUB_RUN_ID: "1001",
+    GITHUB_RUN_ATTEMPT: "1",
+    GH_TOKEN: "job-token",
+    REPO: "acme/widgets",
+    PR: "7",
+    EVENT_HEAD: HEAD,
+    EVENT_BASE: "main",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const env = Object.fromEntries(
+    fs.readFileSync(githubEnv, "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)),
+  );
+  const denied = env.REVIEW_DENIED.split(",");
+  for (const tool of ["Bash", "Edit", "Write", "WebFetch", "Agent", "Read(//proc/**)", "Read(//work/ws/.git/**)"])
+    assert.ok(denied.includes(tool), `${tool} is not denied`);
+  assert.ok(env.REVIEW_ALLOWED.split(",").includes("mcp__agent-kit__post_report"));
+});
