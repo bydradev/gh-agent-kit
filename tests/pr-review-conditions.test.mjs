@@ -86,7 +86,9 @@ test("the review job runs after the settings job failed or chose a mode that rev
     needs: { settings: { result, outputs } },
   });
   check({ job: "review" }, [
-    ["the settings job failed", needs("failure", {}), true],
+    // A failed need makes the job's status a failure, so this case runs
+    // only through the condition's own status function.
+    ["the settings job failed", needs("failure", {}, "failure"), true],
     ["the run was cancelled", needs("failure", {}, "cancelled"), false],
     ["mode push", needs("success", { SKIP: "", KIT_REVIEW_MODE: "push" }), true],
     ["mode open", needs("success", { SKIP: "", KIT_REVIEW_MODE: "open" }), true],
@@ -276,4 +278,6 @@ test("the evaluator reads expressions as GitHub does", () => {
   assert.equal(runs("always()", { status: "failure" }), true);
   assert.equal(runs("${{ !cancelled() }}", { status: "failure" }), true);
   assert.equal(runs("startsWith('Release-Please--x', 'release-please--')", {}), true);
+  assert.equal(runs("!Cancelled() && true", { status: "failure" }), true);
+  assert.equal(runs("Success()", { status: "failure" }), false);
 });

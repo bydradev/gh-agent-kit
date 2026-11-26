@@ -51,6 +51,8 @@ test("the server reads the job token from GH_TOKEN_FILE and gives it to gh", asy
 // could point its calls elsewhere.
 async function refusesToStart(t, mode, env) {
   const server = await startServer(t, { mode, env, rules: [] });
+  // No input: a server that started would end at once, with code 0.
+  server.child.stdin.end();
   const code = await server.exited;
   assert.notEqual(code, 0, `${mode} ${JSON.stringify(env)} started`);
   assert.deepEqual(ghCalls(server), []);
@@ -390,8 +392,10 @@ test("search starts at 0 for a start it cannot use, from the start it is given o
   }
   const from = await page(server, "search", { terms: "x", start: 1 });
   assert.deepEqual(from.items.map((i) => i.number), [2, 3]);
-  const text = await page(server, "search", { terms: "x", start: "1500" });
-  assert.deepEqual(text.items.map((i) => i.number), [1, 2, 3]);
+  for (const start of ["1500", 1000.5]) {
+    const p = await page(server, "search", { terms: "x", start });
+    assert.deepEqual([p.start, p.items.map((i) => i.number), p.truncated], [0, [1, 2, 3], undefined], String(start));
+  }
   // Well short of GitHub's cap: nothing was cut.
   assert.equal(from.truncated, undefined);
 });
@@ -520,10 +524,28 @@ test("the server answers each request once, a notification never, and an unknown
   const ping = await server.request("ping", {});
   assert.deepEqual(ping.result, {});
   assert.equal(server.lines.length, 1, server.lines.join("\n"));
+  // The client's initialized notification sent with an id, as a request,
+  // is answered like a ping.
+  const initialized = await server.request("notifications/initialized", {});
+  assert.deepEqual(initialized.result, {});
   const unknown = await server.request("resources/list", {});
   assert.deepEqual(unknown.error, { code: -32601, message: "unknown method resources/list" });
   // A failed gh call answers with gh's own message, which says why.
   const r = await server.call("pr");
   assert.equal(r.isError, true);
   assert.equal(r.text, "pr failed: gh: Not Found (HTTP 404)");
+});
+
+test("with no private names configured, the public-content check gets no PRIVATE_REPO_NAMES at all", async (t) => {
+  const c = checkout(t);
+  // A check that cannot run (exit 2) when the variable is there, even empty.
+  const check = path.join(tempDir(t), "check.mjs");
+  fs.writeFileSync(check, 'process.exit("PRIVATE_REPO_NAMES" in process.env ? 2 : 0);\n');
+  const server = await startServer(t, {
+    mode: "review",
+    env: { ...c.env, PUBLIC_CONTENT_CHECK: check },
+    rules: [pullRule(c), { match: "^api -X POST repos/acme/widgets/pulls/7/comments ", stdout: { html_url: "u" } }],
+  });
+  const r = await server.call("inline_comment", { path: "b.txt", line: 1, body: "A finding." });
+  assert.equal(r.isError, false, r.text);
 });

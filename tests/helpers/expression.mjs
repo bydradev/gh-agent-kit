@@ -7,8 +7,9 @@
 // strings and turns mismatched types into numbers (null 0, true 1, false 0,
 // a string its JSON number or NaN, '' 0, an array or object NaN); falsy
 // false, 0, -0, '', null; contains, startsWith and endsWith ignoring case;
-// fromJSON; and the status functions, with success() applied when an if:
-// names none of them. A missing property reads as null.
+// fromJSON; and the status functions, with success() && applied in front of
+// an if: that names none of them. Function names ignore case. A missing
+// property reads as null.
 import fs from "node:fs";
 import path from "node:path";
 import { root } from "./server.mjs";
@@ -150,7 +151,7 @@ function parse(src) {
         if (peek(",")) p++;
       }
       eat(")");
-      const name = tok.v;
+      const name = tok.v.toLowerCase();
       if (STATUS.has(name)) usesStatus = true;
       return (ctx) =>
         call(
@@ -241,13 +242,13 @@ function call(name, args, ctx) {
       return Array.isArray(args[0])
         ? args[0].some((x) => compare("==", x, args[1]))
         : str(args[0]).toLowerCase().includes(str(args[1]).toLowerCase());
-    case "startsWith":
+    case "startswith":
       return str(args[0]).toLowerCase().startsWith(str(args[1]).toLowerCase());
-    case "endsWith":
+    case "endswith":
       return str(args[0]).toLowerCase().endsWith(str(args[1]).toLowerCase());
-    case "fromJSON":
+    case "fromjson":
       return JSON.parse(str(args[0]));
-    case "toJSON":
+    case "tojson":
       return JSON.stringify(args[0], null, 2);
     case "format":
       return str(args[0]).replace(/\{(\d+)\}/g, (_, n) => str(args[Number(n) + 1]));
@@ -262,8 +263,10 @@ function call(name, args, ctx) {
 export function runs(condition, ctx) {
   const src = condition.trim().replace(/^\$\{\{([\s\S]*)\}\}$/, "$1");
   const { fn, usesStatus } = parse(src);
-  const v = truthy(fn(ctx));
-  return usesStatus ? v : v && (ctx.status ?? "success") === "success";
+  // Without a status function the runner evaluates success() && (...),
+  // which short-circuits before the condition is read.
+  if (!usesStatus && (ctx.status ?? "success") !== "success") return false;
+  return truthy(fn(ctx));
 }
 
 // The if: of a job (by id) or a step (by name) in .github/workflows/<file>,
