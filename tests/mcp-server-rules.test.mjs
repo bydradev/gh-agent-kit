@@ -237,3 +237,40 @@ test("the issue tools name a repo option that is not text as another repository'
   assert.equal(p.items[0].withheld, "the author is unknown; the body is not shown");
   assert.ok(!ghCalls(server).some((call) => call.args.join(" ").includes("/collaborators/")));
 });
+
+test("diff for one path shows that path alone, and the issue tools take only an integer number", async (t) => {
+  const c = checkout(t);
+  fs.writeFileSync(path.join(c.repo.dir, "c.txt"), "c\n");
+  const head = c.repo.commit("c.txt", "c\n", "another file");
+  const server = await startServer(t, { mode: "review", env: { ...c.env, HEAD_SHA: head }, rules: [pullRule({ ...c, head })] });
+  const one = await server.call("diff", { path: "b.txt" });
+  assert.equal(one.isError, false, one.text);
+  assert.match(one.text, /^diff --git a\/b\.txt b\/b\.txt$/m);
+  assert.doesNotMatch(one.text, /c\.txt/);
+  const all = await server.call("diff", {});
+  assert.match(all.text, /^diff --git a\/c\.txt b\/c\.txt$/m);
+  for (const tool of ["issue", "issue_comments"])
+    for (const number of ["12", 1.5]) {
+      const r = await server.call(tool, { number });
+      assert.equal(r.isError, true, `${tool} ${JSON.stringify(number)}: ${r.text}`);
+      assert.match(r.text, /^number must be a positive integer/);
+    }
+});
+
+test("range_diff takes only text shas, and sees an old commit the base now holds as no change", async (t) => {
+  const repo = gitRepo(t);
+  const base0 = repo.commit("a.txt", "a\n", "base");
+  repo.git("checkout", "-q", "-b", "feature");
+  repo.git("commit", "-q", "--allow-empty", "-m", "chore: an empty commit");
+  const empty = repo.git("rev-parse", "HEAD").trim();
+  const head = repo.commit("b.txt", "b\n", "feat: b");
+  // The base took the empty commit in: the head's diff is the same.
+  repo.git("update-ref", "refs/remotes/origin/main", empty);
+  const env = { PR: "7", HEAD_SHA: head, BASE: "main", GITHUB_WORKSPACE: repo.dir };
+  const server = await startServer(t, { mode: "review", env, rules: [pullRule({ baseSha: empty, head })] });
+  const shas = await server.call("range_diff", { old_head: 1234567, new_head: 1234567 });
+  assert.equal(shas.text, "heads must be commit shas");
+  const r = await server.call("range_diff", { old_head: head, new_head: head, old_base: base0 });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /so only which commits the base holds changed\.$/);
+});
