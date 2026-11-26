@@ -89,7 +89,9 @@ Side paths:
   (the reviewer's `file_issue`) starts under `needs-operator`, and no event
   on it reaches the bot, nor does the sweep, until the operator adds
   `needs-triage`, which vouches for its text as it stands. It then follows
-  the main path; after an edit it needs `needs-triage` again.
+  the main path; after an edit it needs `needs-triage` again. Until then,
+  the triage bot and the reviewer see it in other runs with its title and
+  body withheld.
 - **Work the operator asked for directly.** The agent the operator asked
   files the issue with the request quoted and `requested` beside the form's
   labels (`github-issue-file`), then waits for triage. The bot plans it

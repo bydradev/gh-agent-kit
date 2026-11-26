@@ -497,7 +497,7 @@ const listings = (ownerType) => [
       items: [
         { ...otherIssue(41, user("dra")), author_association: "OWNER" },
         { ...otherIssue(42, user("stranger")), author_association: "COLLABORATOR" },
-        { ...otherIssue(45, user("github-actions[bot]", "Bot")), author_association: "NONE" },
+        { ...otherIssue(45, user("dependabot[bot]", "Bot")), author_association: "NONE" },
         { ...otherIssue(46, user("passerby")), author_association: "FIRST_TIME_CONTRIBUTOR" },
       ],
     },
@@ -543,7 +543,7 @@ test("triage search and open_prs withhold titles by authors without write access
     [
       [41, "title by dra", "dra", undefined],
       [42, null, "stranger", "the author has no access, not write; the title is not shown"],
-      [45, "title by github-actions[bot]", "github-actions[bot]", undefined],
+      [45, "title by dependabot[bot]", "dependabot[bot]", undefined],
       [
         46,
         null,
@@ -640,7 +640,7 @@ test("triage looks every listed author up in an organization's repository", asyn
     [
       [41, "title by dra", undefined],
       [42, null, "the author has no access, not write; the title is not shown"],
-      [45, "title by github-actions[bot]", undefined],
+      [45, "title by dependabot[bot]", undefined],
       [46, "title by passerby", undefined],
     ],
   );
