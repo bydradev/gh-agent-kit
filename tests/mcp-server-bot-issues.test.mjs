@@ -42,8 +42,11 @@ function rules({
   snapshots = ["title of 30"],
   labels = ["needs-triage"],
   labelSnapshots,
+  bodySnapshots,
+  editedSnapshots,
   comments = [],
 }) {
+  const reads = (labelSnapshots || bodySnapshots || editedSnapshots || snapshots).length;
   return [
     {
       match: "^api --method GET repos/acme/widgets/issues/30$",
@@ -52,13 +55,13 @@ function rules({
     { match: "^api --method GET repos/acme/widgets/issues/31$", stdout: issue(31, OTHER_APP) },
     {
       match: "^api graphql .* -F n=30$",
-      sequence: (labelSnapshots || snapshots).map((_, k) => ({
+      sequence: Array.from({ length: reads }, (_, k) => ({
         data: {
           repository: {
             issue: {
-              title: labelSnapshots ? snapshots[0] : snapshots[k],
-              body: "body of 30",
-              lastEditedAt: edited,
+              title: snapshots.length === reads ? snapshots[k] : snapshots[0],
+              body: bodySnapshots ? bodySnapshots[k] : "body of 30",
+              lastEditedAt: editedSnapshots ? editedSnapshots[k] : edited,
               labels: {
                 nodes: (labelSnapshots ? labelSnapshots[k] : labels).map((name) => ({ name })),
               },
@@ -278,6 +281,44 @@ const CASES = [
         .flat(),
     },
     /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  // Cases a rule-by-rule sweep found no test for (#94).
+  [
+    "whose body changes while the vouch is read",
+    {
+      events: [mark("labeled", person("dra"), T2)],
+      edited: T1,
+      bodySnapshots: Array(6).fill(["body of 30, unvouched", "body of 30"]).flat(),
+    },
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  [
+    "whose last edit moves while the vouch is read",
+    {
+      events: [mark("labeled", person("dra"), T2)],
+      editedSnapshots: Array(6).fill([T1, T1.replace("10:00", "10:01")]).flat(),
+    },
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  ["labelled by an actor GitHub no longer names", { events: [mark("labeled", null, T2)] }, NOT_VOUCHED],
+  [
+    "planned by triage, then its needs-triage removed by a person",
+    {
+      events: [mark("labeled", person("dra"), T1), mark("unlabeled", person("dra"), T2)],
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\nplan", T3)],
+    },
+    NOT_VOUCHED,
+  ],
+  [
+    "planned by triage but no longer triaged",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["needs-operator"],
+      comments: [answer("## Triage\n\nplan", T3)],
+    },
+    NOT_VOUCHED,
   ],
 ];
 
