@@ -154,9 +154,35 @@ function escapeStarts(line) {
 }
 // A URL's user information (scheme://user@host or scheme://user:password@host),
 // as tests of code that refuses credentials in URLs hold, is not an address:
-// a match whose text before it ends with this is skipped. mailto: has no //,
-// so an address after it is still found.
-const URL_USERINFO = /[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^\s/?#@:]*:)?$/;
+// a match whose text before it ends as
+// /[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^\s/?#@:]*:)?$/ matches is skipped.
+// mailto: has no //, so an address after it is still found.
+// userinfoEnds finds those positions of a line in one pass: testing the
+// text before each match instead takes quadratic time on a line of many.
+// A position follows a `://` whose scheme run (letters, digits, `+`, `.`
+// and `-`) holds a letter, where the scheme can start, or follows that and
+// a run without whitespace, `/`, `?`, `#`, `@` or `:`, then a `:`. Neither
+// run can hold a `://`, so each character is read a bounded number of
+// times.
+const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
+const USER_CHAR = /[^\s/?#@:]/;
+export function userinfoEnds(line) {
+  const ends = new Set();
+  for (let k = line.indexOf("://"); k !== -1; k = line.indexOf("://", k + 3)) {
+    let letter = false;
+    for (let i = k - 1; i >= 0 && SCHEME_CHAR.test(line[i]); i--)
+      if (/[A-Za-z]/.test(line[i])) {
+        letter = true;
+        break;
+      }
+    if (!letter) continue;
+    ends.add(k + 3);
+    let j = k + 3;
+    while (j < line.length && USER_CHAR.test(line[j])) j++;
+    if (line[j] === ":") ends.add(j + 1);
+  }
+  return ends;
+}
 const NOREPLY_LOCAL_PARTS = new Set(["noreply", "no-reply"]);
 const NOREPLY_DOMAINS = ["users.noreply.github.com", "example.com", "example.org", "example.net"];
 const PUBLISHED_ADDRESSES = new Set(["github@bydra.dev", "git@github.com"]);
@@ -210,6 +236,8 @@ export function scan(text, allowAttribution = false) {
   const found = [];
   lines.forEach((line, index) => {
     if (index < skip) return;
+    let ends;
+    const afterUserinfo = (at) => (ends ??= userinfoEnds(line)).has(at);
     const kinds = PATTERNS.filter(([, pattern]) => pattern.test(line)).map(([kind]) => kind);
     if (line !== DEPENDABOT_FOOTER && SIGNOFF.test(line)) kinds.push(SIGNOFF_KIND);
     if (
@@ -236,12 +264,9 @@ export function scan(text, allowAttribution = false) {
         })(),
       ].some(
         (match) =>
-          // The address test first: it is cheap, and the URL guard reads the
-          // text before the match, which a long line holds many of.
           (match.continued
             ? !NOREPLY_LOCAL_PARTS.has(match[1].toLowerCase())
-            : privateAddress(match[1], match[2])) &&
-          !URL_USERINFO.test(line.slice(0, match.index)),
+            : privateAddress(match[1], match[2])) && !afterUserinfo(match.index),
       )
     )
       kinds.push("an email address other than a noreply one");
