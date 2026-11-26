@@ -156,8 +156,20 @@ test("a listing reads only the pages it needs and starts at 0 for a start it can
   }
   const from = await page(server, "conversation", { start: 2 });
   assert.deepEqual(from.items.map((i) => i.id), [3]);
-  // Fewer than 100 on the first page: there is no second page to ask for.
-  assert.ok(!ghCalls(server).some((c) => c.args.join(" ").includes("page=2")));
+  // Fewer than 100 on the first page: there is no second page to ask for,
+  // and the first is read once a call.
+  const calls = ghCalls(server).map((c) => c.args.join(" "));
+  assert.ok(!calls.some((a) => a.includes("page=2")));
+  assert.equal(calls.filter((a) => a.includes("comments?per_page=100&page=1")).length, 5);
+});
+
+test("a listing never cuts what is not a text body", async (t) => {
+  // An item too large for a page with no body to cut is served whole.
+  const server = await conversation(t, [{ ...comment(1), body: null, created_at: "x".repeat(30000) }]);
+  const r = await server.call("conversation", {});
+  assert.equal(r.isError, false, r.text);
+  // Too long for one tool result, it comes in pages of text, uncut.
+  assert.match(r.text, /^\[page 1 of 2, 24000 characters each/);
 });
 
 test("a listing cuts a body too long for a page of its own, and names the tool that reads it whole", async (t) => {
@@ -378,6 +390,8 @@ test("search starts at 0 for a start it cannot use, from the start it is given o
   }
   const from = await page(server, "search", { terms: "x", start: 1 });
   assert.deepEqual(from.items.map((i) => i.number), [2, 3]);
+  const text = await page(server, "search", { terms: "x", start: "1500" });
+  assert.deepEqual(text.items.map((i) => i.number), [1, 2, 3]);
   // Well short of GitHub's cap: nothing was cut.
   assert.equal(from.truncated, undefined);
 });
