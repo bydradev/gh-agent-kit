@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
+import { ghCalls, gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
 import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
@@ -98,6 +98,8 @@ test("the settings step applies the defaults and refuses values out of range", (
     [{ TIMEOUT: "361" }, /KIT_SECURITY_TIMEOUT_MINUTES must be a whole number from 1 to 360/],
     [{ MAX_FILES: "301" }, /KIT_SECURITY_MAX_FILES must be a whole number from 1 to 300/],
     [{ MAX_TURNS: "0" }, /KIT_SECURITY_MAX_TURNS must be a whole number from 1 to 500/],
+    // Past what bash's test compares, which would otherwise let it through.
+    [{ MAX_LINES: "100000000000000000000" }, /KIT_SECURITY_MAX_LINES must be a whole number from 1 to 20000/],
   ]) {
     const bad = runner(t).run(settingsScript, env);
     assert.equal(bad.status, 1);
@@ -829,10 +831,41 @@ test("each finding goes on its line as plain text, once", (t) => {
 
   // A later scan with the same finding finds its key on the line and posts
   // nothing; a key quoted inside a comment's text does not count.
-  const again = comment(t, runner(t), {
+  const later = runner(t);
+  later.write("scan-results.json", results([finding({ description: "said again" })]));
+  const again = comment(t, later, {
     existing: [{ user: { login: "github-actions[bot]" }, body: p.body }],
   });
+  assert.equal(again.step.status, 0, again.step.stdout + again.step.stderr);
   assert.equal(again.posts.length, 0);
+  assert.match(again.step.stdout, /inline comments: 0 posted, 1 already on their lines, 0 refused/);
+});
+
+test("a withheld finding gets no inline comment, and an unverified one says so", (t) => {
+  const r = runner(t);
+  const out = results([finding(), finding({ line: 20 }), finding({ line: 30 })]);
+  out.findings[0]._withheld = true;
+  out.findings[2]._filter_metadata.verified = false;
+  r.write("scan-results.json", out);
+  const { step, posts } = comment(t, r);
+  assert.equal(step.status, 0, step.stdout + step.stderr);
+  assert.deepEqual(
+    posts.map((p) => [p.line, p.body.split("\n")[0]]),
+    [
+      [20, "**Security scan: HIGH** `command_injection`"],
+      [30, "**Security scan: HIGH** `command_injection` (unverified)"],
+    ],
+  );
+  // With every finding withheld, nothing is read or posted.
+  const all = runner(t);
+  const held = results([finding()]);
+  held.findings[0]._withheld = true;
+  all.write("scan-results.json", held);
+  const dir = all.dir;
+  const quiet = comment(t, all);
+  assert.equal(quiet.step.status, 0, quiet.step.stdout + quiet.step.stderr);
+  assert.match(quiet.step.stdout, /^no findings to comment on$/m);
+  assert.equal(fs.readFileSync(path.join(dir, "gh-log.jsonl"), "utf8").trim(), "");
 });
 
 test("the same finding twice in one run is posted once", (t) => {
@@ -945,4 +978,124 @@ test("the run fails without a results file or a completed review in it", (t) => 
     assert.equal(failed.status, 1, JSON.stringify(answer));
     assert.match(failed.stdout, /::error::security scan did not report a completed review/);
   }
+});
+
+// The record step or the notice step against a stub gh: the issue
+// comments (each { id, login, body }), a live head and base, and the
+// RUNNER_TEMP files the summary step leaves. Returns the step and its
+// writes, each { method, id, body }.
+function recordRun(t, script, { files = {}, comments = [], live, env = {} }) {
+  const repo = gitRepo(t);
+  const base = repo.commit("a.txt", "a\n", "base");
+  repo.git("checkout", "-q", "-b", "feature");
+  const head = repo.commit("b.txt", "b\n", "head");
+  repo.git("update-ref", "refs/remotes/origin/main", base);
+  const temp = path.join(tempDir(t), "runner-temp");
+  fs.mkdirSync(temp);
+  for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(temp, name), content);
+  const list = comments.map((c) => ({ id: c.id, user: { login: c.login ?? "github-actions[bot]" }, body: c.body }));
+  const stub = stubGh(tempDir(t), [
+    { match: "^api --method GET repos/acme/widgets/pulls/7 --jq .base.sha", stdout: `${base}\n` },
+    { match: "^api repos/acme/widgets/pulls/7 --jq .head.sha", stdout: `${live ?? head}\n` },
+    { match: "^api --paginate repos/acme/widgets/issues/7/comments ", json: list },
+    ...list.map((c) => ({ match: `^api repos/acme/widgets/issues/comments/${c.id} --jq`, json: c })),
+    { match: "^api --method (PATCH|POST) ", stdout: "https://github.com/acme/widgets/pull/7#c1\n" },
+  ]);
+  const step = runStep(repo.dir, script, {
+    PATH: `${stub.bin}${path.delimiter}${process.env.PATH}`,
+    GH_STUB_RULES: stub.rulesFile,
+    GH_STUB_LOG: stub.log,
+    REPO: "acme/widgets",
+    PR: "7",
+    HEAD: head,
+    BASE: "main",
+    RUNNER_TEMP: temp,
+    MODE: "push",
+    JOB_STATUS: "failure",
+    GITHUB_RUN_ID: "1",
+    RUN_URL: "https://github.com/acme/widgets/actions/runs/1/attempts/1",
+    ...env,
+  });
+  assert.equal(step.status, 0, step.stdout + step.stderr);
+  const writes = ghCalls(stub)
+    .filter((c) => c.args.includes("PATCH") || c.args.includes("POST"))
+    .map((c) => ({
+      method: c.args[c.args.indexOf("--method") + 1],
+      id: c.args.find((a) => a.startsWith("repos/")).match(/comments\/(\d+)$/)?.[1] ?? null,
+      body: c.args[c.args.indexOf("-f") + 1].replace(/^body=/, ""),
+    }));
+  return { step, writes, head };
+}
+const recordScript = stepScript(FILE, "Record the completed scan");
+const RECORD = "<!-- security-scan-record -->\n### Security scan: completed, no findings\n\nSecurity scan record: scanned head " + "d".repeat(40) + " against main at " + "e".repeat(40) + " on 2026-11-26T00:00:00Z.";
+
+test("the record names no findings, one finding or several, with or without their list", (t) => {
+  const outcome = (files) => recordRun(t, recordScript, { files }).writes[0].body.split("\n")[1];
+  assert.equal(outcome({ "scan-count": "0\n" }), "### Security scan: completed, no findings");
+  assert.equal(outcome({ "scan-count": "1\n", "scan-findings.md": "- one\n" }), "### Security scan: completed, 1 finding");
+  // Every finding withheld: the count without a list.
+  const held = recordRun(t, recordScript, { files: { "scan-count": "2\n", "scan-withheld.md": "Withheld.\n" } });
+  const [w] = held.writes;
+  assert.equal(w.body.split("\n")[1], "### Security scan: completed, 2 findings");
+  assert.doesNotMatch(w.body, /Inline comments go only/);
+  assert.match(w.body, /\nWithheld\.$/);
+});
+
+test("the record and the notice update only the bot's own record comment", (t) => {
+  const lookalikes = [
+    { id: 5, login: "mallory", body: RECORD },
+    { id: 6, body: `Quoted:\n${RECORD}` },
+  ];
+  for (const script of [recordScript, noticeScript]) {
+    const fresh = recordRun(t, script, { files: { "scan-count": "0\n" }, comments: lookalikes });
+    assert.deepEqual(fresh.writes.map((w) => [w.method, w.id]), [["POST", null]]);
+    const own = recordRun(t, script, {
+      files: { "scan-count": "0\n" },
+      comments: [{ id: 4, body: RECORD }, ...lookalikes],
+    });
+    assert.deepEqual(own.writes.map((w) => [w.method, w.id]), [["PATCH", "4"]]);
+  }
+});
+
+test("a cancelled run leaves the record to a newer head's run, and records its own head's", (t) => {
+  const cancelled = { JOB_STATUS: "cancelled" };
+  const newer = recordRun(t, noticeScript, { live: "f".repeat(40), env: cancelled });
+  assert.match(newer.step.stdout, /cancelled for a newer head/);
+  assert.deepEqual(newer.writes, []);
+  // A failure records whatever head the pull request has now.
+  assert.equal(recordRun(t, noticeScript, { live: "f".repeat(40) }).writes.length, 1);
+  assert.equal(recordRun(t, noticeScript, { env: cancelled }).writes.length, 1);
+});
+
+test("the notice says how to scan again in each mode, and keeps the last record below it", (t) => {
+  const body = (env, comments = [{ id: 4, body: RECORD }]) =>
+    recordRun(t, noticeScript, { comments, env }).writes[0].body;
+  const push = body({ MODE: "push" });
+  assert.match(push, /Re-run it or push to scan again\./);
+  assert.match(push, /it still decides whether an edit needs another scan\./);
+  assert.match(push, /\nSecurity scan record: scanned head d{40} /);
+  const open = body({ MODE: "open" });
+  assert.match(open, /Re-run it to scan again \(in mode open a push is not scanned once a scan has completed\)\./);
+  assert.match(open, /whether an edit or a push needs another scan\./);
+  assert.match(body({ MODE: "" }), /Fix the settings the run's log names/);
+  // A comment with only an earlier notice holds no completed scan.
+  const notice = "<!-- security-scan-record -->\n<!-- scan-not-completed -->\nold\n<!-- /scan-not-completed -->";
+  const none = body({ MODE: "open" }, [{ id: 4, body: notice }]);
+  assert.match(none, /No scan of this pull request has completed\./);
+  assert.match(none, /Re-run it or push to scan again\./);
+  assert.doesNotMatch(none, /\nold\n/);
+});
+
+test("the notice counts the findings in the singular and plural, and says what was not covered", (t) => {
+  const body = (files) => recordRun(t, noticeScript, { files }).writes[0].body;
+  assert.match(body({ "scan-count": "1\n" }), /finished for head [0-9a-f]{40} with 1 finding, but/);
+  assert.match(body({ "scan-count": "2\n" }), /with 2 findings, but/);
+  assert.match(
+    body({ "scan-count": "2\n", "scan-unverified": "" }),
+    /found 2 unverified candidate findings, but the run stopped/,
+  );
+  assert.match(
+    body({ "scan-count": "0\n", "scan-coverage.md": "Not inspected: `a.png`.\n" }),
+    /\nNot inspected: `a\.png`\./,
+  );
 });

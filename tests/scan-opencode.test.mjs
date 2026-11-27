@@ -51,6 +51,12 @@ test("security-scan.yml: the runner follows the provider unless set, and opencod
     /^::warning::the setting KIT_SECURITY_RUNNER is claude-code on OpenCode Go, where Claude Code runs Go's models slower than OpenCode's CLI; the kit recommends leaving it unset \(unset\)$/m,
   );
 
+  // Claude Code named on Anthropic is the plain case: no warning.
+  const claude = settings(t, { RUNNER: "claude-code" });
+  assert.equal(claude.status, 0, claude.stdout);
+  assert.equal(claude.env.KIT_SECURITY_RUNNER, "claude-code");
+  assert.doesNotMatch(claude.stdout, /::warning::/);
+
   for (const [env, message] of [
     [{ RUNNER: "codex" }, /KIT_SECURITY_RUNNER must be claude-code, opencode or unset, not 'codex' \(unset\)/],
     [{ RUNNER: "opencode" }, /KIT_SECURITY_RUNNER is opencode, which needs KIT_SECURITY_PROVIDER set to opencode-go, not 'unset'/],
