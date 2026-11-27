@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { root, tempDir } from "./helpers/server.mjs";
+import { gitRepo, root, tempDir } from "./helpers/server.mjs";
 import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
@@ -170,6 +170,20 @@ test("an executable check is a regular file too, and the .mjs check wins over th
       JSON.stringify(Object.keys(files)),
     );
   }
+});
+
+test("a base that cannot be read leaves the check unusable, naming the first path", (t) => {
+  // No origin/main: git ls-tree fails for each path, and the first one stands.
+  const repo = gitRepo(t);
+  repo.commit("a.txt", "a\n", "base");
+  const temp = path.join(tempDir(t), "runner-temp");
+  fs.mkdirSync(temp);
+  const r = runStep(repo.dir, stepScript(FILE, "Find the base's public-content check"), { RUNNER_TEMP: temp, BASE: "main" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(
+    fs.readFileSync(path.join(temp, "public-content-state"), "utf8"),
+    `unusable\n${MJS} could not be read from main\n`,
+  );
 });
 
 test("the guard records no check, a usable one, and one that cannot be used", (t) => {

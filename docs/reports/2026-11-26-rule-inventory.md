@@ -42,14 +42,14 @@ the git tools' argument checks; paging and body cuts; the vouch for a
 `github-actions[bot]` issue (#100); file_issue's earlier-issue lookup; the
 sweep's eligibility; and the JSON-RPC loop's replies.
 
-**In short (phase 2):** of 917 rules in `security-scan.yml`, 855 are
+**In short (phase 2):** of 917 rules in `security-scan.yml`, 856 are
 caught by a test, 11 of them by a time limit and 105 through a copy of
-their step (see *How it was checked*). The 62 left are listed with the
+their step (see *How it was checked*). The 61 left are listed with the
 reason:
 
 | Reason | `security-scan.yml` |
 | --- | --- |
-| Equivalent: switching it off changes nothing the code can do | 20 |
+| Equivalent: switching it off changes nothing the code can do | 19 |
 | Unreachable: no input reaches the other branch | 14 |
 | Not a rule: a log line, a field or count only the log shows, or removing a scratch file | 18 |
 | Left untested: runner provisioning only a GitHub runner can run | 10 |
@@ -161,7 +161,7 @@ form GitHub accepts.
 | --- | --- | --- | --- |
 | `.github/workflows/pr-review.yml` | 603 | 569 | 34 |
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
-| `.github/workflows/security-scan.yml` | 917 | 855 | 62 |
+| `.github/workflows/security-scan.yml` | 917 | 856 | 61 |
 | `.github/workflows/pr-review.yml`, rows found in phase 2 | 5 | 4 | 1 |
 
 ### `.github/workflows/pr-review.yml`
@@ -1397,7 +1397,7 @@ form GitHub accepts.
 
 ### `.github/workflows/security-scan.yml`
 
-917 rules: 855 caught (11 of them by a time limit, 105 through a copy of their step), 62 left with the reason given.
+917 rules: 856 caught (11 of them by a time limit, 105 through a copy of their step), 61 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/security-scan.yml</code></summary>
 
@@ -1634,7 +1634,7 @@ form GitHub accepts.
 | 665 | sh output statement | (before `rm -f -- .github/security-review-instructions.md`) | `: ` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
 | 680 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
 | 680 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
-| 686 | sh skip statement | `break` | `:` | Not caught, equivalent: git ls-tree fails only when it cannot read the base, so the next path fails the same way and the state is unusable either way; only the path its reason names differs |
+| 686 | sh skip statement | `break` | `:` | `security-scan-log-content.test.mjs`: "a base that cannot be read leaves the check unusable, naming the first path" |
 | 687 | sh list condition | `[ -n "$entry" ]` | `true` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
 | 687 | sh list condition | `[ -n "$entry" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
 | 687 | sh skip statement | `continue` | `:` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
