@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { root, tempDir } from "./helpers/server.mjs";
+import { gitRepo, root, tempDir } from "./helpers/server.mjs";
 import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
@@ -55,14 +55,14 @@ function runner(t, baseFiles = {}, baseLinks = {}) {
 
 // The Claude Code run step with the CLI a stub that answers a successful
 // run whose last message is text.
-function claudeRun(r, name, text) {
+function claudeRun(r, name, text, wrap = (result) => result) {
   for (const f of ["scan-schema.json", "verify-schema.json", "claude-settings.json"]) {
     fs.writeFileSync(r.file(f), "{}");
   }
   const answer = path.join(r.dir, "answer.json");
   fs.writeFileSync(
     answer,
-    JSON.stringify({
+    JSON.stringify(wrap({
       type: "result",
       subtype: "success",
       is_error: false,
@@ -75,7 +75,7 @@ function claudeRun(r, name, text) {
         output_tokens: 4,
       },
       result: text,
-    }),
+    })),
   );
   const stub = path.join(r.dir, "claude");
   fs.writeFileSync(
@@ -93,6 +93,21 @@ function claudeRun(r, name, text) {
     ANTHROPIC_API_KEY: "ak",
   });
 }
+test("a stream's last result decides the run, whatever event follows it", (t) => {
+  for (const name of ["Run the scan", "Verify the candidate findings"]) {
+    const failed = { type: "result", subtype: "error_max_turns", is_error: true };
+    const r = runner(t);
+    const run = claudeRun(r, name, "All fine.", (result) => [
+      { type: "system", subtype: "init" },
+      failed,
+      result,
+      { type: "user" },
+    ]);
+    assert.equal(run.status, 0, name + run.stdout + run.stderr);
+    assert.match(fs.readFileSync(r.file("run-log.summary"), "utf8"), /^subtype: success$/m, name);
+  }
+});
+
 const printScan = stepScript(FILE, "Print the scan run's log");
 const printVerify = stepScript(FILE, "Print the verification run's log");
 
@@ -138,6 +153,37 @@ test("the check is found before any model runs, and the secret reaches no step t
       .filter((l) => !l.trim().startsWith("#"))
       .join("\n");
   for (const name of RUN_STEPS) assert.doesNotMatch(code(name), /PRIVATE_REPO_NAMES/, name);
+});
+
+test("an executable check is a regular file too, and the .mjs check wins over the .py one", (t) => {
+  const PY = ".github/scripts/check_public_content.py";
+  for (const [files, executable, want] of [
+    [{ [MJS]: CHECK }, [MJS], "mjs"],
+    [{ [MJS]: CHECK, [PY]: "print('base')\n" }, [], "mjs"],
+    [{ [PY]: "print('base')\n" }, [], "py"],
+  ]) {
+    const temp = path.join(tempDir(t), "runner-temp");
+    publicContentGuard(t, temp, files, {}, executable);
+    assert.equal(
+      fs.readFileSync(path.join(temp, "public-content-state"), "utf8"),
+      `ready\n${path.join(temp, `public-content-check.${want}`)}\n`,
+      JSON.stringify(Object.keys(files)),
+    );
+  }
+});
+
+test("a base that cannot be read leaves the check unusable, naming the first path", (t) => {
+  // No origin/main: git ls-tree fails for each path, and the first one stands.
+  const repo = gitRepo(t);
+  repo.commit("a.txt", "a\n", "base");
+  const temp = path.join(tempDir(t), "runner-temp");
+  fs.mkdirSync(temp);
+  const r = runStep(repo.dir, stepScript(FILE, "Find the base's public-content check"), { RUNNER_TEMP: temp, BASE: "main" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(
+    fs.readFileSync(path.join(temp, "public-content-state"), "utf8"),
+    `unusable\n${MJS} could not be read from main\n`,
+  );
 });
 
 test("the guard records no check, a usable one, and one that cannot be used", (t) => {

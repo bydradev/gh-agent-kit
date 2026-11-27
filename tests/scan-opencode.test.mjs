@@ -51,6 +51,12 @@ test("security-scan.yml: the runner follows the provider unless set, and opencod
     /^::warning::the setting KIT_SECURITY_RUNNER is claude-code on OpenCode Go, where Claude Code runs Go's models slower than OpenCode's CLI; the kit recommends leaving it unset \(unset\)$/m,
   );
 
+  // Claude Code named on Anthropic is the plain case: no warning.
+  const claude = settings(t, { RUNNER: "claude-code" });
+  assert.equal(claude.status, 0, claude.stdout);
+  assert.equal(claude.env.KIT_SECURITY_RUNNER, "claude-code");
+  assert.doesNotMatch(claude.stdout, /::warning::/);
+
   for (const [env, message] of [
     [{ RUNNER: "codex" }, /KIT_SECURITY_RUNNER must be claude-code, opencode or unset, not 'codex' \(unset\)/],
     [{ RUNNER: "opencode" }, /KIT_SECURITY_RUNNER is opencode, which needs KIT_SECURITY_PROVIDER set to opencode-go, not 'unset'/],
@@ -251,13 +257,24 @@ if (command === "models") {
         // With --print-logs, a log line on stderr, unended.
         if (asked === 0 && rest.includes("--print-logs")) process.stderr.write(${JSON.stringify(LOG_LINE)});
         const answer = answers[Math.min(asked++, answers.length - 1)];
+        // raw: a body that is not JSON.
+        if (answer.raw !== undefined) {
+          res.writeHead(answer.status, { "content-type": "application/json" });
+          return res.end(answer.raw);
+        }
         return send(answer.status, answer.body);
       }
       // The session's messages, with as many served steps as spec.served
       // gives for this listing; none listed answers 404.
       if (req.method === "GET" && req.url === "/session/ses_1/message" && spec.served) {
-        const n = spec.served[Math.min(listed++, spec.served.length - 1)];
-        return send(200, [{ info: { role: "assistant" }, parts: Array.from({ length: n }, () => ({ type: "step-finish" })) }]);
+        // A number of served steps, or { steps, other } with other parts too.
+        const at = spec.served[Math.min(listed++, spec.served.length - 1)];
+        const { steps, other = 0 } = typeof at === "number" ? { steps: at } : at;
+        const parts = [
+          ...Array.from({ length: steps }, () => ({ type: "step-finish" })),
+          ...Array.from({ length: other }, () => ({ type: "text", text: "x" })),
+        ];
+        return send(200, [{ info: { role: "assistant" }, parts }]);
       }
       send(404, { name: "NotFound" });
     });
@@ -311,8 +328,9 @@ if (command === "models") {
     requests: calls.filter((c) => c.request),
     messages: calls.filter((c) => c.request === "POST /session/ses_1/message").map((c) => c.body),
     result: fs.existsSync(result) ? JSON.parse(fs.readFileSync(result, "utf8")) : null,
-    // The waits asked for, but the server's start-up polls.
+    // The waits asked for, but the server's start-up polls, and those.
     slept: sleep.slept().filter((s) => s !== "1"),
+    polls: sleep.slept().filter((s) => s === "1").length,
     githubEnv: fs.readFileSync(githubEnv, "utf8"),
     input,
     temp,
@@ -647,6 +665,7 @@ test("security-scan.yml, Run the scan on OpenCode: the model and effort are chec
     [{ key: "" }, /KIT_SECURITY_RUNNER is opencode but the OPENCODE_API_KEY secret is not set/],
     [{ model: "minimax-m3.1-flash" }, /KIT_SECURITY_MODEL is 'minimax-m3\.1-flash', which the pinned OpenCode does not list/],
     [{ effort: "xhigh" }, /KIT_SECURITY_EFFORT is 'xhigh', which OpenCode does not offer for deepseek-v4\.1-flash; it offers high, low, max/],
+    [{ model: "glm-5.3-flash", effort: "high" }, /KIT_SECURITY_EFFORT is 'high', which OpenCode does not offer for glm-5\.3-flash; it offers none, or leave it unset/],
     [{ models: null }, /^::error::OpenCode could not list its models \(exit status 1\), so KIT_SECURITY_MODEL could not be checked$/m],
   ]) {
     const r = scan(t, opts);
@@ -879,5 +898,113 @@ test("security-scan.yml, Run the scan on OpenCode: a run that ends in error show
     assert.equal(lines[at + 2], LOG_LINE);
     assert.equal(lines[at + 3], `::${begin[1]}::`);
     assert.match(lines[at + 4], /^::error::OpenCode's run ended in error/);
+  }
+});
+
+test("security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once", (t) => {
+  const dir = tempDir(t);
+  const checkout = path.join(dir, "checkout");
+  const temp = path.join(dir, "runner-temp");
+  fs.mkdirSync(temp);
+  for (const file of [".opencode/plugin/a.js", "opencode.json", "opencode.jsonc", "src/opencode.json", ".git/HEAD"]) {
+    fs.mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });
+    fs.writeFileSync(path.join(checkout, file), "x\n");
+  }
+  const run = (name) => {
+    const r = runStep(checkout, stepScript(FILE, name), { RUNNER_TEMP: temp });
+    assert.equal(r.status, 0, name + r.stdout + r.stderr);
+  };
+  run("Remove the checkout's OpenCode configuration");
+  for (const gone of [".opencode", "opencode.json", "opencode.jsonc"])
+    assert.ok(!fs.existsSync(path.join(checkout, gone)), gone);
+  assert.ok(fs.existsSync(path.join(checkout, "src/opencode.json")));
+
+  run("Move .git out of the checkout for OpenCode");
+  assert.ok(!fs.existsSync(path.join(checkout, ".git")));
+  assert.equal(fs.readFileSync(path.join(temp, "checkout-git/HEAD"), "utf8"), "x\n");
+  run("Put .git back in the checkout");
+  assert.equal(fs.readFileSync(path.join(checkout, ".git/HEAD"), "utf8"), "x\n");
+  assert.ok(!fs.existsSync(path.join(temp, "checkout-git")));
+  // Nothing to put back (the move never ran) is fine, and a .git that is
+  // there already stays as it is.
+  run("Put .git back in the checkout");
+  assert.deepEqual(fs.readdirSync(path.join(checkout, ".git")), ["HEAD"]);
+  fs.mkdirSync(path.join(temp, "checkout-git"));
+  run("Put .git back in the checkout");
+  assert.deepEqual(fs.readdirSync(path.join(checkout, ".git")), ["HEAD"]);
+  assert.ok(fs.existsSync(path.join(temp, "checkout-git")));
+  // A job that skipped the checkout has neither, and the step passes.
+  fs.rmSync(path.join(checkout, ".git"), { recursive: true });
+  fs.rmSync(path.join(temp, "checkout-git"), { recursive: true });
+  run("Put .git back in the checkout");
+  assert.ok(!fs.existsSync(path.join(checkout, ".git")));
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a named wait past an hour waits an hour", (t) => {
+  const r = scan(t, { answer: [refused("after 7200 s"), ANSWER], timeout: "360" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["3600"]);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: the answer is the last text part, whatever part follows it", (t) => {
+  const text = JSON.stringify(FINDINGS);
+  const parts = [{ type: "text", text }, { type: "step-finish" }];
+  const r = scan(t, {
+    answer: { status: 200, body: { info: { role: "assistant", finish: "stop" }, parts } },
+    session: { info: { id: "ses_1" }, messages: [message(parts)] },
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.messages.length, 1);
+  assert.deepEqual(r.result.structured_output, FINDINGS);
+  assert.equal(r.result.result, text);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer", (t) => {
+  const r = scan(t, { answer: { status: 200, raw: "<html>proxy error</html>" } });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.messages.length, 1);
+  assert.equal(r.result.is_error, true);
+  assert.deepEqual(r.result.errors, ["no answer"]);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: an export without a message list counts nothing", (t) => {
+  const r = scan(t, { session: { info: { id: "ses_1" } } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /::warning::OpenCode did not export the session/);
+  assert.equal(r.result.num_turns, 0);
+  assert.deepEqual(r.result.structured_output, FINDINGS);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a request that failed is not asked for again", (t) => {
+  const r = scan(t, { answer: { status: 500, body: { info: { role: "assistant" }, parts: [] } } });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.messages.length, 1);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a server that exits ends the wait for its address", (t) => {
+  const r = scan(t, { serveFails: true });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.ok(r.polls < 10, `${r.polls} polls`);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: only served steps start the row again, not other parts", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, {
+      step,
+      candidates: "3",
+      answer: [refused(), refused(), ANSWER],
+      served: [{ steps: 1, other: 0 }, { steps: 1, other: 2 }],
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(r.slept, ["60", "120"], step);
+  }
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a failed request is not waited on, even when it says at capacity", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, { step, candidates: "3", answer: [{ ...refused(), status: 500 }, ANSWER] });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(r.slept, [], step);
+    assert.equal(r.messages.length, 1, step);
   }
 });

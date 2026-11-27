@@ -73,10 +73,14 @@ export function runStep(dir, script, env) {
 // symlinks are baseLinks (path: target), so that RUNNER_TEMP (temp) holds
 // the state and the guard the scan's later steps source. Its result is the
 // step's.
-export function publicContentGuard(t, temp, baseFiles = {}, baseLinks = {}) {
+export function publicContentGuard(t, temp, baseFiles = {}, baseLinks = {}, executable = []) {
   const repo = gitRepo(t);
   repo.commit("a.txt", "a\n", "base");
   for (const [f, content] of Object.entries(baseFiles)) repo.commit(f, content, `base ${f}`);
+  for (const f of executable) {
+    repo.git("update-index", "--chmod=+x", "--", f);
+    repo.git("commit", "-q", "-m", `make ${f} executable`);
+  }
   for (const [f, target] of Object.entries(baseLinks)) {
     fs.mkdirSync(path.dirname(path.join(repo.dir, f)), { recursive: true });
     fs.symlinkSync(target, path.join(repo.dir, f));
