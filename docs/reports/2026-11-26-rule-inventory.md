@@ -16,11 +16,13 @@ files first:
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 | 2 | `.github/workflows/security-scan.yml` | `05436e8` |
 
-Phase 1's files are the same at both commits. Phase 2's review found
-lines the script had skipped (a command starting with `find`, a restore by
-`git checkout`), which added two rows to `pr-review.yml`, both caught.
+Phase 1's files are the same at both commits. Phase 1's sections stand as
+they merged. Phase 2's review found kinds of line the script had skipped (a
+command starting with `find`, a restore by `git checkout`, a skip that ends
+a command list), which add five rows to `pr-review.yml`; they are listed in
+a section of their own after phase 2's.
 
-**In short (phase 1):** of 1,211 rules, 1,151 are caught by a test, 11
+**In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
 reply it waits for never comes). The 60 left are listed
 with the reason:
@@ -40,17 +42,20 @@ the git tools' argument checks; paging and body cuts; the vouch for a
 `github-actions[bot]` issue (#100); file_issue's earlier-issue lookup; the
 sweep's eligibility; and the JSON-RPC loop's replies.
 
-**In short (phase 2):** of 903 rules in `security-scan.yml`, 849 are
-caught by a test, 10 of them by a time limit and 103 through a copy of
-their step (see *How it was checked*). The 54 left are listed with the
+**In short (phase 2):** of 917 rules in `security-scan.yml`, 855 are
+caught by a test, 11 of them by a time limit and 105 through a copy of
+their step (see *How it was checked*). The 62 left are listed with the
 reason:
 
 | Reason | `security-scan.yml` |
 | --- | --- |
-| Equivalent: switching it off changes nothing the code can do | 21 |
-| Unreachable: no input reaches the other branch | 13 |
-| Not a rule: a log line, a count only the log shows, or removing a scratch file | 10 |
+| Equivalent: switching it off changes nothing the code can do | 20 |
+| Unreachable: no input reaches the other branch | 14 |
+| Not a rule: a log line, a field or count only the log shows, or removing a scratch file | 18 |
 | Left untested: runner provisioning only a GitHub runner can run | 10 |
+
+Of the five rows phase 2 added to `pr-review.yml`, four are caught; the
+fifth is equivalent.
 
 The tests this phase added cover, among others: which events and states
 run each scan job and step, as GitHub evaluates each `if:`; the skip's
@@ -154,13 +159,14 @@ form GitHub accepts.
 
 | File | Rules | Caught | Left, with the reason |
 | --- | --- | --- | --- |
-| `.github/workflows/pr-review.yml` | 605 | 571 | 34 |
+| `.github/workflows/pr-review.yml` | 603 | 569 | 34 |
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
-| `.github/workflows/security-scan.yml` | 903 | 849 | 54 |
+| `.github/workflows/security-scan.yml` | 917 | 855 | 62 |
+| `.github/workflows/pr-review.yml`, rows found in phase 2 | 5 | 4 | 1 |
 
 ### `.github/workflows/pr-review.yml`
 
-605 rules: 571 caught (4 of them by a time limit), 34 left with the reason given.
+603 rules: 569 caught (4 of them by a time limit), 34 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
 
@@ -365,7 +371,6 @@ form GitHub accepts.
 | 639 | sh output statement | (before `echo "BASE=$(gh pr view "$PR" --json baseRefName --jq .baseR`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 640 | sh output statement | (before `echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 649 | sh output statement | (before `rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gi`) | `: ` | `workflow-guards.test.mjs`: "pr-review.yml: the head's executable Claude configuration is removed" |
-| 677 | sh output statement | (before `xargs -0 -r rm -rf --`) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 690 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
@@ -374,7 +379,6 @@ form GitHub accepts.
 | 692 | sh list condition | `[ -L "$dir" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 692 | sh output statement | (before `rm -f -- "$dir"`) | `: ` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 694 | sh output statement | (before `rm -rf -- "$f"`) | `: ` | Not caught, equivalent: git checkout replaces a file, directory or symlink at the path itself (git 2.54, checked 2026-11-26), so the removal before it changes nothing |
-| 695 | sh output statement | (before `git checkout "origin/$BASE" -- "$f"`) | `: ` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 699 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
 | 699 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 699 | sh output statement | (before `rm -f -- "$f"`) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
@@ -1393,7 +1397,7 @@ form GitHub accepts.
 
 ### `.github/workflows/security-scan.yml`
 
-903 rules: 849 caught (10 of them by a time limit, 103 through a copy of their step), 54 left with the reason given.
+917 rules: 855 caught (11 of them by a time limit, 105 through a copy of their step), 62 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/security-scan.yml</code></summary>
 
@@ -1519,8 +1523,10 @@ form GitHub accepts.
 | 398 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
 | 399 | sh list condition | `[ -n "$id" ]` | `true` | `security-scan-skip.test.mjs`: "a record gone by the notice lookup leaves the skip and edits nothing, in both copies" |
 | 399 | sh list condition | `[ -n "$id" ]` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 399 | sh skip statement | `return 0` | `:` | `security-scan-skip.test.mjs`: "a record gone by the notice lookup leaves the skip and edits nothing, in both copies" |
 | 401 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
 | 401 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 401 | sh skip statement | `return 0` | `:` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
 | 403 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
 | 411 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
 | 411 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
@@ -1573,8 +1579,10 @@ form GitHub accepts.
 | 529 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
 | 530 | sh list condition | `[ -n "$id" ]` | `true` | `security-scan-skip.test.mjs`: "a record gone by the notice lookup leaves the skip and edits nothing, in both copies" |
 | 530 | sh list condition | `[ -n "$id" ]` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 530 | sh skip statement | `return 0` | `:` | `security-scan-skip.test.mjs`: "a record gone by the notice lookup leaves the skip and edits nothing, in both copies" |
 | 532 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
 | 532 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 532 | sh skip statement | `return 0` | `:` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
 | 534 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
 | 542 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
 | 542 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
@@ -1626,8 +1634,10 @@ form GitHub accepts.
 | 665 | sh output statement | (before `rm -f -- .github/security-review-instructions.md`) | `: ` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
 | 680 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
 | 680 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 686 | sh skip statement | `break` | `:` | Not caught, equivalent: git ls-tree fails only when it cannot read the base, so the next path fails the same way and the state is unusable either way; only the path its reason names differs |
 | 687 | sh list condition | `[ -n "$entry" ]` | `true` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
 | 687 | sh list condition | `[ -n "$entry" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 687 | sh skip statement | `continue` | `:` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
 | 690 | sh if && operand | `[ "$mode" != 100644 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
 | 690 | sh if whole | `[ "$mode" != 100644 ] && [ "$mode" != 100755 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
 | 690 | sh if whole | `[ "$mode" != 100644 ] && [ "$mode" != 100755 ]` | `false` | `security-scan-public-content.test.mjs`: "an exit 1 without a finding line, and a base check that is a symlink, cannot run" |
@@ -1758,8 +1768,10 @@ form GitHub accepts.
 | 1214 | sh file write | `"$RUNNER_TEMP/opencode-serve.log"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1220 | sh list condition | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1220 | sh list condition | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1220 | sh skip statement | `break` | `:` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1221 | sh list condition | `kill -0 "$server" 2>/dev/null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that exits ends the wait for its address" |
 | 1221 | sh list condition | `kill -0 "$server" 2>/dev/null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1221 | sh skip statement | `break` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that exits ends the wait for its address" |
 | 1224 | sh if whole | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1224 | sh if whole | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1239 | jq if whole | `$variant == ""` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
@@ -1804,6 +1816,7 @@ form GitHub accepts.
 | 1354 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: no object is taken from among other text" |
 | 1354 | sh list && operand | `[ ! -s "$RUNNER_TEMP/opencode-structured.json" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
 | 1355 | sh list && operand | `jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: errors are not asked again" |
+| 1355 | sh skip statement | `break` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
 | 1361 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
 | 1361 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1361 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
@@ -1821,10 +1834,10 @@ form GitHub accepts.
 | 1379 | jq if whole | `$a == {}` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
 | 1380 | jq if whole | `$structured == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1380 | jq if whole | `$structured == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
-| 1382 | jq if and operand | `$status == 0` | `true` | Not caught, equivalent: a failed request still sets is_error, which decides the step; only the logged subtype differs |
-| 1382 | jq if whole | `$status == 0 and $error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
-| 1382 | jq if whole | `$status == 0 and $error == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
-| 1382 | jq if and operand | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1382 | jq if and operand | `$status == 0` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1382 | jq if whole | `$status == 0 and $error == null` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1382 | jq if whole | `$status == 0 and $error == null` | `false` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1382 | jq if and operand | `$error == null` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
 | 1384 | jq select whole | `.type == "step-start"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1384 | jq select whole | `.type == "step-start"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1392 | jq if whole | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
@@ -1919,8 +1932,10 @@ form GitHub accepts.
 | 1631 | sh file write | `"$RUNNER_TEMP/opencode-serve.log"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1637 | sh list condition | `[ -z "$url" ]` | `true` | its copy at `security-scan.yml` line 1220, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1637 | sh list condition | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1637 | sh skip statement | `break` | `:` | its copy at `security-scan.yml` line 1220, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1638 | sh list condition | `kill -0 "$server" 2>/dev/null` | `true` | its copy at `security-scan.yml` line 1221, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1638 | sh list condition | `kill -0 "$server" 2>/dev/null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1638 | sh skip statement | `break` | `:` | its copy at `security-scan.yml` line 1221, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1641 | sh if whole | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1641 | sh if whole | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1656 | jq if whole | `$variant == ""` | `true` | its copy at `security-scan.yml` line 1239, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
@@ -1965,6 +1980,7 @@ form GitHub accepts.
 | 1771 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `false` | its copy at `security-scan.yml` line 1354, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1771 | sh list && operand | `[ ! -s "$RUNNER_TEMP/opencode-structured.json" ]` | `true` | its copy at `security-scan.yml` line 1354, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1772 | sh list && operand | `jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json…` | `true` | its copy at `security-scan.yml` line 1355, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1772 | sh skip statement | `break` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a failed request is not waited on, even when it says at capacity" |
 | 1778 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `true` | its copy at `security-scan.yml` line 1361, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1778 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1778 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | its copy at `security-scan.yml` line 1361, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
@@ -1982,10 +1998,10 @@ form GitHub accepts.
 | 1796 | jq if whole | `$a == {}` | `false` | its copy at `security-scan.yml` line 1379, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1797 | jq if whole | `$structured == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1797 | jq if whole | `$structured == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
-| 1799 | jq if and operand | `$status == 0` | `true` | Not caught, equivalent: a failed request still sets is_error, which decides the step; only the logged subtype differs |
-| 1799 | jq if whole | `$status == 0 and $error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
-| 1799 | jq if whole | `$status == 0 and $error == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
-| 1799 | jq if and operand | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1799 | jq if and operand | `$status == 0` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1799 | jq if whole | `$status == 0 and $error == null` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1799 | jq if whole | `$status == 0 and $error == null` | `false` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
+| 1799 | jq if and operand | `$error == null` | `true` | Not a rule: the subtype goes only to the run log; is_error, worked out apart, decides the step |
 | 1801 | jq select whole | `.type == "step-start"` | `true` | its copy at `security-scan.yml` line 1384, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1801 | jq select whole | `.type == "step-start"` | `false` | its copy at `security-scan.yml` line 1384, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1809 | jq if whole | `$error == null` | `true` | its copy at `security-scan.yml` line 1392, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
@@ -2217,12 +2233,14 @@ form GitHub accepts.
 | 2201 | jq select whole | `type != "object" or (._withheld \| not)` | `true` | `security-scan.test.mjs`: "a withheld finding gets no inline comment, and an unverified one says so" |
 | 2201 | jq select whole | `type != "object" or (._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
 | 2201 | jq select or operand | `(._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2201 | sh skip statement | `exit 0` | `:` | `security-scan.test.mjs`: "a withheld finding gets no inline comment, and an unverified one says so" |
 | 2205 | jq select whole | `.user.login == "github-actions[bot]"` | `true` | `security-scan.test.mjs`: "a key quoted in a comment's text, or by another author, does not stop a comment" |
 | 2205 | jq select whole | `.user.login == "github-actions[bot]"` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
 | 2208 | sh while whole | `IFS= read -r f` | `true` | `security-scan.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 2208 | sh while whole | `IFS= read -r f` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
 | 2209 | sh list condition | `[ -n "$f" ]` | `true` | Not caught, unreachable: `jq -c` prints one non-empty line per finding, so no line is empty |
 | 2209 | sh list condition | `[ -n "$f" ]` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2209 | sh skip statement | `continue` | `:` | Not caught, unreachable: `jq -c` prints one non-empty line per finding, so no line is empty |
 | 2212 | sh if whole | `grep -qxF "$key" <<<"$existing"` | `true` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
 | 2212 | sh if whole | `grep -qxF "$key" <<<"$existing"` | `false` | `security-scan.test.mjs`: "the same finding twice in one run is posted once" |
 | 2214 | sh skip statement | `continue` | `:` | `security-scan.test.mjs`: "the same finding twice in one run is posted once" |
@@ -2302,5 +2320,21 @@ form GitHub accepts.
 | 2405 | sh if whole | `[ -n "$id" ]` | `false` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
 | 2406 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
 | 2408 | sh output statement | (before `gh api --method POST "repos/$REPO/issues/$PR/comments" -f bo`) | `: ` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+
+</details>
+
+### `.github/workflows/pr-review.yml`, rows found in phase 2
+
+5 rules: 4 caught (0 of them by a time limit), 1 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 677 | sh output statement | (before `xargs -0 -r rm -rf --`) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
+| 695 | sh output statement | (before `git checkout "origin/$BASE" -- "$f"`) | `: ` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
+| 717 | sh skip statement | `continue` | `:` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
+| 1663 | sh skip statement | `continue` | `:` | Not caught, equivalent: an empty line comes only from an empty listing, which leaves no report either way |
+| 1742 | sh skip statement | `continue` | `:` | `pr-review-no-verdict.test.mjs`: "a failed access lookup still records, as the refusal step did not refuse" |
 
 </details>
