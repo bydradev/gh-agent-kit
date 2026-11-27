@@ -137,7 +137,7 @@ const comment = (id, body = `comment ${id}`) => ({
 });
 const pages = (all, path = "repos/acme/widgets/issues/7/comments") =>
   Array.from({ length: Math.ceil(all.length / 100) || 1 }, (_, k) => ({
-    match: `^api --method GET ${path.replace(/[?]/g, "\\?")}\\?per_page=100&page=${k + 1}$`,
+    match: `^api --method GET ${path.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}\\?per_page=100&page=${k + 1}$`,
     stdout: all.slice(k * 100, k * 100 + 100),
   }));
 async function conversation(t, all, extra = []) {
