@@ -267,8 +267,14 @@ if (command === "models") {
       // The session's messages, with as many served steps as spec.served
       // gives for this listing; none listed answers 404.
       if (req.method === "GET" && req.url === "/session/ses_1/message" && spec.served) {
-        const n = spec.served[Math.min(listed++, spec.served.length - 1)];
-        return send(200, [{ info: { role: "assistant" }, parts: Array.from({ length: n }, () => ({ type: "step-finish" })) }]);
+        // A number of served steps, or { steps, other } with other parts too.
+        const at = spec.served[Math.min(listed++, spec.served.length - 1)];
+        const { steps, other = 0 } = typeof at === "number" ? { steps: at } : at;
+        const parts = [
+          ...Array.from({ length: steps }, () => ({ type: "step-finish" })),
+          ...Array.from({ length: other }, () => ({ type: "text", text: "x" })),
+        ];
+        return send(200, [{ info: { role: "assistant" }, parts }]);
       }
       send(404, { name: "NotFound" });
     });
@@ -979,4 +985,26 @@ test("security-scan.yml, Run the scan on OpenCode: a server that exits ends the 
   const r = scan(t, { serveFails: true });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.ok(r.polls < 10, `${r.polls} polls`);
+});
+
+test("security-scan.yml, Run the scan on OpenCode: only served steps start the row again, not other parts", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, {
+      step,
+      candidates: "3",
+      answer: [refused(), refused(), ANSWER],
+      served: [{ steps: 1, other: 0 }, { steps: 1, other: 2 }],
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(r.slept, ["60", "120"], step);
+  }
+});
+
+test("security-scan.yml, Run the scan on OpenCode: a failed request is not waited on, even when it says at capacity", (t) => {
+  for (const step of ["Run the scan on OpenCode", "Verify the candidate findings on OpenCode"]) {
+    const r = scan(t, { step, candidates: "3", answer: [{ ...refused(), status: 500 }, ANSWER] });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(r.slept, [], step);
+    assert.equal(r.messages.length, 1, step);
+  }
 });

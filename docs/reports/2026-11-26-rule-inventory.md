@@ -14,6 +14,9 @@ files first:
 | Phase | Files | Pinned `main` commit |
 | --- | --- | --- |
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
+| 2 | `.github/workflows/security-scan.yml` | `05436e8` |
+
+Phase 1's files are the same at both commits.
 
 **In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
@@ -34,6 +37,29 @@ of report; the open-mode push skip's filters; the server's start-up checks;
 the git tools' argument checks; paging and body cuts; the vouch for a
 `github-actions[bot]` issue (#100); file_issue's earlier-issue lookup; the
 sweep's eligibility; and the JSON-RPC loop's replies.
+
+**In short (phase 2):** of 883 rules in `security-scan.yml`, 831 are
+caught by a test, 10 of them by a time limit and 99 through a copy of
+their step (see *How it was checked*). The 52 left are listed with the
+reason:
+
+| Reason | `security-scan.yml` |
+| --- | --- |
+| Equivalent: switching it off changes nothing the code can do | 21 |
+| Unreachable: no input reaches the other branch | 13 |
+| Not a rule: a log line, a count only the log shows, or removing a scratch file | 8 |
+| Left untested: runner provisioning only a GitHub runner can run | 10 |
+
+The tests this phase added cover, among others: which events and states
+run each scan job and step, as GitHub evaluates each `if:`; the skip's
+clean-up of a re-run's notice and the comments it reads; the base rules
+and public-content check the scan takes from the base; the limits; the
+OpenCode checkout steps; a stream's last result; the hold's marker and
+its fallback to the candidates; the summary's lines and limits; the
+inline comments' filters; both records' outcomes and modes; and the
+OpenCode scan's answer, export, retry and wait rules. One older test
+passed without running its step (a re-run with no results file) and now
+runs it.
 
 ## What counts as a rule
 
@@ -94,8 +120,20 @@ the file that caught it run again. A kill counts when the same test fails
 again (its line may have moved, since tests were added after the sweep).
 A kill that did not reproduce was swept again from the start. A mutant that no file caught is listed with its reason.
 
+Some steps are copies that a test holds byte for byte to another step:
+the settings read step of every workflow, held to `pr-review.yml`'s; the
+OpenCode verification, held to the OpenCode scan below its prompt line;
+and the scan settings job's early skip, held to the scan job's skip. A
+rule in such a step that no test catches counts as caught when the same
+rule in its twin is, and its row names the twin. The comparison itself
+still counts for neither.
+
+One mutant the script wrote for `security-scan.yml`, a `>` inside a quoted
+string at line 2223 read as a redirect, was not a rule and was dropped.
+
 The `if:` tests use an evaluator in `tests/helpers/expression.mjs` that
-follows the expressions reference for the forms `pr-review.yml` uses
+follows the expressions reference for the forms `pr-review.yml` and
+`security-scan.yml` use
 (literals, comparisons, `!`, `&&`, `||`, property access, `contains`,
 `startsWith`, `endsWith`, `fromJSON` and the status functions), not every
 form GitHub accepts.
@@ -116,6 +154,7 @@ form GitHub accepts.
 | --- | --- | --- | --- |
 | `.github/workflows/pr-review.yml` | 603 | 569 | 34 |
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
+| `.github/workflows/security-scan.yml` | 883 | 831 | 52 |
 
 ### `.github/workflows/pr-review.yml`
 
@@ -1345,5 +1384,901 @@ form GitHub accepts.
 | 1906 | js ternary test | `typeof e.stderr === "string"` | `false` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
 | 1914 | js if test | `id !== undefined` | `true` | `mcp-server-rules.test.mjs`: "the server answers each request once, a notification never, and an unknown method as one" |
 | 1914 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+
+</details>
+
+### `.github/workflows/security-scan.yml`
+
+883 rules: 831 caught (10 of them by a time limit, 99 through a copy of their step), 52 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/security-scan.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 68 | if: && operand | `github.event.pull_request.draft == false` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 68 | if: whole | `github.event.pull_request.draft == false && github.event.pull_request.head.repo.…` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 68 | if: whole | `github.event.pull_request.draft == false && github.event.pull_request.head.repo.…` | `false` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 69 | if: && operand | `github.event.pull_request.head.repo.full_name == github.repository` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 70 | if: && operand | `github.event.pull_request.user.login != 'dependabot[bot]'` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 71 | if: && operand | `!(startsWith(github.head_ref, 'release-please--') && github.event.pull_request.u…` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 71 | if: && operand | `startsWith(github.head_ref, 'release-please--')` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 72 | if: && operand | `github.event.pull_request.user.type == 'Bot'` | `true` | `security-scan-conditions.test.mjs`: "the settings job runs for same-repository, non-draft pull requests by people" |
+| 141 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 141 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | jq if whole | `.type != "file"` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | jq elif whole | `.size > 16384` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 145 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 145 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh while \|\| operand | `[ -n "$l" ]` | `false` | Not caught, equivalent: the lines come from a here-string, which always ends its last line with a newline (bash 5.2, checked 2026-11-27), so `read` never ends on an unterminated line here |
+| 163 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh if && operand | `[ "$l" = "---" ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 164 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 166 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 166 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 171 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 171 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 173 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 175 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 177 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 182 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 182 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 186 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 186 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 200 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 200 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 202 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 202 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 208 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 208 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 215 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 216 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 217 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh if && operand | `[ -n "$states" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 223 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 224 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 234 | if: \|\| operand | `env.KIT_SECURITY_SCAN == 'push'` | `false` | `security-scan-conditions.test.mjs`: "the scan settings are read only while the scan is on" |
+| 234 | if: whole | `env.KIT_SECURITY_SCAN == 'push' \|\| env.KIT_SECURITY_SCAN == 'open'` | `true` | `security-scan-conditions.test.mjs`: "the scan settings are read only while the scan is on" |
+| 234 | if: whole | `env.KIT_SECURITY_SCAN == 'push' \|\| env.KIT_SECURITY_SCAN == 'open'` | `false` | `security-scan-conditions.test.mjs`: "the scan settings are read only while the scan is on" |
+| 234 | if: \|\| operand | `env.KIT_SECURITY_SCAN == 'open'` | `false` | `security-scan-conditions.test.mjs`: "the scan settings are read only while the scan is on" |
+| 250 | sh list condition | `[ -n "$value" ]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 250 | sh list condition | `[ -n "$value" ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 251 | sh if \|\| operand | `! [[ "$value" =~ ^[1-9][0-9]*$ ]]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 251 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 251 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 251 | sh if \|\| operand | `[ "${#value}" -gt 6 ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 251 | sh if \|\| operand | `[ "$value" -gt "$max" ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 255 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 261 | sh list condition | `[ -n "$value" ]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 261 | sh list condition | `[ -n "$value" ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 262 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 262 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 266 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 274 | sh list condition | `[ -n "$value" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 274 | sh list condition | `[ -n "$value" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `false` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `false` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 283 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 294 | sh list condition | `[ -n "$value" ]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 294 | sh list condition | `[ -n "$value" ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 295 | sh if && operand | `[ -n "$value" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 295 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 295 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 295 | sh if && operand | `! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 299 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 322 | sh case arm | `''` | `__mutant_never__` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 324 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 324 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `false` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 325 | sh case arm | `claude-code` | `__mutant_never__` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 327 | sh if whole | `[ "$PROVIDER" = opencode-go ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 327 | sh if whole | `[ "$PROVIDER" = opencode-go ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 330 | sh case arm | `opencode` | `__mutant_never__` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 331 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 331 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 336 | sh case arm | `*` | `__mutant_never__` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 340 | sh output statement | (before `echo "KIT_SECURITY_RUNNER=$runner" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 343 | sh case arm | `''\|anthropic` | `__mutant_never__` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 344 | sh output statement | (before `echo "KIT_SECURITY_PROVIDER=anthropic" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 348 | sh case arm | `opencode-go` | `__mutant_never__` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 349 | sh output statement | (before `echo "KIT_SECURITY_PROVIDER=opencode-go" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 353 | sh case arm | `*` | `__mutant_never__` | `kit-settings.test.mjs`: "a value out of range names where it came from" |
+| 377 | if: && operand | `github.run_attempt == 1` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 377 | if: whole | `github.run_attempt == 1 && (env.KIT_SECURITY_SCAN == 'push' \|\| env.KIT_SECURITY_…` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 377 | if: whole | `github.run_attempt == 1 && (env.KIT_SECURITY_SCAN == 'push' \|\| env.KIT_SECURITY_…` | `false` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 378 | if: && operand | `(env.KIT_SECURITY_SCAN == 'push' \|\| env.KIT_SECURITY_SCAN == 'open')` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 378 | if: \|\| operand | `env.KIT_SECURITY_SCAN == 'push'` | `false` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 378 | if: \|\| operand | `env.KIT_SECURITY_SCAN == 'open'` | `false` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 379 | if: && operand | `((github.event.action == 'edited' && github.event.changes.base == null) \|\| (gith…` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 379 | if: \|\| operand | `(github.event.action == 'edited' && github.event.changes.base == null)` | `false` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 379 | if: && operand | `github.event.action == 'edited'` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 379 | if: && operand | `github.event.changes.base == null` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 380 | if: \|\| operand | `(github.event.action == 'synchronize' && env.KIT_SECURITY_SCAN == 'open')` | `false` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 380 | if: && operand | `github.event.action == 'synchronize'` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 380 | if: && operand | `env.KIT_SECURITY_SCAN == 'open'` | `true` | `security-scan-conditions.test.mjs`: "the early skip looks at a body or title edit, and at a push in open mode, on a first attempt" |
+| 398 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 398 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 398 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 398 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 399 | sh list condition | `[ -n "$id" ]` | `true` | Not caught, unreachable: the record comes from the same comments by the same filter, so a record the edit is covered by always gives an id |
+| 399 | sh list condition | `[ -n "$id" ]` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 401 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 401 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 403 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 411 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 411 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 411 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 411 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 413 | sh if whole | `[ "$ACTION" = "synchronize" ]` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 413 | sh if whole | `[ "$ACTION" = "synchronize" ]` | `false` | `security-scan-skip.test.mjs`: "a push in mode open skips once a scan has completed, and scans before" |
+| 414 | sh if whole | `[ -n "$record" ]` | `true` | `security-scan-skip.test.mjs`: "a push in mode open skips once a scan has completed, and scans before" |
+| 414 | sh if whole | `[ -n "$record" ]` | `false` | `security-scan-skip.test.mjs`: "a push in mode open skips once a scan has completed, and scans before" |
+| 417 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `security-scan-skip.test.mjs`: "a push in mode open skips once a scan has completed, and scans before" |
+| 421 | sh skip statement | `exit 0` | `:` | `security-scan-skip.test.mjs`: "a push in mode open skips once a scan has completed, and scans before" |
+| 434 | sh if && operand | `[ -n "$record" ]` | `true` | Not caught, equivalent: with no record, the recorded base is empty and never equals "$BASE at <sha>" |
+| 434 | sh if whole | `[ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]` | `true` | its copy at `security-scan.yml` line 565, which "the settings job's early copy is the scan job's step, byte for byte" holds to this step byte for byte |
+| 434 | sh if whole | `[ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 434 | sh if && operand | `[ "$rec_base" = "$BASE at $base_now" ]` | `true` | its copy at `security-scan.yml` line 565, which "the settings job's early copy is the scan job's step, byte for byte" holds to this step byte for byte |
+| 435 | sh if \|\| operand | `[ "$MODE" = "open" ]` | `false` | its copy at `security-scan.yml` line 566, which "the settings job's early copy is the scan job's step, byte for byte" holds to this step byte for byte |
+| 435 | sh if whole | `[ "$MODE" = "open" ] \|\| [ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$…` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 435 | sh if whole | `[ "$MODE" = "open" ] \|\| [ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$…` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 435 | sh if \|\| operand | `[ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$covered" -eq 1 ]` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 440 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 450 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `security-scan-skip.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 452 | sh if whole | `[ "${RUN:-}" = false ]` | `true` | `security-scan-skip.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 452 | sh if whole | `[ "${RUN:-}" = false ]` | `false` | `security-scan-skip.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 453 | sh output statement | (before `echo "SKIP=true" >> "$GITHUB_OUTPUT"`) | `: ` | `security-scan-skip.test.mjs`: "the settings job passes the early skip on, and only a skip" |
+| 473 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| (needs.settings.outpu…` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| (needs.settings.outpu…` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: && operand | `!cancelled()` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: && operand | `(needs.settings.result == 'failure' \|\| (needs.settings.outputs.SKIP != 'true' &&…` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: \|\| operand | `needs.settings.result == 'failure'` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: \|\| operand | `(needs.settings.outputs.SKIP != 'true' && (needs.settings.outputs.KIT_SECURITY_S…` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: && operand | `needs.settings.outputs.SKIP != 'true'` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: && operand | `(needs.settings.outputs.KIT_SECURITY_SCAN == 'push' \|\| needs.settings.outputs.KI…` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: \|\| operand | `needs.settings.outputs.KIT_SECURITY_SCAN == 'push'` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 473 | if: \|\| operand | `needs.settings.outputs.KIT_SECURITY_SCAN == 'open'` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 495 | if: whole | `needs.settings.result == 'failure'` | `true` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 495 | if: whole | `needs.settings.result == 'failure'` | `false` | `security-scan-conditions.test.mjs`: "the scan job runs while the scan is on and the early skip found something, and when the settings failed" |
+| 513 | if: \|\| operand | `(github.event.action == 'edited' && github.event.changes.base == null)` | `false` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: whole | `(github.event.action == 'edited' && github.event.changes.base == null) \|\| (githu…` | `true` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: whole | `(github.event.action == 'edited' && github.event.changes.base == null) \|\| (githu…` | `false` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: && operand | `github.event.action == 'edited'` | `true` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: && operand | `github.event.changes.base == null` | `true` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: \|\| operand | `(github.event.action == 'synchronize' && env.KIT_SECURITY_SCAN == 'open')` | `false` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: && operand | `github.event.action == 'synchronize'` | `true` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 513 | if: && operand | `env.KIT_SECURITY_SCAN == 'open'` | `true` | `security-scan-conditions.test.mjs`: "the scan job's skip looks at a body or title edit, and at a push in open mode" |
+| 529 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 529 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 529 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 529 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 530 | sh list condition | `[ -n "$id" ]` | `true` | Not caught, unreachable: the record comes from the same comments by the same filter, so a record the edit is covered by always gives an id |
+| 530 | sh list condition | `[ -n "$id" ]` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 532 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 532 | sh list condition | `grep -qxF "<!-- scan-not-completed-run $GITHUB_RUN_ID -->" <<<"$body"` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 534 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 542 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 542 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 542 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 542 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan-skip.test.mjs`: "only the bot's comments that start with the record's marker count, for the record and the notice" |
+| 544 | sh if whole | `[ "$ACTION" = "synchronize" ]` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 544 | sh if whole | `[ "$ACTION" = "synchronize" ]` | `false` | its copy at `security-scan.yml` line 413, which "the settings job's early copy is the scan job's step, byte for byte" holds to this step byte for byte |
+| 545 | sh if whole | `[ -n "$record" ]` | `true` | its copy at `security-scan.yml` line 414, which "the settings job's early copy is the scan job's step, byte for byte" holds to this step byte for byte |
+| 545 | sh if whole | `[ -n "$record" ]` | `false` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 548 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 552 | sh skip statement | `exit 0` | `:` | `security-scan-skip.test.mjs`: "a re-run that the record covers takes its own not-completed notice down, in both copies" |
+| 565 | sh if && operand | `[ -n "$record" ]` | `true` | Not caught, equivalent: with no record, the recorded base is empty and never equals "$BASE at <sha>" |
+| 565 | sh if whole | `[ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]` | `true` | `security-scan-skip.test.mjs`: "an edit after the base moved scans" |
+| 565 | sh if whole | `[ -n "$record" ] && [ "$rec_base" = "$BASE at $base_now" ]` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 565 | sh if && operand | `[ "$rec_base" = "$BASE at $base_now" ]` | `true` | `security-scan-skip.test.mjs`: "an edit after the base moved scans" |
+| 566 | sh if \|\| operand | `[ "$MODE" = "open" ]` | `false` | `security-scan-skip.test.mjs`: "an edit of a later head scans in mode push and skips in mode open" |
+| 566 | sh if whole | `[ "$MODE" = "open" ] \|\| [ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$…` | `true` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 566 | sh if whole | `[ "$MODE" = "open" ] \|\| [ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$…` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 566 | sh if \|\| operand | `[ "$rec_head" = "$HEAD" ]; then covered=1; fi fi if [ "$covered" -eq 1 ]` | `false` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 571 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `security-scan-skip.test.mjs`: "an edit the record covers skips, in the early copy too, and writes nothing" |
+| 582 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 582 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 592 | sh case arm | `admin\|write` | `__mutant_never__` | `workflow-guards.test.mjs`: "security-scan.yml: the gate refuses an author or actor without write access" |
+| 593 | sh case arm | `*` | `__mutant_never__` | `workflow-guards.test.mjs`: "security-scan.yml: the gate refuses an author or actor without write access" |
+| 600 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 600 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 611 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 611 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 614 | sh output statement | (before `rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gi`) | `: ` | `workflow-guards.test.mjs`: "security-scan.yml: the head's executable Claude configuration is removed" |
+| 627 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 627 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 646 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 646 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 650 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `true` | `security-scan.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 650 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `false` | Not caught, equivalent: git checkout replaces a symlinked parent with a real directory and writes nothing through it (git 2.47 and 2.54, checked 2026-11-27); the unlink is defence in depth |
+| 652 | sh list condition | `[ -L "$dir" ]` | `false` | Not caught, equivalent: git checkout replaces a symlinked parent with a real directory and writes nothing through it (git 2.47 and 2.54, checked 2026-11-27); the unlink is defence in depth |
+| 652 | sh list condition | `[ -L "$dir" ]` | `true` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 652 | sh output statement | (before `rm -f -- "$dir"`) | `: ` | Not caught, equivalent: git checkout replaces a symlinked parent with a real directory and writes nothing through it (git 2.47 and 2.54, checked 2026-11-27); the unlink is defence in depth |
+| 654 | sh output statement | (before `rm -rf -- "$f"`) | `: ` | Not caught, equivalent: git checkout replaces a file, directory or symlink at the path itself (git 2.54, checked 2026-11-26), so the removal before it changes nothing |
+| 659 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 659 | sh list condition | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 659 | sh output statement | (before `rm -f -- "$f"`) | `: ` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 664 | sh if whole | `! git cat-file -e "origin/$BASE:.github/security-review-instructions.md" 2>/dev/…` | `true` | `security-scan.test.mjs`: "a base that ships scan instructions keeps its own copy" |
+| 664 | sh if whole | `! git cat-file -e "origin/$BASE:.github/security-review-instructions.md" 2>/dev/…` | `false` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 665 | sh output statement | (before `rm -f -- .github/security-review-instructions.md`) | `: ` | `security-scan.test.mjs`: "the scan's rules come from the base, and no CLAUDE.md is left to load" |
+| 680 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 680 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 687 | sh list condition | `[ -n "$entry" ]` | `true` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
+| 687 | sh list condition | `[ -n "$entry" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 690 | sh if && operand | `[ "$mode" != 100644 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 690 | sh if whole | `[ "$mode" != 100644 ] && [ "$mode" != 100755 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 690 | sh if whole | `[ "$mode" != 100644 ] && [ "$mode" != 100755 ]` | `false` | `security-scan-public-content.test.mjs`: "an exit 1 without a finding line, and a base check that is a symlink, cannot run" |
+| 690 | sh if && operand | `[ "$mode" != 100755 ]` | `true` | `security-scan-log-content.test.mjs`: "an executable check is a regular file too, and the .mjs check wins over the .py one" |
+| 692 | sh elif whole | `! git show "origin/$BASE:$f" > "$check"` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 692 | sh elif whole | `! git show "origin/$BASE:$f" > "$check"` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 692 | sh file write | `"$check"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 695 | sh skip statement | `break` | `:` | `security-scan-log-content.test.mjs`: "an executable check is a regular file too, and the .mjs check wins over the .py one" |
+| 698 | sh if whole | `[ -z "$check" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 698 | sh if whole | `[ -z "$check" ]` | `false` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
+| 699 | sh file write | `"$state"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
+| 701 | sh elif whole | `[ -n "$why" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 701 | sh elif whole | `[ -n "$why" ]` | `false` | `security-scan-public-content.test.mjs`: "an exit 1 without a finding line, and a base check that is a symlink, cannot run" |
+| 702 | sh file write | `"$state"` | `/dev/null` | `security-scan-public-content.test.mjs`: "an exit 1 without a finding line, and a base check that is a symlink, cannot run" |
+| 705 | sh file write | `"$state"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 708 | sh file write | `"$RUNNER_TEMP/public-content-guard.sh"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 833 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 833 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 841 | sh if \|\| operand | `[ "$CHANGED" -gt "$KIT_SECURITY_MAX_FILES" ]` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 841 | sh if whole | `[ "$CHANGED" -gt "$KIT_SECURITY_MAX_FILES" ] \|\| [ "$lines" -gt "$KIT_SECURITY_MA…` | `true` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 841 | sh if whole | `[ "$CHANGED" -gt "$KIT_SECURITY_MAX_FILES" ] \|\| [ "$lines" -gt "$KIT_SECURITY_MA…` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 841 | sh if \|\| operand | `[ "$lines" -gt "$KIT_SECURITY_MAX_LINES" ]` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 851 | sh if \|\| operand | `[ "$local_count" -gt "$KIT_SECURITY_MAX_FILES" ]` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 851 | sh if whole | `[ "$local_count" -gt "$KIT_SECURITY_MAX_FILES" ] \|\| [ "$local_lines" -gt "$KIT_S…` | `true` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 851 | sh if whole | `[ "$local_count" -gt "$KIT_SECURITY_MAX_FILES" ] \|\| [ "$local_lines" -gt "$KIT_S…` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 851 | sh if \|\| operand | `[ "$local_lines" -gt "$KIT_SECURITY_MAX_LINES" ]` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 855 | sh if whole | `[ "$local_count" -lt "$CHANGED" ]` | `true` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 855 | sh if whole | `[ "$local_count" -lt "$CHANGED" ]` | `false` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 868 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 868 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 871 | sh output statement | (before `rm -f -- "$link"`) | `: ` | `security-scan.test.mjs`: "every symlink in the checkout is removed, a directory link inside it too" |
+| 878 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 878 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 880 | sh if whole | `git config --local --list \| grep -qiE 'extraheader\|includeif'` | `true` | `workflow-guards.test.mjs`: "security-scan.yml: a checkout whose git config references credentials fails the run" |
+| 880 | sh if whole | `git config --local --list \| grep -qiE 'extraheader\|includeif'` | `false` | `workflow-guards.test.mjs`: "security-scan.yml: a checkout whose git config references credentials fails the run" |
+| 890 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 890 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 890 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 890 | if: && operand | `env.KIT_SECURITY_RUNNER != 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 897 | sh list \|\| operand | `sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code scan run exercises it |
+| 897 | sh list whole | `sudo apt-get update -qq \|\| sudo apt-get update -qq` | `true` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code scan run exercises it |
+| 897 | sh list whole | `sudo apt-get update -qq \|\| sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code scan run exercises it |
+| 897 | sh list \|\| operand | `sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code scan run exercises it |
+| 900 | sh if whole | `[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]` | `true` | Left untested: runner provisioning (the runner's AppArmor setting); every Claude Code scan run exercises it |
+| 900 | sh if whole | `[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]` | `false` | Left untested: runner provisioning (the runner's AppArmor setting); every Claude Code scan run exercises it |
+| 915 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 915 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 923 | sh file write | `"$input/diff.patch"` | `/dev/null` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 924 | sh file write | `"$input/files.txt"` | `/dev/null` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 925 | sh output statement | (before `echo "SCAN_INPUT=$input" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 927 | sh file write | `"$RUNNER_TEMP/claude-settings.json"` | `/dev/null` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 937 | sh output statement | (before `echo "SCAN_ALLOWED=Read,Grep,Glob" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 938 | sh output statement | (before `echo "SCAN_DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebS`) | `: ` | `security-scan.test.mjs`: "the scan's inputs take .gitattributes from the base, so a head cannot hide a file" |
+| 968 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 968 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 968 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER != 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 968 | if: && operand | `env.KIT_SECURITY_RUNNER != 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 983 | sh output statement | (before `sudo install -d -o root -g root -m 0755 /opt/agent-kit`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every scan run exercises it |
+| 984 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every scan run exercises it |
+| 985 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Not a rule: removes the downloaded binary from RUNNER_TEMP after installing it |
+| 995 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 995 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 995 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 995 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 997 | sh output statement | (before `rm -rf -- .opencode opencode.json opencode.jsonc`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1001 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1001 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1001 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1001 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1012 | sh output statement | (before `sudo install -d -o root -g root -m 0755 /opt/agent-kit`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every scan run exercises it |
+| 1013 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every scan run exercises it |
+| 1014 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Not a rule: removes the downloaded archive from RUNNER_TEMP after installing it |
+| 1024 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1024 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1024 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1024 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1026 | sh output statement | (before `mv -- .git "$RUNNER_TEMP/checkout-git"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1051 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1051 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1051 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1051 | if: && operand | `env.KIT_SECURITY_RUNNER == 'claude-code'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1065 | sh if whole | `[ "$KIT_SECURITY_PROVIDER" = opencode-go ]` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1065 | sh if whole | `[ "$KIT_SECURITY_PROVIDER" = opencode-go ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1066 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1066 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: OpenCode Go without its key fails before the CLI starts" |
+| 1078 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1078 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the Anthropic provider without its key fails before the CLI starts" |
+| 1080 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the Anthropic provider without its key fails before the CLI starts" |
+| 1080 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the Anthropic provider without its key fails before the CLI starts" |
+| 1087 | sh list condition | `[ -z "$KIT_SECURITY_EFFORT" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the effort level reaches the CLI, and none when unset" |
+| 1087 | sh list condition | `[ -z "$KIT_SECURITY_EFFORT" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the effort level reaches the CLI, and none when unset" |
+| 1088 | sh list condition | `/opt/agent-kit/claude -p "$prompt" \ --output-format json \ --json-schema "$(cat…` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1088 | sh list condition | `/opt/agent-kit/claude -p "$prompt" \ --output-format json \ --json-schema "$(cat…` | `false` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1102 | sh file write | `"$RESULT"` | `/dev/null` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1103 | sh if whole | `[ ! -s "$RESULT" ]` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1103 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1108 | jq if whole | `type == "array"` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1108 | jq if whole | `type == "array"` | `false` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1108 | jq select whole | `.type == "result"` | `true` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1108 | jq select whole | `.type == "result"` | `false` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1116 | sh list condition | `[ "$KIT_SECURITY_PROVIDER" != opencode-go ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1116 | sh list condition | `[ "$KIT_SECURITY_PROVIDER" != opencode-go ]` | `false` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check that passes it, the summary is printed with commands stopped" |
+| 1117 | sh file write | `"$HELD.summary"` | `/dev/null` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1119 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1119 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `true` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1119 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1119 | sh if \|\| operand | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1119 | sh if \|\| operand | `[ "$(jq -r '.subtype' <<<"$result")" != "success" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1143 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1143 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1143 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode'` | `false` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1143 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "each runner installs and runs only its own CLI" |
+| 1153 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1153 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1192 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1192 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1192 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1194 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1194 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1200 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1200 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1204 | sh if && operand | `[ -n "$KIT_SECURITY_EFFORT" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1204 | sh if whole | `[ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.varian…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1204 | sh if whole | `[ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.varian…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1204 | sh if && operand | `! jq -e --arg v "$KIT_SECURITY_EFFORT" '.variants // {} \| has($v)' >/dev/null <<…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
+| 1205 | jq if whole | `length == 0` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1205 | jq if whole | `length == 0` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1214 | sh file write | `"$RUNNER_TEMP/opencode-serve.log"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1220 | sh list condition | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1220 | sh list condition | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1221 | sh list condition | `kill -0 "$server" 2>/dev/null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that exits ends the wait for its address" |
+| 1221 | sh list condition | `kill -0 "$server" 2>/dev/null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1224 | sh if whole | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1224 | sh if whole | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
+| 1239 | jq if whole | `$variant == ""` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
+| 1239 | jq if whole | `$variant == ""` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
+| 1262 | jq select whole | `.type == "text"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer is the last text part, whatever part follows it" |
+| 1262 | jq select whole | `.type == "text"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1264 | jq select and operand | `. != null` | `true` | Not caught, equivalent: null never fits the schema, whose type is object, so `fits` alone drops it |
+| 1264 | jq select whole | `. != null and fits($schema[0])` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer is checked against every keyword of the scan's and the verification's schemas" |
+| 1264 | jq select whole | `. != null and fits($schema[0])` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1264 | jq select and operand | `fits($schema[0])` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer is checked against every keyword of the scan's and the verification's schemas" |
+| 1282 | sh list condition | `api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/ope…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1282 | sh list condition | `api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/ope…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1282 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1284 | sh file write | `"$RUNNER_TEMP/opencode-structured.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1306 | sh list \|\| operand | `[ -n "${AGENT_KIT_STARTED:-}" ]` | `false` | its copy at `security-scan.yml` line 1723, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1306 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1306 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | its copy at `security-scan.yml` line 1723, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1306 | sh list \|\| operand | `[ -z "${GITHUB_ENV:-}" ]` | `false` | Not caught, unreachable on a runner: GitHub always sets GITHUB_ENV; the guard only lets the step run outside Actions |
+| 1306 | sh output statement | (before `echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1312 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: errors are not asked again" |
+| 1312 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1313 | jq if whole | `. > 3600` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1313 | jq if whole | `. > 3600` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a named wait past an hour waits an hour" |
+| 1320 | jq select whole | `.type == "step-finish"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: only served steps start the row again, not other parts" |
+| 1320 | jq select whole | `.type == "step-finish"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a step served between refusals starts the row again" |
+| 1332 | sh while && operand | `[ "$status" -eq 0 ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a failed request is not waited on, even when it says at capacity" |
+| 1332 | sh while whole | `[ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1332 | sh while whole | `[ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1332 | sh while && operand | `pause=$(refusal_pause)` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1332 | sh while && operand | `[ -n "$pause" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1334 | sh if && operand | `[ -n "$now" ]` | `true` | Not caught, equivalent: an empty count makes `[ "" -gt n ]` fail as a test, so the && list is false either way |
+| 1334 | sh if whole | `[ -n "$now" ] && [ "$now" -gt "$served" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1334 | sh if whole | `[ -n "$now" ] && [ "$now" -gt "$served" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a step served between refusals starts the row again" |
+| 1334 | sh if && operand | `[ "$now" -gt "$served" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a step served between refusals starts the row again" |
+| 1340 | sh list condition | `[ "$pause" -le "$delay" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer" |
+| 1340 | sh list condition | `[ "$pause" -le "$delay" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1342 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1342 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the scan stops on a refusal when the wait would not fit in the job's time limit" |
+| 1344 | sh skip statement | `break` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the scan stops on a refusal when the wait would not fit in the job's time limit" |
+| 1354 | sh list && operand | `[ "$status" -eq 0 ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a request that failed is not asked for again" |
+| 1354 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the server is local, behind a password, and the prompt carries the schema" |
+| 1354 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: no object is taken from among other text" |
+| 1354 | sh list && operand | `[ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1355 | sh list && operand | `jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: errors are not asked again" |
+| 1361 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
+| 1361 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1361 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
+| 1366 | sh if \|\| operand | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1366 | sh if whole | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1366 | sh if whole | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1366 | sh file write | `"$RUNNER_TEMP/opencode-session.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1367 | sh if \|\| operand | `! jq -e '.messages \| type == "array"' "$RUNNER_TEMP/opencode-session.json" >/dev…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an export without a message list counts nothing" |
+| 1369 | sh file write | `"$RUNNER_TEMP/opencode-session.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: no answer, an error or the turn limit fails the step" |
+| 1377 | jq select whole | `.info.role == "assistant"` | `true` | Not a rule: the assistant messages feed only the run log's turn count, cost, tokens and last text; the turn limit counts its own way |
+| 1377 | jq select whole | `.info.role == "assistant"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1379 | jq if whole | `$a.info == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1379 | jq if whole | `$a.info == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: no answer, an error or the turn limit fails the step" |
+| 1379 | jq if whole | `$a == {}` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: no answer, an error or the turn limit fails the step" |
+| 1379 | jq if whole | `$a == {}` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON reads as no answer" |
+| 1380 | jq if whole | `$structured == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1380 | jq if whole | `$structured == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
+| 1382 | jq if and operand | `$status == 0` | `true` | Not caught, equivalent: a failed request still sets is_error, which decides the step; only the logged subtype differs |
+| 1382 | jq if whole | `$status == 0 and $error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1382 | jq if whole | `$status == 0 and $error == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1382 | jq if and operand | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1384 | jq select whole | `.type == "step-start"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1384 | jq select whole | `.type == "step-start"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1392 | jq if whole | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
+| 1392 | jq if whole | `$error == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1393 | jq select whole | `.type == "text"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer is the last text part, whatever part follows it" |
+| 1393 | jq select whole | `.type == "text"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1402 | sh file write | `"$HELD.summary"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1404 | sh if whole | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1404 | sh if whole | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
+| 1412 | sh file write | `"$HELD.server"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
+| 1421 | jq if whole | `$m.info.role == "user"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1421 | jq if whole | `$m.info.role == "user"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1423 | jq select whole | `.type == "step-start"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1423 | jq select whole | `.type == "step-start"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1424 | sh if whole | `[ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1424 | sh if whole | `[ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1436 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: && operand | `always()` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: && operand | `(steps.scan.outcome != 'skipped' \|\| steps.scan_opencode.outcome != 'skipped')` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: \|\| operand | `steps.scan.outcome != 'skipped'` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1436 | if: \|\| operand | `steps.scan_opencode.outcome != 'skipped'` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1453 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 1453 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 1459 | jq if whole | `type == "array"` | `true` | `security-scan.test.mjs`: "the collect step numbers the scan's candidates" |
+| 1459 | jq if whole | `type == "array"` | `false` | `security-scan.test.mjs`: "the collect step reads the stream's last result" |
+| 1459 | jq select whole | `.type == "result"` | `true` | `security-scan.test.mjs`: "the collect step reads the stream's last result" |
+| 1459 | jq select whole | `.type == "result"` | `false` | `security-scan.test.mjs`: "the collect step reads the stream's last result" |
+| 1460 | sh if whole | `! jq -e ' .structured_output \| type == "object" and (.files_reviewed \| type == "…` | `true` | `security-scan.test.mjs`: "the collect step numbers the scan's candidates" |
+| 1460 | sh if whole | `! jq -e ' .structured_output \| type == "object" and (.files_reviewed \| type == "…` | `false` | `security-scan.test.mjs`: "the collect step refuses an answer that is not the schema's" |
+| 1479 | sh output statement | (before `echo "CANDIDATES=$count" >> "$GITHUB_ENV"`) | `: ` | `security-scan.test.mjs`: "the collect step numbers the scan's candidates" |
+| 1488 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1488 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code' && env.CANDIDATES…` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1488 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'claude-code' && env.CANDIDATES…` | `false` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1488 | if: && operand | `env.KIT_SECURITY_RUNNER == 'claude-code'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1488 | if: && operand | `env.CANDIDATES != ''` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1488 | if: && operand | `env.CANDIDATES != '0'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1501 | sh if whole | `[ "$KIT_SECURITY_PROVIDER" = opencode-go ]` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1501 | sh if whole | `[ "$KIT_SECURITY_PROVIDER" = opencode-go ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1502 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1502 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: OpenCode Go without its key fails before the CLI starts" |
+| 1514 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1514 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the Anthropic provider without its key fails before the CLI starts" |
+| 1516 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the Anthropic provider without its key fails before the CLI starts" |
+| 1516 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the Anthropic provider without its key fails before the CLI starts" |
+| 1523 | sh list condition | `[ -z "$KIT_SECURITY_EFFORT" ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the effort level reaches the CLI, and none when unset" |
+| 1523 | sh list condition | `[ -z "$KIT_SECURITY_EFFORT" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the effort level reaches the CLI, and none when unset" |
+| 1524 | sh list condition | `/opt/agent-kit/claude -p "$prompt" \ --output-format json \ --json-schema "$(cat…` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1524 | sh list condition | `/opt/agent-kit/claude -p "$prompt" \ --output-format json \ --json-schema "$(cat…` | `false` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1538 | sh file write | `"$RESULT"` | `/dev/null` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1539 | sh if whole | `[ ! -s "$RESULT" ]` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1539 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1543 | jq if whole | `type == "array"` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1543 | jq if whole | `type == "array"` | `false` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1543 | jq select whole | `.type == "result"` | `true` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1543 | jq select whole | `.type == "result"` | `false` | `security-scan-log-content.test.mjs`: "a stream's last result decides the run, whatever event follows it" |
+| 1549 | sh list condition | `[ "$KIT_SECURITY_PROVIDER" != opencode-go ]` | `true` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 1549 | sh list condition | `[ "$KIT_SECURITY_PROVIDER" != opencode-go ]` | `false` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check that passes it, the summary is printed with commands stopped" |
+| 1550 | sh file write | `"$HELD.summary"` | `/dev/null` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1552 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1552 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `true` | `security-scan-log-content.test.mjs`: "Verify the candidate findings: with a base check, the model's last message waits for the check, and is withheld when it refuses it" |
+| 1552 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1552 | sh if \|\| operand | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1552 | sh if \|\| operand | `[ "$(jq -r '.subtype' <<<"$result")" != "success" ]` | `false` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1560 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1560 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode' && env.CANDIDATES !=…` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1560 | if: whole | `env.RUN != 'false' && env.KIT_SECURITY_RUNNER == 'opencode' && env.CANDIDATES !=…` | `false` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1560 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1560 | if: && operand | `env.CANDIDATES != ''` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1560 | if: && operand | `env.CANDIDATES != '0'` | `true` | `security-scan-conditions.test.mjs`: "a verification runs on its runner only when the scan found candidates" |
+| 1570 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1570 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | its copy at `security-scan.yml` line 1153, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1609 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1609 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1609 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1611 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1611 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | its copy at `security-scan.yml` line 1194, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1617 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1617 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `false` | its copy at `security-scan.yml` line 1200, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1621 | sh if && operand | `[ -n "$KIT_SECURITY_EFFORT" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1621 | sh if whole | `[ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.varian…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1621 | sh if whole | `[ -n "$KIT_SECURITY_EFFORT" ] && ! jq -e --arg v "$KIT_SECURITY_EFFORT" '.varian…` | `false` | its copy at `security-scan.yml` line 1204, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1621 | sh if && operand | `! jq -e --arg v "$KIT_SECURITY_EFFORT" '.variants // {} \| has($v)' >/dev/null <<…` | `true` | its copy at `security-scan.yml` line 1204, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1622 | jq if whole | `length == 0` | `true` | its copy at `security-scan.yml` line 1205, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1622 | jq if whole | `length == 0` | `false` | its copy at `security-scan.yml` line 1205, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1631 | sh file write | `"$RUNNER_TEMP/opencode-serve.log"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1637 | sh list condition | `[ -z "$url" ]` | `true` | its copy at `security-scan.yml` line 1220, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1637 | sh list condition | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1638 | sh list condition | `kill -0 "$server" 2>/dev/null` | `true` | its copy at `security-scan.yml` line 1221, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1638 | sh list condition | `kill -0 "$server" 2>/dev/null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1641 | sh if whole | `[ -z "$url" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1641 | sh if whole | `[ -z "$url" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
+| 1656 | jq if whole | `$variant == ""` | `true` | its copy at `security-scan.yml` line 1239, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1656 | jq if whole | `$variant == ""` | `false` | its copy at `security-scan.yml` line 1239, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1679 | jq select whole | `.type == "text"` | `true` | its copy at `security-scan.yml` line 1262, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1679 | jq select whole | `.type == "text"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1681 | jq select and operand | `. != null` | `true` | Not caught, equivalent: null never fits the schema, whose type is object, so `fits` alone drops it |
+| 1681 | jq select whole | `. != null and fits($schema[0])` | `true` | its copy at `security-scan.yml` line 1264, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1681 | jq select whole | `. != null and fits($schema[0])` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1681 | jq select and operand | `fits($schema[0])` | `true` | its copy at `security-scan.yml` line 1264, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1699 | sh list condition | `api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/ope…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1699 | sh list condition | `api -X POST -d "$(ask "$1")" "$url/session/$session/message" > "$RUNNER_TEMP/ope…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1699 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1701 | sh file write | `"$RUNNER_TEMP/opencode-structured.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1723 | sh list \|\| operand | `[ -n "${AGENT_KIT_STARTED:-}" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1723 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `true` | its copy at `security-scan.yml` line 1306, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1723 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1723 | sh list \|\| operand | `[ -z "${GITHUB_ENV:-}" ]` | `false` | Not caught, unreachable on a runner: GitHub always sets GITHUB_ENV; the guard only lets the step run outside Actions |
+| 1723 | sh output statement | (before `echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"`) | `: ` | its copy at `security-scan.yml` line 1306, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1729 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `true` | its copy at `security-scan.yml` line 1312, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1729 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1730 | jq if whole | `. > 3600` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1730 | jq if whole | `. > 3600` | `false` | its copy at `security-scan.yml` line 1313, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1737 | jq select whole | `.type == "step-finish"` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: only served steps start the row again, not other parts" |
+| 1737 | jq select whole | `.type == "step-finish"` | `false` | its copy at `security-scan.yml` line 1320, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1749 | sh while && operand | `[ "$status" -eq 0 ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a failed request is not waited on, even when it says at capacity" |
+| 1749 | sh while whole | `[ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1749 | sh while whole | `[ "$status" -eq 0 ] && pause=$(refusal_pause) && [ -n "$pause" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1749 | sh while && operand | `pause=$(refusal_pause)` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1749 | sh while && operand | `[ -n "$pause" ]` | `true` | `scan-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1751 | sh if && operand | `[ -n "$now" ]` | `true` | Not caught, equivalent: an empty count makes `[ "" -gt n ]` fail as a test, so the && list is false either way |
+| 1751 | sh if whole | `[ -n "$now" ] && [ "$now" -gt "$served" ]` | `true` | its copy at `security-scan.yml` line 1334, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1751 | sh if whole | `[ -n "$now" ] && [ "$now" -gt "$served" ]` | `false` | its copy at `security-scan.yml` line 1334, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1751 | sh if && operand | `[ "$now" -gt "$served" ]` | `true` | its copy at `security-scan.yml` line 1334, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1757 | sh list condition | `[ "$pause" -le "$delay" ]` | `true` | its copy at `security-scan.yml` line 1340, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1757 | sh list condition | `[ "$pause" -le "$delay" ]` | `false` | its copy at `security-scan.yml` line 1340, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1759 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1759 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `false` | its copy at `security-scan.yml` line 1342, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1761 | sh skip statement | `break` | `:` | its copy at `security-scan.yml` line 1344, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1771 | sh list && operand | `[ "$status" -eq 0 ]` | `true` | its copy at `security-scan.yml` line 1354, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1771 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `true` | its copy at `security-scan.yml` line 1354, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1771 | sh list whole | `[ "$status" -eq 0 ] && [ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \ && jq …` | `false` | its copy at `security-scan.yml` line 1354, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1771 | sh list && operand | `[ ! -s "$RUNNER_TEMP/opencode-structured.json" ] \` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1772 | sh list && operand | `jq -e '.info != null and .info.error == null' "$RUNNER_TEMP/opencode-answer.json…` | `true` | its copy at `security-scan.yml` line 1355, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1778 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `true` | its copy at `security-scan.yml` line 1361, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1778 | sh list condition | `jq -e . "$RUNNER_TEMP/opencode-answer.json" >/dev/null 2>&1` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1778 | sh file write | `"$RUNNER_TEMP/opencode-answer.json"` | `/dev/null` | its copy at `security-scan.yml` line 1361, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1783 | sh if \|\| operand | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1783 | sh if whole | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1783 | sh if whole | `! oc "$config" export "$session" > "$RUNNER_TEMP/opencode-session.json" 2>/dev/n…` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1783 | sh file write | `"$RUNNER_TEMP/opencode-session.json"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1784 | sh if \|\| operand | `! jq -e '.messages \| type == "array"' "$RUNNER_TEMP/opencode-session.json" >/dev…` | `false` | its copy at `security-scan.yml` line 1367, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1786 | sh file write | `"$RUNNER_TEMP/opencode-session.json"` | `/dev/null` | its copy at `security-scan.yml` line 1369, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1794 | jq select whole | `.info.role == "assistant"` | `true` | Not a rule: the assistant messages feed only the run log's turn count, cost, tokens and last text; the turn limit counts its own way |
+| 1794 | jq select whole | `.info.role == "assistant"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1796 | jq if whole | `$a.info == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1796 | jq if whole | `$a.info == null` | `false` | its copy at `security-scan.yml` line 1379, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1796 | jq if whole | `$a == {}` | `true` | its copy at `security-scan.yml` line 1379, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1796 | jq if whole | `$a == {}` | `false` | its copy at `security-scan.yml` line 1379, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1797 | jq if whole | `$structured == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1797 | jq if whole | `$structured == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1799 | jq if and operand | `$status == 0` | `true` | Not caught, equivalent: a failed request still sets is_error, which decides the step; only the logged subtype differs |
+| 1799 | jq if whole | `$status == 0 and $error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1799 | jq if whole | `$status == 0 and $error == null` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1799 | jq if and operand | `$error == null` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1801 | jq select whole | `.type == "step-start"` | `true` | its copy at `security-scan.yml` line 1384, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1801 | jq select whole | `.type == "step-start"` | `false` | its copy at `security-scan.yml` line 1384, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1809 | jq if whole | `$error == null` | `true` | its copy at `security-scan.yml` line 1392, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1809 | jq if whole | `$error == null` | `false` | its copy at `security-scan.yml` line 1392, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1810 | jq select whole | `.type == "text"` | `true` | its copy at `security-scan.yml` line 1393, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1810 | jq select whole | `.type == "text"` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1819 | sh file write | `"$HELD.summary"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1821 | sh if whole | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1821 | sh if whole | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1829 | sh file write | `"$HELD.server"` | `/dev/null` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1838 | jq if whole | `$m.info.role == "user"` | `true` | its copy at `security-scan.yml` line 1421, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1838 | jq if whole | `$m.info.role == "user"` | `false` | its copy at `security-scan.yml` line 1421, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1840 | jq select whole | `.type == "step-start"` | `true` | its copy at `security-scan.yml` line 1423, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1840 | jq select whole | `.type == "step-start"` | `false` | its copy at `security-scan.yml` line 1423, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1841 | sh if whole | `[ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1841 | sh if whole | `[ "$turns" -ge "$KIT_SECURITY_MAX_TURNS" ]` | `false` | its copy at `security-scan.yml` line 1424, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1853 | if: whole | `${{ always() && env.RUN != 'false' && (steps.verify.outcome != 'skipped' \|\| step…` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: whole | `${{ always() && env.RUN != 'false' && (steps.verify.outcome != 'skipped' \|\| step…` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: && operand | `always()` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: && operand | `(steps.verify.outcome != 'skipped' \|\| steps.verify_opencode.outcome != 'skipped'…` | `true` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: \|\| operand | `steps.verify.outcome != 'skipped'` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1853 | if: \|\| operand | `steps.verify_opencode.outcome != 'skipped'` | `false` | `security-scan-log-content.test.mjs`: "the check is found before any model runs, and the secret reaches no step that runs one" |
+| 1863 | if: && operand | `always()` | `true` | `security-scan-conditions.test.mjs`: ".git comes back for OpenCode, even after a failure" |
+| 1863 | if: whole | `always() && env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: ".git comes back for OpenCode, even after a failure" |
+| 1863 | if: whole | `always() && env.KIT_SECURITY_RUNNER == 'opencode'` | `false` | `security-scan-conditions.test.mjs`: ".git comes back for OpenCode, even after a failure" |
+| 1863 | if: && operand | `env.KIT_SECURITY_RUNNER == 'opencode'` | `true` | `security-scan-conditions.test.mjs`: ".git comes back for OpenCode, even after a failure" |
+| 1865 | sh if && operand | `[ -d "$RUNNER_TEMP/checkout-git" ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1865 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1865 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `false` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1865 | sh if && operand | `[ ! -e .git ]` | `true` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1866 | sh output statement | (before `mv -- "$RUNNER_TEMP/checkout-git" .git`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once" |
+| 1877 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 1877 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 1885 | sh if whole | `[ "$(jq '.findings \| length' "$candidates")" -eq 0 ]` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1885 | sh if whole | `[ "$(jq '.findings \| length' "$candidates")" -eq 0 ]` | `false` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
+| 1886 | sh file write | `"$RESULTS"` | `/dev/null` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
+| 1888 | sh skip statement | `exit 0` | `:` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
+| 1890 | jq if whole | `type == "array"` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1890 | jq if whole | `type == "array"` | `false` | `security-scan.test.mjs`: "the verification's stream is read for its last result" |
+| 1890 | jq select whole | `.type == "result"` | `true` | `security-scan.test.mjs`: "the verification's stream is read for its last result" |
+| 1890 | jq select whole | `.type == "result"` | `false` | `security-scan.test.mjs`: "the verification's stream is read for its last result" |
+| 1891 | sh if whole | `! jq -e ' .structured_output \| type == "object" and (.verdicts \| type == "array"…` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1891 | sh if whole | `! jq -e ' .structured_output \| type == "object" and (.verdicts \| type == "array"…` | `false` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
+| 1901 | sh file write | `"$RUNNER_TEMP/verdicts.json"` | `/dev/null` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1906 | jq select whole | `.id == $f.id` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1906 | jq select whole | `.id == $f.id` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1907 | jq select whole | `.keep` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1907 | jq select whole | `.keep` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1908 | jq if whole | `($mine \| length) == 0` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1908 | jq if whole | `($mine \| length) == 0` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1910 | jq elif whole | `$kept != null` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1910 | jq elif whole | `$kept != null` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1915 | jq select whole | `._excluded \| not` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1915 | jq select whole | `._excluded \| not` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1916 | jq select whole | `._excluded` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1916 | jq select whole | `._excluded` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1920 | jq select whole | `._excluded` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1920 | jq select whole | `._excluded` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1921 | jq select whole | `._excluded \| not` | `true` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1921 | jq select whole | `._excluded \| not` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1927 | sh if whole | `[ -n "$dropped" ]` | `true` | Not a rule: only whether the log shows an empty group of dropped candidates |
+| 1927 | sh if whole | `[ -n "$dropped" ]` | `false` | `security-scan.test.mjs`: "the verification drops only candidates it has a verdict on and keeps none of" |
+| 1950 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: && operand | `always()` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: && operand | `(steps.scan.outcome != 'skipped' \|\| steps.scan_opencode.outcome != 'skipped')` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: \|\| operand | `steps.scan.outcome != 'skipped'` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1950 | if: \|\| operand | `steps.scan_opencode.outcome != 'skipped'` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 1964 | sh if \|\| operand | `[ ! -s "$RESULTS" ] \` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 1964 | sh if whole | `[ ! -s "$RESULTS" ] \ \|\| ! jq -e 'type == "object" and has("findings") and .anal…` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 1964 | sh if whole | `[ ! -s "$RESULTS" ] \ \|\| ! jq -e 'type == "object" and has("findings") and .anal…` | `false` | `security-scan-public-content.test.mjs`: "when the verification did not finish, the candidates are checked" |
+| 1965 | sh if \|\| operand | `! jq -e 'type == "object" and has("findings") and .analysis_summary.review_compl…` | `false` | `security-scan-public-content.test.mjs`: "results that are not a completed scan send the hold to the candidates" |
+| 1967 | sh if \|\| operand | `[ -z "${SCAN_INPUT:-}" ]` | `false` | Not caught, equivalent: with SCAN_INPUT unset the candidates path is /candidates.json, which does not exist, so the next test holds anyway |
+| 1967 | sh if whole | `[ -z "${SCAN_INPUT:-}" ] \|\| [ ! -s "$source" ]` | `true` | `security-scan-public-content.test.mjs`: "when the verification did not finish, the candidates are checked" |
+| 1967 | sh if whole | `[ -z "${SCAN_INPUT:-}" ] \|\| [ ! -s "$source" ]` | `false` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1967 | sh if \|\| operand | `[ ! -s "$source" ]` | `false` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1969 | sh output statement | (before `rm -f -- "$pending"`) | `: ` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1970 | sh skip statement | `exit 0` | `:` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1976 | sh if whole | `[ "$(pc_state)" = none ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 1976 | sh if whole | `[ "$(pc_state)" = none ]` | `false` | `security-scan-public-content.test.mjs`: "a check only the head has is ignored, and the findings go as before" |
+| 1978 | sh output statement | (before `rm -f -- "$pending"`) | `: ` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1979 | sh skip statement | `exit 0` | `:` | Not caught, equivalent: with no check, pc_check passes every finding, so the step ends with the marker removed and nothing withheld either way; only the log differs |
+| 1982 | sh if whole | `[ "$n" -eq 0 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 1982 | sh if whole | `[ "$n" -eq 0 ]` | `false` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1984 | sh output statement | (before `rm -f -- "$pending"`) | `: ` | `security-scan-public-content.test.mjs`: "the hold clears its marker when there is nothing to hold: no result, no check, or no finding" |
+| 1985 | sh skip statement | `exit 0` | `:` | Not caught, equivalent: with no findings the loop checks nothing, so the step ends with the marker removed and nothing withheld either way; only the log differs |
+| 1990 | sh while && operand | `[ -z "$why" ]` | `true` | Not caught, equivalent: once a check could not run, every finding is withheld whatever the later checks find; only extra runs of the check differ |
+| 1990 | sh while whole | `[ -z "$why" ] && [ "$i" -lt "$n" ]` | `true` | `security-scan-public-content.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1990 | sh while whole | `[ -z "$why" ] && [ "$i" -lt "$n" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 1990 | sh while && operand | `[ "$i" -lt "$n" ]` | `true` | `security-scan-public-content.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1999 | jq if whole | `type == "object"` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 1999 | jq if whole | `type == "object"` | `false` | `security-scan-public-content.test.mjs`: "a finding withheld for a sign-off line names that kind" |
+| 2006 | sh list condition | `pc_check "$text"` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2006 | sh list condition | `pc_check "$text"` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2007 | sh if whole | `[ "$status" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2007 | sh if whole | `[ "$status" -eq 1 ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2010 | sh elif whole | `[ "$status" -ne 0 ]` | `true` | Not caught, equivalent: pc_check clears PC_WHY and leaves it empty when it passes, so a passing check sets why to empty either way |
+| 2010 | sh elif whole | `[ "$status" -ne 0 ]` | `false` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2015 | sh output statement | (before `rm -f -- "$text"`) | `: ` | Not a rule: removes a scratch file in RUNNER_TEMP, which the runner discards |
+| 2016 | sh if whole | `[ -n "$why" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2016 | sh if whole | `[ -n "$why" ]` | `false` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2018 | sh list && operand | `[ "$n" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2018 | sh list whole | `[ "$n" -eq 1 ] && what="the finding's text is"` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2018 | sh list whole | `[ "$n" -eq 1 ] && what="the finding's text is"` | `false` | `security-scan-public-content.test.mjs`: "a check that runs past its time limit cannot run" |
+| 2018 | sh list && operand | `what="the finding's text is"` | `true` | `security-scan-public-content.test.mjs`: "a check that runs past its time limit cannot run" |
+| 2021 | sh elif whole | `[ "${#withheld[@]}" -gt 0 ]` | `true` | `security-scan-public-content.test.mjs`: "findings the check passes are left as they were" |
+| 2021 | sh elif whole | `[ "${#withheld[@]}" -gt 0 ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2024 | sh list && operand | `[ "$k" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2024 | sh list whole | `[ "$k" -eq 1 ] && what="1 of the $n findings is"` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2024 | sh list whole | `[ "$k" -eq 1 ] && what="1 of the $n findings is"` | `false` | `security-scan-public-content.test.mjs`: "results that are not a completed scan send the hold to the candidates" |
+| 2024 | sh list && operand | `what="1 of the $n findings is"` | `true` | `security-scan-public-content.test.mjs`: "results that are not a completed scan send the hold to the candidates" |
+| 2029 | sh output statement | (before `rm -f -- "$pending"`) | `: ` | `security-scan-public-content.test.mjs`: "a check step that did not finish leaves the summary listing no finding's text" |
+| 2030 | sh skip statement | `exit 0` | `:` | `security-scan-public-content.test.mjs`: "findings the check passes are left as they were" |
+| 2032 | sh file write | `"$RUNNER_TEMP/scan-withheld.md"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2034 | jq if and operand | `(.value \| type == "object")` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2034 | jq if whole | `(.value \| type == "object") and (.key as $k \| $ids \| any(.[]; . == $k))` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2034 | jq if whole | `(.value \| type == "object") and (.key as $k \| $ids \| any(.[]; . == $k))` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2034 | jq if and operand | `(.key as $k \| $ids \| any(.[]; . == $k))` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2035 | sh file write | `"$source.tmp"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2036 | sh output statement | (before `mv -- "$source.tmp" "$source"`) | `: ` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2037 | sh output statement | (before `rm -f -- "$pending"`) | `: ` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2050 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: whole | `${{ always() && env.RUN != 'false' && (steps.scan.outcome != 'skipped' \|\| steps.…` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: && operand | `always()` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: && operand | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: && operand | `(steps.scan.outcome != 'skipped' \|\| steps.scan_opencode.outcome != 'skipped')` | `true` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: \|\| operand | `steps.scan.outcome != 'skipped'` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2050 | if: \|\| operand | `steps.scan_opencode.outcome != 'skipped'` | `false` | `security-scan-conditions.test.mjs`: "the log, hold and summary steps run after either runner's step, even when it failed" |
+| 2057 | sh if \|\| operand | `[ ! -s "$RESULTS" ] \` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2057 | sh if whole | `[ ! -s "$RESULTS" ] \ \|\| ! jq -e 'type == "object" and has("findings") and .anal…` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2057 | sh if whole | `[ ! -s "$RESULTS" ] \ \|\| ! jq -e 'type == "object" and has("findings") and .anal…` | `false` | `security-scan.test.mjs`: "without results the summary lists the scan's candidates as unverified" |
+| 2058 | sh if \|\| operand | `! jq -e 'type == "object" and has("findings") and .analysis_summary.review_compl…` | `false` | `security-scan.test.mjs`: "results that are not a completed scan send the summary to the candidates, and their counts stay out" |
+| 2060 | sh if \|\| operand | `[ -z "${SCAN_INPUT:-}" ]` | `false` | Not caught, equivalent: with SCAN_INPUT unset the candidates path is /candidates.json, which does not exist, so the next test holds anyway |
+| 2060 | sh if whole | `[ -z "${SCAN_INPUT:-}" ] \|\| [ ! -s "$source" ]` | `true` | `security-scan.test.mjs`: "without results the summary lists the scan's candidates as unverified" |
+| 2060 | sh if whole | `[ -z "${SCAN_INPUT:-}" ] \|\| [ ! -s "$source" ]` | `false` | `security-scan.test.mjs`: "with neither results nor candidates the summary writes nothing" |
+| 2060 | sh if \|\| operand | `[ ! -s "$source" ]` | `false` | `security-scan.test.mjs`: "with neither results nor candidates the summary writes nothing" |
+| 2062 | sh skip statement | `exit 0` | `:` | `security-scan.test.mjs`: "with neither results nor candidates the summary writes nothing" |
+| 2067 | jq select whole | `type == "object"` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2067 | jq select whole | `type == "object"` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2070 | jq select and operand | `type == "object"` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2070 | jq select whole | `type == "object" and (._withheld \| not)` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2070 | jq select whole | `type == "object" and (._withheld \| not)` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2070 | jq select and operand | `(._withheld \| not)` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2071 | sh if && operand | `[ -e "$RUNNER_TEMP/scan-content-pending" ]` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2071 | sh if whole | `[ -e "$RUNNER_TEMP/scan-content-pending" ] && [ "$count" -gt 0 ]` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2071 | sh if whole | `[ -e "$RUNNER_TEMP/scan-content-pending" ] && [ "$count" -gt 0 ]` | `false` | `security-scan-public-content.test.mjs`: "a check step that did not finish leaves the summary listing no finding's text" |
+| 2071 | sh if && operand | `[ "$count" -gt 0 ]` | `true` | `security-scan.test.mjs`: "a hold that did not finish withholds every finding, said for one or none" |
+| 2073 | sh list && operand | `[ "$count" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a check step that did not finish leaves the summary listing no finding's text" |
+| 2073 | sh list whole | `[ "$count" -eq 1 ] && what="the finding's text is"` | `true` | `security-scan-public-content.test.mjs`: "a check step that did not finish leaves the summary listing no finding's text" |
+| 2073 | sh list whole | `[ "$count" -eq 1 ] && what="the finding's text is"` | `false` | `security-scan.test.mjs`: "a hold that did not finish withholds every finding, said for one or none" |
+| 2073 | sh list && operand | `what="the finding's text is"` | `true` | `security-scan.test.mjs`: "a hold that did not finish withholds every finding, said for one or none" |
+| 2075 | sh file write | `"$RUNNER_TEMP/scan-withheld.md"` | `/dev/null` | `security-scan-public-content.test.mjs`: "a check step that did not finish leaves the summary listing no finding's text" |
+| 2082 | jq select and operand | `type == "object"` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2082 | jq select whole | `type == "object" and (._withheld \| not)` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2082 | jq select whole | `type == "object" and (._withheld \| not)` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2082 | jq select and operand | `(._withheld \| not)` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2086 | jq if whole | `$sev == ""` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2086 | jq if whole | `$sev == ""` | `false` | `security-scan.test.mjs`: "a finding without a rating, a line or a description is listed without them" |
+| 2087 | jq if whole | `$line` | `true` | `security-scan.test.mjs`: "a finding without a rating, a line or a description is listed without them" |
+| 2087 | jq if whole | `$line` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2088 | jq if whole | `$what == ""` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2088 | jq if whole | `$what == ""` | `false` | `security-scan.test.mjs`: "a finding without a rating, a line or a description is listed without them" |
+| 2089 | jq if or operand | `$unverified == "true"` | `false` | `security-scan.test.mjs`: "without results the summary lists the scan's candidates as unverified" |
+| 2089 | jq if whole | `$unverified == "true" or ._filter_metadata.verified == false` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2089 | jq if whole | `$unverified == "true" or ._filter_metadata.verified == false` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2089 | jq if or operand | `._filter_metadata.verified == false` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2092 | sh if whole | `[ "$shown" -gt 0 ]` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2092 | sh if whole | `[ "$shown" -gt 0 ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2094 | sh list condition | `[ "$shown" -eq "$count" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2094 | sh list condition | `[ "$shown" -eq "$count" ]` | `false` | Not a rule: the wording of the log group's heading |
+| 2103 | sh list condition | `[ "$shown" -le 30 ]` | `true` | `security-scan.test.mjs`: "the record lists 30 findings and 20 unread files, and points to the log for the rest" |
+| 2103 | sh list condition | `[ "$shown" -le 30 ]` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2117 | sh if whole | `! git --attr-source="origin/$BASE" diff --no-ext-diff --no-textconv --numstat --…` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2117 | sh if whole | `! git --attr-source="origin/$BASE" diff --no-ext-diff --no-textconv --numstat --…` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2117 | sh file write | `"$numstat"` | `/dev/null` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2122 | sh while whole | `IFS= read -r -d '' e` | `true` | `security-scan.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 2122 | sh while whole | `IFS= read -r -d '' e` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2123 | sh if whole | `[[ "$e" == 
+-\t-\t'* ]]` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2123 | sh if whole | `[[ "$e" == 
+-\t-\t'* ]]` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2132 | sh if whole | `[ -n "$unread" ]` | `true` | `security-scan.test.mjs`: "a deleted file counts as a changed file with a text diff" |
+| 2132 | sh if whole | `[ -n "$unread" ]` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2135 | sh list condition | `[ "$n" -le 20 ]` | `true` | `security-scan.test.mjs`: "the record lists 30 findings and 20 unread files, and points to the log for the rest" |
+| 2135 | sh list condition | `[ "$n" -le 20 ]` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2153 | sh if && operand | `[ -n "$reviewed" ]` | `true` | Not caught, equivalent: an empty count makes `[ ... -lt "" ]` fail as a test, so the && list is false either way |
+| 2153 | sh if whole | `[ -n "$reviewed" ] && [ -n "$text_files" ] && [ "$reviewed" -lt "$text_files" ]` | `true` | `security-scan.test.mjs`: "a deleted file counts as a changed file with a text diff" |
+| 2153 | sh if whole | `[ -n "$reviewed" ] && [ -n "$text_files" ] && [ "$reviewed" -lt "$text_files" ]` | `false` | `security-scan.test.mjs`: "the record says when the scanner reports reading fewer files than changed" |
+| 2153 | sh if && operand | `[ -n "$text_files" ]` | `true` | Not caught, equivalent: an empty count makes `[ ... -lt "" ]` fail as a test, so the && list is false either way |
+| 2153 | sh if && operand | `[ "$reviewed" -lt "$text_files" ]` | `true` | `security-scan.test.mjs`: "a deleted file counts as a changed file with a text diff" |
+| 2159 | sh list condition | `[ -z "$coverage" ]` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2159 | sh list condition | `[ -z "$coverage" ]` | `false` | `security-scan.test.mjs`: "a deleted file counts as a changed file with a text diff" |
+| 2159 | sh file write | `"$RUNNER_TEMP/scan-coverage.md"` | `/dev/null` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2160 | sh file write | `"$RUNNER_TEMP/scan-count"` | `/dev/null` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2161 | sh if whole | `[ "$shown" -gt 0 ]` | `true` | `security-scan.test.mjs`: "a scan with no candidates claims no verification run" |
+| 2161 | sh if whole | `[ "$shown" -gt 0 ]` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2162 | sh file write | `"$RUNNER_TEMP/scan-findings.md"` | `/dev/null` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2164 | sh if && operand | `[ "$source" = "$RESULTS" ]` | `true` | `security-scan.test.mjs`: "results that are not a completed scan send the summary to the candidates, and their counts stay out" |
+| 2164 | sh if whole | `[ "$source" = "$RESULTS" ] && [ "$(jq '.filtering_summary.total_original_finding…` | `true` | `security-scan.test.mjs`: "a scan with no candidates claims no verification run" |
+| 2164 | sh if whole | `[ "$source" = "$RESULTS" ] && [ "$(jq '.filtering_summary.total_original_finding…` | `false` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2164 | sh if && operand | `[ "$(jq '.filtering_summary.total_original_findings' "$RESULTS")" -gt 0 ]` | `true` | `security-scan.test.mjs`: "a scan with no candidates claims no verification run" |
+| 2165 | jq if whole | `.total_original_findings == 1` | `true` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2165 | jq if whole | `.total_original_findings == 1` | `false` | `security-scan.test.mjs`: "a finding without a rating, a line or a description is listed without them" |
+| 2165 | sh file write | `"$RUNNER_TEMP/scan-filtering.md"` | `/dev/null` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2169 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2169 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2173 | sh if whole | `[ ! -s "$RESULTS" ]` | `true` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2173 | sh if whole | `[ ! -s "$RESULTS" ]` | `false` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2177 | sh if whole | `! jq -e 'type == "object" and has("findings") and .analysis_summary.review_compl…` | `true` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2177 | sh if whole | `! jq -e 'type == "object" and has("findings") and .analysis_summary.review_compl…` | `false` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2190 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2190 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2199 | jq select and operand | `type == "object"` | `true` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2199 | jq select whole | `type == "object" and ._withheld` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2199 | jq select whole | `type == "object" and ._withheld` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2199 | jq select and operand | `._withheld` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2200 | sh list condition | `[ "$withheld" -eq 0 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2200 | sh list condition | `[ "$withheld" -eq 0 ]` | `false` | Not a rule: a log line counting the withheld findings |
+| 2201 | sh list condition | `[ "$(jq '[.findings[] \| select(type != "object" or (._withheld \| not))] \| length…` | `true` | `security-scan.test.mjs`: "a withheld finding gets no inline comment, and an unverified one says so" |
+| 2201 | sh list condition | `[ "$(jq '[.findings[] \| select(type != "object" or (._withheld \| not))] \| length…` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2201 | jq select or operand | `type != "object"` | `false` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2201 | jq select whole | `type != "object" or (._withheld \| not)` | `true` | `security-scan.test.mjs`: "a withheld finding gets no inline comment, and an unverified one says so" |
+| 2201 | jq select whole | `type != "object" or (._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2201 | jq select or operand | `(._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2205 | jq select whole | `.user.login == "github-actions[bot]"` | `true` | `security-scan.test.mjs`: "a key quoted in a comment's text, or by another author, does not stop a comment" |
+| 2205 | jq select whole | `.user.login == "github-actions[bot]"` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2208 | sh while whole | `IFS= read -r f` | `true` | `security-scan.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 2208 | sh while whole | `IFS= read -r f` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2209 | sh list condition | `[ -n "$f" ]` | `true` | Not caught, unreachable: `jq -c` prints one non-empty line per finding, so no line is empty |
+| 2209 | sh list condition | `[ -n "$f" ]` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2212 | sh if whole | `grep -qxF "$key" <<<"$existing"` | `true` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2212 | sh if whole | `grep -qxF "$key" <<<"$existing"` | `false` | `security-scan.test.mjs`: "the same finding twice in one run is posted once" |
+| 2214 | sh skip statement | `continue` | `:` | `security-scan.test.mjs`: "the same finding twice in one run is posted once" |
+| 2219 | jq if whole | `._filter_metadata.verified == false` | `true` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2219 | jq if whole | `._filter_metadata.verified == false` | `false` | `security-scan.test.mjs`: "a withheld finding gets no inline comment, and an unverified one says so" |
+| 2224 | sh if whole | `jq -n --arg body "$body" --arg commit "$HEAD" --arg path "$path" --argjson line …` | `true` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2224 | sh if whole | `jq -n --arg body "$body" --arg commit "$HEAD" --arg path "$path" --argjson line …` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2226 | sh output statement | (before `gh api -X POST "repos/$REPO/pulls/$PR/comments" --input - --`) | `: ` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2234 | jq select or operand | `type != "object"` | `false` | Not caught, unreachable: the collect step admits only object findings, so every finding the later steps read is one |
+| 2234 | jq select whole | `type != "object" or (._withheld \| not)` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2234 | jq select whole | `type != "object" or (._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2234 | jq select or operand | `(._withheld \| not)` | `false` | `security-scan.test.mjs`: "each finding goes on its line as plain text, once" |
+| 2242 | if: whole | `env.RUN != 'false'` | `true` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2242 | if: whole | `env.RUN != 'false'` | `false` | `security-scan-conditions.test.mjs`: "each step after the skip runs unless the skip set RUN to false" |
+| 2259 | sh if whole | `[ "$live" != "$scanned" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2259 | sh if whole | `[ "$live" != "$scanned" ]` | `false` | `workflow-fail-closed.test.mjs`: "security-scan.yml: a base that moved the pull request's diff after the scan records nothing" |
+| 2262 | sh if whole | `[ "$mb_scanned" != "$mb_live" ]` | `true` | `workflow-fail-closed.test.mjs`: "security-scan.yml: a base that moved the pull request's diff after the scan records nothing" |
+| 2262 | sh if whole | `[ "$mb_scanned" != "$mb_live" ]` | `false` | `workflow-fail-closed.test.mjs`: "security-scan.yml: a base that moved the pull request's diff after the scan records nothing" |
+| 2273 | sh if whole | `[ -s "$RUNNER_TEMP/$f" ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2273 | sh if whole | `[ -s "$RUNNER_TEMP/$f" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2278 | sh if whole | `[ "$count" -eq 0 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2278 | sh if whole | `[ "$count" -eq 0 ]` | `false` | `security-scan.test.mjs`: "the record names no findings, one finding or several, with or without their list" |
+| 2281 | sh list && operand | `[ "$count" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2281 | sh list whole | `[ "$count" -eq 1 ] && noun=finding` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2281 | sh list whole | `[ "$count" -eq 1 ] && noun=finding` | `false` | `security-scan.test.mjs`: "the record names no findings, one finding or several, with or without their list" |
+| 2281 | sh list && operand | `noun=finding` | `true` | `security-scan.test.mjs`: "the record names no findings, one finding or several, with or without their list" |
+| 2284 | sh if whole | `[ -s "$RUNNER_TEMP/scan-findings.md" ]` | `true` | `security-scan.test.mjs`: "the record names no findings, one finding or several, with or without their list" |
+| 2284 | sh if whole | `[ -s "$RUNNER_TEMP/scan-findings.md" ]` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2297 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2297 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2297 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2297 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2298 | jq if whole | `[ -n "$id" ];` | `true` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2298 | jq if whole | `[ -n "$id" ];` | `false` | `security-scan-public-content.test.mjs`: "a refused finding is withheld from the comments, the summary, the log and the record; a passing one is not" |
+| 2312 | if: \|\| operand | `failure()` | `false` | `security-scan-conditions.test.mjs`: "the not-completed record is written only when the job failed or was cancelled" |
+| 2312 | if: whole | `failure() \|\| cancelled()` | `true` | `security-scan-conditions.test.mjs`: "the not-completed record is written only when the job failed or was cancelled" |
+| 2312 | if: whole | `failure() \|\| cancelled()` | `false` | `security-scan-conditions.test.mjs`: "the not-completed record is written only when the job failed or was cancelled" |
+| 2312 | if: \|\| operand | `cancelled()` | `false` | `security-scan-conditions.test.mjs`: "the not-completed record is written only when the job failed or was cancelled" |
+| 2322 | sh if whole | `[ "$JOB_STATUS" = cancelled ]` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2322 | sh if whole | `[ "$JOB_STATUS" = cancelled ]` | `false` | `security-scan.test.mjs`: "a cancelled run leaves the record to a newer head's run, and records its own head's" |
+| 2324 | sh if whole | `[ "$live" != "$HEAD" ]` | `true` | `security-scan.test.mjs`: "a cancelled run leaves the record to a newer head's run, and records its own head's" |
+| 2324 | sh if whole | `[ "$live" != "$HEAD" ]` | `false` | `security-scan.test.mjs`: "a cancelled run leaves the record to a newer head's run, and records its own head's" |
+| 2326 | sh skip statement | `exit 0` | `:` | `security-scan.test.mjs`: "a cancelled run leaves the record to a newer head's run, and records its own head's" |
+| 2330 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2330 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2330 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| startswith("<!-- security-scan…` | `false` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2330 | jq select and operand | `(.body \| startswith("<!-- security-scan-record -->"))` | `true` | `security-scan.test.mjs`: "the record and the notice update only the bot's own record comment" |
+| 2335 | sh if whole | `[ -n "$id" ]` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2335 | sh if whole | `[ -n "$id" ]` | `false` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2343 | sh if whole | `printf '%s\n' "$previous" \| grep -q '^Security scan record: scanned head '` | `true` | `security-scan.test.mjs`: "the notice says how to scan again in each mode, and keeps the last record below it" |
+| 2343 | sh if whole | `printf '%s\n' "$previous" \| grep -q '^Security scan record: scanned head '` | `false` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2344 | sh if whole | `[ "$MODE" = "push" ]` | `true` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2344 | sh if whole | `[ "$MODE" = "push" ]` | `false` | `security-scan.test.mjs`: "the notice says how to scan again in each mode, and keeps the last record below it" |
+| 2347 | sh elif whole | `[ "$MODE" = "open" ]` | `true` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2347 | sh elif whole | `[ "$MODE" = "open" ]` | `false` | `security-scan.test.mjs`: "the notice says how to scan again in each mode, and keeps the last record below it" |
+| 2366 | sh if whole | `[ -s "$RUNNER_TEMP/scan-count" ]` | `true` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2366 | sh if whole | `[ -s "$RUNNER_TEMP/scan-count" ]` | `false` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2368 | sh list && operand | `[ "$count" -eq 1 ]` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2368 | sh list whole | `[ "$count" -eq 1 ] && noun=finding` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2368 | sh list whole | `[ "$count" -eq 1 ] && noun=finding` | `false` | `security-scan.test.mjs`: "the notice counts the findings in the singular and plural, and says what was not covered" |
+| 2368 | sh list && operand | `noun=finding` | `true` | `security-scan.test.mjs`: "the notice counts the findings in the singular and plural, and says what was not covered" |
+| 2369 | sh if whole | `[ -e "$RUNNER_TEMP/scan-unverified" ]` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2369 | sh if whole | `[ -e "$RUNNER_TEMP/scan-unverified" ]` | `false` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2370 | sh list && operand | `[ "$count" -eq 1 ]` | `true` | `security-scan.test.mjs`: "the notice counts the findings in the singular and plural, and says what was not covered" |
+| 2370 | sh list whole | `[ "$count" -eq 1 ] && noun="unverified candidate finding"` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2370 | sh list whole | `[ "$count" -eq 1 ] && noun="unverified candidate finding"` | `false` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2370 | sh list && operand | `noun="unverified candidate finding"` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2375 | sh if whole | `[ -s "$RUNNER_TEMP/scan-findings.md" ]` | `true` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2375 | sh if whole | `[ -s "$RUNNER_TEMP/scan-findings.md" ]` | `false` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2380 | sh if whole | `[ -s "$RUNNER_TEMP/scan-withheld.md" ]` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2380 | sh if whole | `[ -s "$RUNNER_TEMP/scan-withheld.md" ]` | `false` | `security-scan-public-content.test.mjs`: "a check that cannot run withholds every finding, and the notice says so" |
+| 2385 | sh if whole | `[ -s "$RUNNER_TEMP/scan-coverage.md" ]` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2385 | sh if whole | `[ -s "$RUNNER_TEMP/scan-coverage.md" ]` | `false` | `security-scan.test.mjs`: "the notice counts the findings in the singular and plural, and says what was not covered" |
+| 2405 | sh if whole | `[ -n "$id" ]` | `true` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
+| 2405 | sh if whole | `[ -n "$id" ]` | `false` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2406 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/comments/$id" -f b`) | `: ` | `kit-settings.test.mjs`: "the scan's notice names no mode when the settings job failed" |
+| 2408 | sh output statement | (before `gh api --method POST "repos/$REPO/issues/$PR/comments" -f bo`) | `: ` | `security-scan.test.mjs`: "a run that stopped in the verification lists the candidates as unverified" |
 
 </details>
