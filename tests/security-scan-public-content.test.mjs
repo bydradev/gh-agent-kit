@@ -255,6 +255,16 @@ test("a check that cannot run withholds every finding, and the notice says so", 
   assert.doesNotMatch(body, /api\.js/);
 });
 
+test("a check that cannot run is not run again for the findings after it", (t) => {
+  // The check runs in RUNNER_TEMP; each run leaves a line there.
+  const s = setup(t, { [MJS]: "import fs from 'node:fs';\nfs.appendFileSync('check-runs', 'x\\n');\nprocess.exit(2);\n" });
+  s.write("scan-results.json", results([finding(), finding({ line: 20 }), finding({ line: 30 })]));
+  const hold = s.hold();
+  assert.equal(hold.status, 0, hold.stdout + hold.stderr);
+  assert.equal(s.text("check-runs"), "x\n");
+  assert.ok(s.read("scan-results.json").findings.every((f) => f._withheld));
+});
+
 test("a check that runs past its time limit cannot run", (t) => {
   // timeout exits 124 when it stops the check; the stand-in exits so too.
   const s = setup(t, { [MJS]: "process.exit(124);\n" });

@@ -231,6 +231,42 @@ test("the early step runs only on a first attempt, with the job copy's env", () 
   assert.deepEqual(early.env, job.env);
 });
 
+test("a record gone by the notice lookup leaves the skip and edits nothing, in both copies", (t) => {
+  for (const run of [script, earlyScript]) {
+    const dir = tempDir(t);
+    const stub = stubGh(dir, [
+      {
+        match: "^api --paginate repos/acme/widgets/issues/7/comments --jq .*security-scan-record.*\\| \\.body'?$",
+        json: [{ id: 70, user: { login: "github-actions[bot]" }, body: withNotice(HEAD, BASE_SHA) }],
+      },
+      // Deleted between the two reads.
+      { match: "^api --paginate repos/acme/widgets/issues/7/comments", json: [] },
+      { match: "^api --method GET repos/acme/widgets/git/ref/heads/main --jq ", json: { object: { sha: BASE_SHA } } },
+    ]);
+    const githubEnv = path.join(dir, "github-env");
+    fs.writeFileSync(githubEnv, "");
+    const r = runStep(dir, run, {
+      PATH: `${stub.bin}${path.delimiter}${process.env.PATH}`,
+      GH_STUB_RULES: stub.rulesFile,
+      GH_STUB_LOG: stub.log,
+      GITHUB_ENV: githubEnv,
+      GITHUB_RUN_ID: "1001",
+      REPO: "acme/widgets",
+      PR: "7",
+      HEAD,
+      BASE: "main",
+      ACTION: "edited",
+      MODE: "push",
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(fs.readFileSync(githubEnv, "utf8"), "RUN=false\n");
+    assert.deepEqual(
+      ghCalls(stub).filter((c) => c.args.some((a) => /issues\/comments\//.test(a))),
+      [],
+    );
+  }
+});
+
 test("a failed notice lookup leaves no skip behind", (t) => {
   const dir = tempDir(t);
   const stub = stubGh(dir, [

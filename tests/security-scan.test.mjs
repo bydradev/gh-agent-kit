@@ -238,6 +238,8 @@ test("a base that ships scan instructions keeps its own copy", (t) => {
 test("a head that made a rule's parent a symlink cannot take the restore elsewhere", (t) => {
   const repo = rulesRepo(t);
   const outside = tempDir(t);
+  // A file in the link's target with a rule's name must not be touched.
+  fs.writeFileSync(path.join(outside, "AGENTS.md"), "outside\n");
   repo.git("rm", "-q", "-r", "sub");
   fs.symlinkSync(outside, path.join(repo.dir, "sub"));
   repo.git("add", "sub");
@@ -246,7 +248,8 @@ test("a head that made a rule's parent a symlink cannot take the restore elsewhe
   assert.equal(step.status, 0, step.stderr);
   assert.ok(!fs.lstatSync(path.join(repo.dir, "sub")).isSymbolicLink());
   assert.equal(fs.readFileSync(path.join(repo.dir, "sub/AGENTS.md"), "utf8"), "base sub rules\n");
-  assert.deepEqual(fs.readdirSync(outside), []);
+  assert.deepEqual(fs.readdirSync(outside), ["AGENTS.md"]);
+  assert.equal(fs.readFileSync(path.join(outside, "AGENTS.md"), "utf8"), "outside\n");
 });
 
 test("a first adoption keeps the head's skill", (t) => {
