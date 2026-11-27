@@ -959,13 +959,15 @@ test("remove_label takes agent:approved off only on a fresh triage or a later ed
     ],
   });
   // A dispatch counts as a fresh triage only on an issue carrying needs-triage.
-  for (const [labels, ok] of [
-    [[{ name: "bug" }], false],
-    [[{ name: "bug" }, { name: "needs-triage" }], true],
+  // Any other event on an issue carrying needs-triage does not.
+  for (const [event, labels, ok] of [
+    ["dispatch", [{ name: "bug" }], false],
+    ["dispatch", [{ name: "bug" }, { name: "needs-triage" }], true],
+    ["issues", [{ name: "needs-triage" }], false],
   ]) {
     const dispatched = await startServer(t, {
       mode: "triage",
-      env: triageEnv({ TRIAGE_EVENT: "dispatch" }),
+      env: triageEnv({ TRIAGE_EVENT: event }),
       rules: [
         edit,
         { match: "^api graphql ", stdout: { data: { repository: { issue: { lastEditedAt: "2026-10-01T00:00:00Z" } } } } },
@@ -974,7 +976,7 @@ test("remove_label takes agent:approved off only on a fresh triage or a later ed
       ],
     });
     const r = await dispatched.call("remove_label", { label: "agent:approved" });
-    assert.equal(r.isError, !ok, `${JSON.stringify(labels)}: ${r.text}`);
+    assert.equal(r.isError, !ok, `${event} ${JSON.stringify(labels)}: ${r.text}`);
   }
   const refused = await stale.call("remove_label", { label: "agent:approved" });
   assert.equal(refused.isError, true);

@@ -253,6 +253,16 @@ const CASES = [
     },
   ],
   [
+    "vouched for, then answered by a plan older than its last edit",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\n**Summary:** fix it.", "2026-11-19T10:00:00Z")],
+    },
+    NOT_VOUCHED,
+  ],
+  [
     "labelled with another label by the operator",
     { events: [mark("labeled", person("dra"), T2, "bug")], edited: T1 },
     NOT_VOUCHED,

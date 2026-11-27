@@ -146,6 +146,12 @@ test("the setup guide lists exactly the settings the step knows", () => {
   assert.deepEqual([...listed].sort(), [...knownNames()].sort());
 });
 
+test("a --- is skipped only before the first setting", { skip: needsBash4 }, (t) => {
+  const r = read(t, { file: "KIT_REVIEW_MODE: open\n---\n" });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /\.github\/gh-agent-kit\.yml line 2 is not a NAME: value line/);
+});
+
 test("the file sets what no variable does, and a variable wins", { skip: needsBash4 }, (t) => {
   const file = [
     "# kit settings",
