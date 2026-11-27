@@ -23,7 +23,7 @@ const passScript = stepScript(FILE, "Pass the settings on");
 const HEAD = "a".repeat(40);
 const BASE_SHA = "b".repeat(40);
 
-function report(base, { closes = "#5", title = "fix: keep the cache warm" } = {}) {
+function report(base, { closes = "#5", title = "fix: keep the cache warm", head = HEAD, omit = "" } = {}) {
   return [
     "## Review R1",
     "",
@@ -32,18 +32,34 @@ function report(base, { closes = "#5", title = "fix: keep the cache warm" } = {}
     `Closes reviewed: ${closes}`,
     `Base reviewed: main at ${base}`,
     `Title reviewed: ${title}`,
-    `Head reviewed: ${HEAD}`,
-  ].join("\n");
+    `Head reviewed: ${head}`,
+  ]
+    .filter((l) => !omit || !l.startsWith(`${omit} reviewed:`))
+    .join("\n");
 }
+const RUN_55 = { id: 55, status: "completed", conclusion: "success", updated_at: "2026-10-26T10:00:00Z" };
 
 // Runs the step on an edited event with this title and body; returns its
 // output and what it wrote to GITHUB_ENV.
-function bodyEdit(t, { title, body, reported = {}, baseNow = BASE_SHA, env = {}, run = script }) {
+function bodyEdit(
+  t,
+  {
+    title,
+    body,
+    reported = {},
+    baseNow = BASE_SHA,
+    env = {},
+    run = script,
+    comments,
+    runs = [RUN_55],
+    jobs = { 55: [{ name: "pr-review", conclusion: "success" }] },
+  },
+) {
   const dir = tempDir(t);
   const stub = stubGh(dir, [
     {
       match: "^api --paginate repos/acme/widgets/issues/7/comments --jq ",
-      json: [
+      json: comments ?? [
         { user: { login: "someone" }, body: "Fixes #9" },
         { user: { login: "github-actions[bot]" }, body: report(BASE_SHA, reported) },
       ],
@@ -55,21 +71,12 @@ function bodyEdit(t, { title, body, reported = {}, baseNow = BASE_SHA, env = {},
     {
       match:
         "^api --method GET repos/acme/widgets/actions/workflows/pr-review\\.yml/runs\\?head_sha=",
-      json: {
-        workflow_runs: [
-          {
-            id: 55,
-            status: "completed",
-            conclusion: "success",
-            updated_at: "2026-10-26T10:00:00Z",
-          },
-        ],
-      },
+      json: { workflow_runs: runs },
     },
-    {
-      match: "^api repos/acme/widgets/actions/runs/55/jobs --jq ",
-      json: { jobs: [{ name: "pr-review", conclusion: "success" }] },
-    },
+    ...Object.entries(jobs).map(([id, list]) => ({
+      match: `^api repos/acme/widgets/actions/runs/${id}/jobs --jq `,
+      json: { jobs: list },
+    })),
   ]);
   const event = path.join(dir, "event.json");
   fs.writeFileSync(event, JSON.stringify({ pull_request: { title, body } }));
@@ -91,7 +98,11 @@ function bodyEdit(t, { title, body, reported = {}, baseNow = BASE_SHA, env = {},
     ...env,
   });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  return { out: r.stdout, env: fs.readFileSync(githubEnv, "utf8") };
+  return {
+    out: r.stdout,
+    env: fs.readFileSync(githubEnv, "utf8"),
+    calls: () => ghCalls({ log: stub.log }).map((c) => c.args.join(" ")),
+  };
 }
 
 test("the settings job's early copy is the review job's step, byte for byte", () => {
@@ -326,3 +337,77 @@ test("the last report's title is compared without the server's zero-width spaces
     assert.equal(env, "RUN=false\n", title);
   }
 });
+
+// Each rule of the skip, on both copies: the review job's step and the
+// settings job's early one, which the byte-for-byte test above keeps equal.
+const KEPT = { title: "fix: keep the cache warm", body: "Fixes #5" };
+const skips = ({ out, env }) => /nothing to review/.test(out) && env === "RUN=false\n";
+for (const [copy, run] of [
+  ["the review job's step", script],
+  ["the settings job's early copy", earlyScript],
+]) {
+  test(`${copy}: a last report without one of its four lines reviews`, (t) => {
+    assert.ok(skips(bodyEdit(t, { ...KEPT, run })));
+    for (const omit of ["Closes", "Base", "Title", "Head"]) {
+      const r = bodyEdit(t, { ...KEPT, run, reported: { omit } });
+      assert.match(r.out, /no earlier report records what it reviewed against/, omit);
+      assert.equal(r.env, "", omit);
+    }
+  });
+
+  test(`${copy}: a moved base, another title or other closing references review`, (t) => {
+    for (const [opts, said] of [
+      [{ baseNow: "c".repeat(40) }, /the base is main at c{40}/],
+      [{ title: "fix: keep the cache cold" }, /title differs/],
+      [{ body: "Fixes #6" }, /closing references differ/],
+    ]) {
+      const r = bodyEdit(t, { ...KEPT, run, ...opts });
+      assert.match(r.out, said);
+      assert.equal(r.env, "");
+    }
+  });
+
+  test(`${copy}: a later head reviews in mode push, and in mode open counts the reviewed head's run`, (t) => {
+    const older = "d".repeat(40);
+    const push = bodyEdit(t, { ...KEPT, run, reported: { head: older } });
+    assert.match(push.out, /the head is a{40} but the last report reviewed d{40}/);
+    assert.equal(push.env, "");
+    const open = bodyEdit(t, { ...KEPT, run, reported: { head: older }, env: { MODE: "open" } });
+    assert.match(open.out, /mode open: the head is a{40}, reviewed up to d{40}/);
+    assert.ok(skips(open), open.out);
+    assert.ok(open.calls().some((c) => c.includes(`runs?head_sha=${older}&`)), open.calls().join("\n"));
+    assert.ok(!open.calls().some((c) => c.includes(`runs?head_sha=${HEAD}&`)));
+  });
+
+  test(`${copy}: only the latest completed, unskipped other run counts, and its review job's conclusion`, (t) => {
+    const at = (h) => `2026-10-26T${h}:00:00Z`;
+    const runs = [
+      { id: 1001, status: "completed", conclusion: "success", updated_at: at(14) },
+      { id: 60, status: "in_progress", conclusion: null, updated_at: at(13) },
+      { id: 61, status: "completed", conclusion: "skipped", updated_at: at(12) },
+      { id: 55, status: "completed", conclusion: "failure", updated_at: at(10) },
+    ];
+    const ok = [{ name: "pr-review", conclusion: "success" }];
+    const jobs = { 1001: ok, 60: ok, 61: ok, 55: [{ name: "settings", conclusion: "success" }, { name: "pr-review", conclusion: "failure" }] };
+    const r = bodyEdit(t, { ...KEPT, run, runs, jobs });
+    assert.match(r.out, /the latest completed review of a{40} concluded 'failure'; reviewing/);
+    assert.equal(r.env, "");
+    // A run whose review job was skipped counts as none, so an older one decides.
+    const older = bodyEdit(t, {
+      ...KEPT,
+      run,
+      runs: [{ ...RUN_55, id: 70, updated_at: at(12) }, RUN_55],
+      jobs: { 70: [{ name: "pr-review", conclusion: "skipped" }], 55: ok },
+    });
+    assert.ok(skips(older), older.out);
+  });
+
+  test(`${copy}: the last report is the bot's latest comment headed as a review`, (t) => {
+    const comments = [
+      { user: { login: "github-actions[bot]" }, body: report(BASE_SHA) },
+      { user: { login: "someone" }, body: report(BASE_SHA, { closes: "#6" }) },
+      { user: { login: "github-actions[bot]" }, body: "## Triage\n\nCloses reviewed: #6" },
+    ];
+    assert.ok(skips(bodyEdit(t, { ...KEPT, run, comments })));
+  });
+}

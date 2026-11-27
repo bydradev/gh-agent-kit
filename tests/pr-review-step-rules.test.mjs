@@ -218,7 +218,12 @@ test("a rule whose parent the head made a symlink is restored without touching t
 test("a base with both public-content checks installs only the Node one", (t) => {
   const repo = gitRepo(t);
   repo.commit(".github/scripts/mcp-server.mjs", "// base server\n", "server");
-  repo.commit(".github/scripts/public-content.mjs", "// node check\n", "node check");
+  // The check passes only when it is run on an empty text, as the step runs it.
+  repo.commit(
+    ".github/scripts/public-content.mjs",
+    'import fs from "node:fs";\nconst a = process.argv.find((x) => x.startsWith("--text="));\nif (!a || fs.readFileSync(a.slice(7), "utf8") !== "") process.exit(1);\n',
+    "node check",
+  );
   repo.commit(".github/scripts/check_public_content.py", "# python check\n", "python check");
   repo.git("remote", "add", "origin", repo.dir);
   repo.git("checkout", "-q", "-b", "feature");
@@ -295,4 +300,41 @@ test("the settings step hands both runners the denied and allowed tool lists", (
   assert.equal(claude.permissions.blockReadsOutsideWorkingDirectories, true);
   assert.deepEqual(claude.permissions.deny, denied);
   assert.deepEqual(claude.env, { GH_TOKEN: "", GITHUB_TOKEN: "" });
+  // The server reads the job's token from a file, not from its environment.
+  assert.equal(fs.readFileSync(path.join(dir, "gh-token"), "utf8"), "job-token");
+  assert.equal(fs.existsSync(path.join(dir, "private-repo-names")), false);
+});
+
+test("with a public-content check, the settings step writes the private names for the server alone", (t) => {
+  const dir = tempDir(t);
+  const githubEnv = path.join(dir, "github-env");
+  fs.writeFileSync(githubEnv, "");
+  const r = runStep(dir, stepScript(FILE, "Write the model's settings and the MCP server's configuration"), {
+    RUNNER_TEMP: dir,
+    GITHUB_ENV: githubEnv,
+    GITHUB_WORKSPACE: "/work/ws",
+    GITHUB_RUN_ID: "1001",
+    GITHUB_RUN_ATTEMPT: "1",
+    GH_TOKEN: "job-token",
+    REPO: "acme/widgets",
+    PR: "7",
+    EVENT_HEAD: HEAD,
+    EVENT_BASE: "main",
+    PUBLIC_CONTENT_CHECK: "/opt/agent-kit/public-content.mjs",
+    PRIVATE_REPO_NAMES: "acme/secret-plans",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const names = path.join(dir, "private-repo-names");
+  assert.equal(fs.readFileSync(names, "utf8"), "acme/secret-plans");
+  assert.equal(fs.statSync(names).mode & 0o777, 0o600);
+  const mcp = JSON.parse(fs.readFileSync(githubEnv, "utf8").match(/^MCP_CONFIG=(.*)$/m)[1]);
+  assert.equal(mcp.mcpServers["agent-kit"].env.PRIVATE_REPO_NAMES_FILE, names);
+});
+
+test("the token file and the private names are removed after the run", (t) => {
+  const temp = tempDir(t);
+  for (const f of ["gh-token", "private-repo-names", "keep"]) fs.writeFileSync(path.join(temp, f), "x");
+  const r = runStep(tempDir(t), stepScript(FILE, "Remove the token file"), { RUNNER_TEMP: temp });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(fs.readdirSync(temp), ["keep"]);
 });
