@@ -55,14 +55,14 @@ function runner(t, baseFiles = {}, baseLinks = {}) {
 
 // The Claude Code run step with the CLI a stub that answers a successful
 // run whose last message is text.
-function claudeRun(r, name, text) {
+function claudeRun(r, name, text, wrap = (result) => result) {
   for (const f of ["scan-schema.json", "verify-schema.json", "claude-settings.json"]) {
     fs.writeFileSync(r.file(f), "{}");
   }
   const answer = path.join(r.dir, "answer.json");
   fs.writeFileSync(
     answer,
-    JSON.stringify({
+    JSON.stringify(wrap({
       type: "result",
       subtype: "success",
       is_error: false,
@@ -75,7 +75,7 @@ function claudeRun(r, name, text) {
         output_tokens: 4,
       },
       result: text,
-    }),
+    })),
   );
   const stub = path.join(r.dir, "claude");
   fs.writeFileSync(
@@ -93,6 +93,21 @@ function claudeRun(r, name, text) {
     ANTHROPIC_API_KEY: "ak",
   });
 }
+test("a stream's last result decides the run, whatever event follows it", (t) => {
+  for (const name of ["Run the scan", "Verify the candidate findings"]) {
+    const failed = { type: "result", subtype: "error_max_turns", is_error: true };
+    const r = runner(t);
+    const run = claudeRun(r, name, "All fine.", (result) => [
+      { type: "system", subtype: "init" },
+      failed,
+      result,
+      { type: "user" },
+    ]);
+    assert.equal(run.status, 0, name + run.stdout + run.stderr);
+    assert.match(fs.readFileSync(r.file("run-log.summary"), "utf8"), /^subtype: success$/m, name);
+  }
+});
+
 const printScan = stepScript(FILE, "Print the scan run's log");
 const printVerify = stepScript(FILE, "Print the verification run's log");
 

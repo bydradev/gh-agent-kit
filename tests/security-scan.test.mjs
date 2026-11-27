@@ -371,6 +371,23 @@ test("the collect step refuses an answer that is not the schema's", (t) => {
   }
 });
 
+// A stream of the CLI's events: an earlier result, this one, and an event
+// after it, so only the last result is the answer.
+const stream = (last) => [
+  { type: "system", subtype: "init" },
+  result({ files_reviewed: 0, verdicts: "first" }),
+  last,
+  { type: "user" },
+];
+
+test("the collect step reads the stream's last result", (t) => {
+  const r = runner(t);
+  r.write("scan-result.json", stream(result({ files_reviewed: 3, findings: [finding()] })));
+  const step = r.run(collectScript, { RESULT: path.join(r.temp, "scan-result.json") });
+  assert.equal(step.status, 0, step.stdout);
+  assert.equal(step.env.CANDIDATES, "1");
+});
+
 // Candidates F1 to F3, written where the collect step writes them.
 function withCandidates(r, findings = [finding(), finding({ line: 40 }), finding({ line: 60 })]) {
   fs.writeFileSync(
@@ -429,6 +446,22 @@ test("the verification drops only candidates it has a verdict on and keeps none 
     "- F2 HIGH command_injection in app/api.js:40: escaped at  lib/run.js:8 ::error::x",
   );
   assert.ok(step.stdout.indexOf(`::${token}::`) > step.stdout.indexOf(logged));
+});
+
+test("the verification's stream is read for its last result", (t) => {
+  const r = runner(t);
+  withCandidates(r, [finding()]);
+  r.write(
+    "verify-result.json",
+    stream(result({ verdicts: [{ id: "F1", keep: false, confidence: 2, reason: "escaped" }] })),
+  );
+  const step = r.run(applyScript, applyEnv(r));
+  assert.equal(step.status, 0, step.stdout);
+  assert.deepEqual(r.read("scan-results.json").filtering_summary, {
+    total_original_findings: 1,
+    excluded_findings: 1,
+    kept_findings: 0,
+  });
 });
 
 test("a candidate with any verdict that keeps it is kept", (t) => {
@@ -631,6 +664,105 @@ test("without results the summary lists the scan's candidates as unverified", (t
   );
   assert.ok(fs.existsSync(path.join(r.temp, "scan-unverified")));
   assert.ok(!fs.existsSync(path.join(r.temp, "scan-filtering.md")));
+});
+
+test("results that are not a completed scan send the summary to the candidates, and their counts stay out", (t) => {
+  const repo = summaryRepo(t);
+  const r = runner(t);
+  withCandidates(r, [finding()]);
+  r.write("scan-results.json", {
+    findings: [{ ...finding({ line: 99 }), id: "F1" }],
+    analysis_summary: { review_completed: false },
+    filtering_summary: { total_original_findings: 2, excluded_findings: 0, kept_findings: 2 },
+  });
+  const step = summarise(t, r, repo);
+  assert.equal(step.status, 0, step.stderr);
+  assert.ok(fs.existsSync(path.join(r.temp, "scan-unverified")));
+  assert.match(fs.readFileSync(path.join(r.temp, "scan-findings.md"), "utf8"), /api\.js:12`.* \(unverified\)\n$/);
+  assert.ok(!fs.existsSync(path.join(r.temp, "scan-filtering.md")));
+});
+
+test("with neither results nor candidates the summary writes nothing", (t) => {
+  const repo = summaryRepo(t);
+  const r = runner(t);
+  const step = summarise(t, r, repo);
+  assert.equal(step.status, 0, step.stderr);
+  assert.match(step.stdout, /^no completed scan result to summarise$/m);
+  for (const f of ["scan-count", "scan-findings.md", "scan-unverified", "scan-coverage.md"])
+    assert.ok(!fs.existsSync(path.join(r.temp, f)), f);
+});
+
+test("a hold that did not finish withholds every finding, said for one or none", (t) => {
+  const repo = summaryRepo(t);
+  for (const [findings, want] of [
+    [[finding()], "The repository's public-content check did not finish, so the finding's text is withheld"],
+    [[finding(), finding({ line: 3 })], "so the text of all 2 findings is withheld"],
+    [[], null],
+  ]) {
+    const r = runner(t);
+    r.write("scan-results.json", {
+      findings: findings.map((f, i) => ({ ...f, id: `F${i + 1}` })),
+      analysis_summary: { review_completed: true },
+      filtering_summary: { total_original_findings: findings.length, excluded_findings: 0, kept_findings: findings.length },
+    });
+    fs.writeFileSync(path.join(r.temp, "scan-content-pending"), "");
+    const step = summarise(t, r, repo);
+    assert.equal(step.status, 0, step.stderr);
+    const withheld = path.join(r.temp, "scan-withheld.md");
+    if (want === null) assert.ok(!fs.existsSync(withheld));
+    else assert.ok(fs.readFileSync(withheld, "utf8").includes(want), want);
+    assert.ok(!fs.existsSync(path.join(r.temp, "scan-findings.md")));
+  }
+});
+
+test("a finding without a rating, a line or a description is listed without them", (t) => {
+  const repo = summaryRepo(t);
+  const r = runner(t);
+  const bare = { ...finding({ description: "" }), id: "F1", _filter_metadata: { verified: true } };
+  delete bare.severity;
+  delete bare.line;
+  r.write("scan-results.json", {
+    findings: [bare],
+    analysis_summary: { review_completed: true },
+    filtering_summary: { total_original_findings: 1, excluded_findings: 0, kept_findings: 1 },
+  });
+  const step = summarise(t, r, repo);
+  assert.equal(step.status, 0, step.stderr);
+  assert.equal(
+    fs.readFileSync(path.join(r.temp, "scan-findings.md"), "utf8"),
+    "- **UNRATED** `command_injection` in `app/api.js`\n",
+  );
+  // One candidate is one finding.
+  assert.equal(
+    fs.readFileSync(path.join(r.temp, "scan-filtering.md"), "utf8"),
+    "The scan found 1 candidate finding; a separate verification run kept 1.\n",
+  );
+});
+
+test("the record lists 30 findings and 20 unread files, and points to the log for the rest", (t) => {
+  const repo = gitRepo(t);
+  const base = repo.commit("a.txt", "a\n", "base");
+  repo.git("checkout", "-q", "-b", "feature");
+  for (let i = 1; i <= 21; i++) fs.writeFileSync(path.join(repo.dir, `b${i}.bin`), Buffer.from([0, 1, 2, i]));
+  repo.git("add", ".");
+  repo.git("commit", "-q", "-m", "binaries");
+  repo.git("update-ref", "refs/remotes/origin/main", base);
+  const r = runner(t);
+  const many = Array.from({ length: 31 }, (_, i) => ({ ...finding({ line: i + 1 }), id: `F${i + 1}` }));
+  r.write("scan-results.json", {
+    findings: many,
+    analysis_summary: { review_completed: true },
+    filtering_summary: { total_original_findings: 31, excluded_findings: 0, kept_findings: 31 },
+  });
+  const step = summarise(t, r, repo);
+  assert.equal(step.status, 0, step.stderr);
+  const list = fs.readFileSync(path.join(r.temp, "scan-findings.md"), "utf8").split("\n");
+  assert.equal(list.length, 32);
+  assert.match(list[30], /^- and 1 more, listed in \[the run's log\]\(https:\/\/github\.com\/acme\/widgets\/actions\/runs\/1\/attempts\/1\) under \*Summarise the scan's findings\*$/);
+  assert.match(
+    fs.readFileSync(path.join(r.temp, "scan-coverage.md"), "utf8"),
+    /`b8\.bin` and 1 more, listed in \[the run's log\]/,
+  );
 });
 
 const HEAD = "a".repeat(40);

@@ -161,6 +161,47 @@ test("a refused finding is withheld from the comments, the summary, the log and 
   assert.doesNotMatch(body, /notes\.txt|skunkworks|api\.js:12|api\.js:30/);
 });
 
+test("the hold clears its marker when there is nothing to hold: no result, no check, or no finding", (t) => {
+  const pending = (s) => s.text("scan-content-pending");
+  // Neither results nor candidates: the scan left nothing.
+  const nothing = setup(t, { [MJS]: TARGET_CHECK });
+  const none = nothing.hold();
+  assert.equal(none.status, 0, none.stdout + none.stderr);
+  assert.match(none.stdout, /^no scan result to check$/m);
+  assert.equal(pending(nothing), null);
+  // The base ships no check.
+  const unchecked = setup(t);
+  unchecked.write("scan-results.json", results([finding()]));
+  const free = unchecked.hold();
+  assert.equal(free.status, 0, free.stdout + free.stderr);
+  assert.match(free.stdout, /ships no public-content check/);
+  assert.equal(pending(unchecked), null);
+  // A completed scan with no findings.
+  const clean = setup(t, { [MJS]: TARGET_CHECK });
+  clean.write("scan-results.json", results([]));
+  const empty = clean.hold();
+  assert.equal(empty.status, 0, empty.stdout + empty.stderr);
+  assert.match(empty.stdout, /^no findings to check$/m);
+  assert.equal(pending(clean), null);
+});
+
+test("results that are not a completed scan send the hold to the candidates", (t) => {
+  const s = setup(t, { [MJS]: TARGET_CHECK });
+  s.write("scan-results.json", { ...results([finding()]), analysis_summary: { review_completed: false } });
+  fs.writeFileSync(
+    path.join(s.input, "candidates.json"),
+    JSON.stringify(results([finding({ description: `Reads ${HOME_PATH}.` }), finding({ line: 20 })])),
+  );
+  const hold = s.hold();
+  assert.equal(hold.status, 0, hold.stdout + hold.stderr);
+  const candidates = JSON.parse(fs.readFileSync(path.join(s.input, "candidates.json"), "utf8"));
+  assert.deepEqual(candidates.findings.map((f) => Boolean(f._withheld)), [true, false]);
+  assert.equal(s.read("scan-results.json").findings[0]._withheld, undefined);
+  // One of two refused reads as one.
+  assert.match(s.text("scan-withheld.md"), /^1 of the 2 findings is withheld from the inline comments/);
+  assert.equal(s.text("scan-content-pending"), null);
+});
+
 test("a finding withheld for a sign-off line names that kind", (t) => {
   const s = setup(t, { [MJS]: CHECK });
   const signoff = ["Signed-off", "-by: Sam <123+sam@users.noreply.github.com>"].join("");
