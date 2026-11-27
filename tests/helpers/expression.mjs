@@ -269,15 +269,19 @@ export function runs(condition, ctx) {
   return truthy(fn(ctx));
 }
 
-// The if: of a job (by id) or a step (by name) in .github/workflows/<file>,
-// folded to one line; "" when it has none.
-export function ifOf(file, { job, step }) {
+// The if: of a job (by id), a step (by name) or the first step that uses an
+// action (by the start of its uses:) in .github/workflows/<file>, folded to
+// one line; "" when it has none.
+export function ifOf(file, { job, step, uses }) {
   const lines = fs.readFileSync(path.join(root, ".github/workflows", file), "utf8").split("\n");
   let i;
   let indent;
   if (job) {
     i = lines.findIndex((l) => l === `  ${job}:`);
     indent = 4;
+  } else if (uses) {
+    i = lines.findIndex((l) => l.trim().startsWith(`- uses: ${uses}`));
+    indent = lines[i]?.match(/^\s*/)[0].length + 2;
   } else {
     i = lines.findIndex(
       (l, n) =>
@@ -286,7 +290,7 @@ export function ifOf(file, { job, step }) {
     );
     indent = lines[i]?.match(/^\s*/)[0].length + (lines[i]?.trim().startsWith("- ") ? 2 : 0);
   }
-  if (i < 0) throw new Error(`no ${job ? `job ${job}` : `step ${step}`} in ${file}`);
+  if (i < 0) throw new Error(`no ${job ? `job ${job}` : uses ? `step using ${uses}` : `step ${step}`} in ${file}`);
   for (let j = i + 1; j < lines.length; j++) {
     const l = lines[j];
     const ind = l.match(/^\s*/)[0].length;
