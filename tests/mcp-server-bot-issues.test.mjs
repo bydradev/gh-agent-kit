@@ -42,8 +42,11 @@ function rules({
   snapshots = ["title of 30"],
   labels = ["needs-triage"],
   labelSnapshots,
+  bodySnapshots,
+  editedSnapshots,
   comments = [],
 }) {
+  const reads = (labelSnapshots || bodySnapshots || editedSnapshots || snapshots).length;
   return [
     {
       match: "^api --method GET repos/acme/widgets/issues/30$",
@@ -52,13 +55,13 @@ function rules({
     { match: "^api --method GET repos/acme/widgets/issues/31$", stdout: issue(31, OTHER_APP) },
     {
       match: "^api graphql .* -F n=30$",
-      sequence: (labelSnapshots || snapshots).map((_, k) => ({
+      sequence: Array.from({ length: reads }, (_, k) => ({
         data: {
           repository: {
             issue: {
-              title: labelSnapshots ? snapshots[0] : snapshots[k],
-              body: "body of 30",
-              lastEditedAt: edited,
+              title: snapshots.length === reads ? snapshots[k] : snapshots[0],
+              body: bodySnapshots ? bodySnapshots[k] : "body of 30",
+              lastEditedAt: editedSnapshots ? editedSnapshots[k] : edited,
               labels: {
                 nodes: (labelSnapshots ? labelSnapshots[k] : labels).map((name) => ({ name })),
               },
@@ -250,6 +253,55 @@ const CASES = [
     },
   ],
   [
+    "vouched for, then answered by a plan older than its last edit",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\n**Summary:** fix it.", "2026-11-19T10:00:00Z")],
+    },
+    NOT_VOUCHED,
+  ],
+  [
+    "labelled with another label by the operator",
+    { events: [mark("labeled", person("dra"), T2, "bug")], edited: T1 },
+    NOT_VOUCHED,
+  ],
+  [
+    "vouched for, then given needs-triage again by the bot",
+    { events: [mark("labeled", person("dra"), T2), mark("labeled", BOT, T3)], edited: T1 },
+  ],
+  [
+    "vouched for, then unlabelled by an account GitHub no longer names",
+    { events: [mark("labeled", person("dra"), T2), mark("unlabeled", null, T3)], edited: T1 },
+    NOT_VOUCHED,
+  ],
+  [
+    "vouched for, with a label event that carries no label",
+    {
+      events: [
+        mark("labeled", person("dra"), T2),
+        { event: "labeled", label: null, actor: person("dra"), created_at: T3 },
+      ],
+      edited: T1,
+    },
+  ],
+  [
+    "planned by triage among comments by no one, without a body, or not triage's",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [
+        answer("## Triage\n\n**Summary:** fix it.", T3),
+        { user: null, body: "## Triage: questions\n\nWhich?", created_at: T3 },
+        { user: BOT, created_at: T3 },
+        { user: BOT, body: ["## Triage: questions"], created_at: T3 },
+        answer("Thanks for the report.", T3),
+      ],
+    },
+  ],
+  [
     "whose timeline cannot be read",
     { timelineFails: true },
     /^github-actions\[bot\] opened it and whether the operator vouched for its text could not be checked; the title/,
@@ -278,6 +330,44 @@ const CASES = [
         .flat(),
     },
     /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  // Cases a rule-by-rule sweep found no test for (#94).
+  [
+    "whose body changes while the vouch is read",
+    {
+      events: [mark("labeled", person("dra"), T2)],
+      edited: T1,
+      bodySnapshots: Array(6).fill(["body of 30, unvouched", "body of 30"]).flat(),
+    },
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  [
+    "whose last edit moves while the vouch is read",
+    {
+      events: [mark("labeled", person("dra"), T2)],
+      editedSnapshots: Array(6).fill([T1, T1.replace("10:00", "10:01")]).flat(),
+    },
+    /^github-actions\[bot\] opened it and its text or labels changed while it was being read; the title/,
+  ],
+  ["labelled by an actor GitHub no longer names", { events: [mark("labeled", null, T2)] }, NOT_VOUCHED],
+  [
+    "planned by triage, then its needs-triage removed by a person",
+    {
+      events: [mark("labeled", person("dra"), T1), mark("unlabeled", person("dra"), T2)],
+      labels: ["triaged"],
+      comments: [answer("## Triage\n\nplan", T3)],
+    },
+    NOT_VOUCHED,
+  ],
+  [
+    "planned by triage but no longer triaged",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["needs-operator"],
+      comments: [answer("## Triage\n\nplan", T3)],
+    },
+    NOT_VOUCHED,
   ],
 ];
 

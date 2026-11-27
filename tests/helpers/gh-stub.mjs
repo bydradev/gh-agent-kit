@@ -15,6 +15,9 @@ import fs from "node:fs";
 const args = process.argv.slice(2);
 const stdin = process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8");
 fs.appendFileSync(process.env.GH_STUB_LOG, JSON.stringify({ args, stdin }) + "\n");
+// GH_STUB_TOKEN_LOG, when set, records the token each call was given.
+if (process.env.GH_STUB_TOKEN_LOG)
+  fs.appendFileSync(process.env.GH_STUB_TOKEN_LOG, `${process.env.GH_TOKEN ?? ""}\n`);
 const rules = JSON.parse(fs.readFileSync(process.env.GH_STUB_RULES, "utf8"));
 const joined = args.join(" ");
 const at = rules.findIndex((r) => new RegExp(r.match).test(joined));

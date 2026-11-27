@@ -231,6 +231,7 @@ function run(
     serverArgs,
     serverEnv = {},
     state,
+    noGithubEnv = false,
   } = {},
 ) {
   const dir = tempDir(t);
@@ -272,7 +273,7 @@ function run(
     KIT_REVIEW_EFFORT: effort,
     KIT_REVIEW_MAX_TURNS: maxTurns,
     KIT_REVIEW_TIMEOUT_MINUTES: timeout,
-    GITHUB_ENV: githubEnv,
+    GITHUB_ENV: noGithubEnv ? "" : githubEnv,
     ...(startedAgo === undefined ? {} : { AGENT_KIT_STARTED: String(Math.floor(Date.now() / 1000) - startedAgo) }),
     PROMPT: "Read the skill.",
     GH_TOKEN: "job-token",
@@ -634,4 +635,107 @@ test("pr-review.yml, Run the review on OpenCode: the server gets the public-cont
   const env = JSON.parse(started.stdout);
   assert.equal(env.PUBLIC_CONTENT_CHECK, serverEnv.PUBLIC_CONTENT_CHECK);
   assert.equal(env.PRIVATE_REPO_NAMES_FILE, serverEnv.PRIVATE_REPO_NAMES_FILE);
+});
+
+test("pr-review.yml: .git comes back only when it was moved out and nothing took its place", (t) => {
+  const dir = tempDir(t);
+  const temp = path.join(dir, "runner-temp");
+  const work = path.join(dir, "checkout");
+  fs.mkdirSync(temp);
+  fs.mkdirSync(work);
+  const back = () =>
+    spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", stepScript(FILE, "Put .git back in the checkout")], {
+      cwd: work,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, HOME: dir, RUNNER_TEMP: temp },
+    });
+  // Neither: a run that failed before the checkout had a .git.
+  const neither = back();
+  assert.equal(neither.status, 0, neither.stdout + neither.stderr);
+  assert.ok(!fs.existsSync(path.join(work, ".git")));
+  // Both: a .git is there already; the saved one is left where it is.
+  fs.mkdirSync(path.join(work, ".git"));
+  fs.writeFileSync(path.join(work, ".git", "HEAD"), "ref: refs/heads/main\n");
+  fs.mkdirSync(path.join(temp, "checkout-git"));
+  fs.writeFileSync(path.join(temp, "checkout-git", "HEAD"), "ref: refs/heads/saved\n");
+  const both = back();
+  assert.equal(both.status, 0, both.stdout + both.stderr);
+  assert.deepEqual(fs.readdirSync(path.join(work, ".git")), ["HEAD"]);
+  assert.equal(fs.readFileSync(path.join(work, ".git", "HEAD"), "utf8"), "ref: refs/heads/main\n");
+  assert.ok(fs.existsSync(path.join(temp, "checkout-git", "HEAD")));
+});
+
+// The carry-on loop's rules, on the review's copy (#94): a rule-by-rule
+// sweep found only the comparison with triage's copy catching them here.
+const capacity = (after = "after 7 s") => ({
+  type: "error",
+  error: { name: "APIError", data: { message: `Upstream request failed: [ttft_admission_refused] the cell is at capacity; retry shortly (${after})` } },
+});
+const sess = (events) => events.map((e) => ({ sessionID: "ses_1", ...e }));
+const STALL = sess([{ type: "step_start", part: {} }, capacity()]);
+const SERVED_THEN_STALL = sess([{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "tool-calls" } }, { type: "step_start", part: {} }, capacity()]);
+const DONE = sess(SUCCESS);
+
+test("pr-review.yml, Run the review on OpenCode: a carried-on step keeps its start, and a run without GITHUB_ENV writes none", (t) => {
+  const later = run(t, { runs: [{ events: STALL, exit: 1 }, { events: DONE }], startedAgo: 60 });
+  assert.equal(later.status, 0, later.stdout + later.stderr);
+  assert.equal(later.githubEnv, "");
+  const none = run(t, { runs: [{ events: STALL, exit: 1 }, { events: DONE }], noGithubEnv: true });
+  assert.equal(none.status, 0, none.stdout + none.stderr);
+  assert.equal(none.githubEnv, "");
+});
+
+test("pr-review.yml, Run the review on OpenCode: the waits grow 60, 120, 180 s, a served step starts the row again, and a named wait is longer or an hour at most", (t) => {
+  const r = run(t, { runs: [...Array(4).fill({ events: STALL, exit: 1 }), { events: DONE }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60", "120", "180", "180"]);
+  const reset = run(t, { runs: [{ events: STALL, exit: 1 }, { events: SERVED_THEN_STALL, exit: 1 }, { events: DONE }] });
+  assert.equal(reset.status, 0, reset.stdout + reset.stderr);
+  assert.deepEqual(reset.slept, ["60", "60"]);
+  const named = run(t, { runs: [{ events: sess([{ type: "step_start", part: {} }, capacity("after 200 s")]), exit: 1 }, { events: DONE }] });
+  assert.deepEqual(named.slept, ["200"]);
+  const huge = run(t, { runs: [{ events: sess([{ type: "step_start", part: {} }, capacity("after 99999999999999999999 s")]), exit: 1 }] });
+  assert.equal(huge.status, 1, huge.stdout + huge.stderr);
+  assert.deepEqual(huge.slept, []);
+  assert.match(huge.stdout, /a wait of 3600 s would not fit/);
+});
+
+test("pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish", (t) => {
+  // An event after the refusal that is not an error leaves it the last error.
+  const trailing = sess([{ type: "step_start", part: {} }, capacity(), { type: "text", part: { type: "text", text: "" } }]);
+  const r = run(t, { runs: [{ events: trailing, exit: 1 }, { events: DONE }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.slept, ["60"]);
+  // An event after the last step_finish leaves its reason the last step's.
+  const after = run(t, { events: [...SUCCESS, { type: "text", part: { type: "text", text: "" } }] });
+  assert.equal(after.status, 0, after.stdout + after.stderr);
+  assert.match(after.stdout, /^last step: stop$/m);
+});
+
+test("pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run", (t) => {
+  for (const opts of [
+    { runs: [{ events: sess([{ type: "step_start", part: {} }, { type: "error", error: { name: "APIError", data: { message: "Upstream request failed: Invalid credential" } } }]), exit: 1 }] },
+    { runs: [{ events: STALL.map((e) => ({ ...e, sessionID: undefined })), exit: 1 }] },
+    { runs: [{ events: STALL, exit: 1 }], maxTurns: "1" },
+  ]) {
+    const r = run(t, opts);
+    assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout);
+    assert.equal(r.calls.length, 1, JSON.stringify(opts));
+    assert.deepEqual(r.slept, [], JSON.stringify(opts));
+  }
+});
+
+test("pr-review.yml, Run the review on OpenCode: a closed run withholds its errors only when it had some, and a run with no events shows the log", (t) => {
+  const withErrors = run(t, { events: sess([{ type: "step_start", part: {} }, { type: "error", error: { name: "APIError", data: { message: "secret-ish detail" } } }]), exit: 1, state: { closed: true } });
+  assert.equal(withErrors.status, 1);
+  assert.match(withErrors.stdout, /^errors: \(withheld: the run closed on a private repository name\)$/m);
+  assert.doesNotMatch(withErrors.stdout, /secret-ish detail/);
+  const clean = run(t, { state: { closed: true } });
+  assert.equal(clean.status, 1);
+  assert.match(clean.stdout, /^errors: $/m);
+  const empty = run(t, { events: [], exit: 2 });
+  assert.equal(empty.status, 1, empty.stdout + empty.stderr);
+  assert.doesNotMatch(empty.stdout, /withheld/);
+  assert.ok(empty.stdout.includes(LOG_LINE), empty.stdout);
+  assert.match(empty.stdout, /^::error::OpenCode exited with status 2 and no events$/m);
 });

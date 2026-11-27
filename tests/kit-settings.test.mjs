@@ -146,6 +146,12 @@ test("the setup guide lists exactly the settings the step knows", () => {
   assert.deepEqual([...listed].sort(), [...knownNames()].sort());
 });
 
+test("a --- is skipped only before the first setting", { skip: needsBash4 }, (t) => {
+  const r = read(t, { file: "KIT_REVIEW_MODE: open\n---\n" });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /\.github\/gh-agent-kit\.yml line 2 is not a NAME: value line/);
+});
+
 test("the file sets what no variable does, and a variable wins", { skip: needsBash4 }, (t) => {
   const file = [
     "# kit settings",
@@ -463,4 +469,16 @@ test("the scan's notice names no mode when the settings job failed", (t) => {
   const body = patch.args[patch.args.indexOf("-f") + 1];
   assert.match(body, /Fix the settings the run's log names, then re-run it to scan again\./);
   assert.doesNotMatch(body, /mode open|push to scan again/);
+});
+
+// Rules a rule-by-rule sweep found only a source comparison catching (#94).
+test("the read step refuses a path that is not a file, and reads a last line with no newline", { skip: needsBash4 }, (t) => {
+  for (const type of ["symlink", "submodule"]) {
+    const r = read(t, { rule: { match: CONTENTS, json: { type, size: 10, content: Buffer.from("KIT_REVIEW_MODE: off\n").toString("base64") } } });
+    assert.equal(r.status, 1, `${type}: ${r.stdout}`);
+    assert.match(r.stdout, /::error::could not read \.github\/gh-agent-kit\.yml from the default branch/, type);
+  }
+  const last = read(t, { file: "KIT_REVIEW_MAX_TURNS: 90\nKIT_REVIEW_MODE: open" });
+  assert.equal(last.status, 0, last.stdout + last.stderr);
+  assert.equal(last.env.KIT_REVIEW_MODE, "open");
 });
