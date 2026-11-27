@@ -140,6 +140,23 @@ test("the check is found before any model runs, and the secret reaches no step t
   for (const name of RUN_STEPS) assert.doesNotMatch(code(name), /PRIVATE_REPO_NAMES/, name);
 });
 
+test("an executable check is a regular file too, and the .mjs check wins over the .py one", (t) => {
+  const PY = ".github/scripts/check_public_content.py";
+  for (const [files, executable, want] of [
+    [{ [MJS]: CHECK }, [MJS], "mjs"],
+    [{ [MJS]: CHECK, [PY]: "print('base')\n" }, [], "mjs"],
+    [{ [PY]: "print('base')\n" }, [], "py"],
+  ]) {
+    const temp = path.join(tempDir(t), "runner-temp");
+    publicContentGuard(t, temp, files, {}, executable);
+    assert.equal(
+      fs.readFileSync(path.join(temp, "public-content-state"), "utf8"),
+      `ready\n${path.join(temp, `public-content-check.${want}`)}\n`,
+      JSON.stringify(Object.keys(files)),
+    );
+  }
+});
+
 test("the guard records no check, a usable one, and one that cannot be used", (t) => {
   const none = runner(t);
   assert.equal(fs.readFileSync(none.file("public-content-state"), "utf8"), "none\n");

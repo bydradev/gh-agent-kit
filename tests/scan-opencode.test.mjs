@@ -881,3 +881,37 @@ test("security-scan.yml, Run the scan on OpenCode: a run that ends in error show
     assert.match(lines[at + 4], /^::error::OpenCode's run ended in error/);
   }
 });
+
+test("security-scan.yml: OpenCode's configuration goes, and .git leaves the checkout and comes back once", (t) => {
+  const dir = tempDir(t);
+  const checkout = path.join(dir, "checkout");
+  const temp = path.join(dir, "runner-temp");
+  fs.mkdirSync(temp);
+  for (const file of [".opencode/plugin/a.js", "opencode.json", "opencode.jsonc", "src/opencode.json", ".git/HEAD"]) {
+    fs.mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });
+    fs.writeFileSync(path.join(checkout, file), "x\n");
+  }
+  const run = (name) => {
+    const r = runStep(checkout, stepScript(FILE, name), { RUNNER_TEMP: temp });
+    assert.equal(r.status, 0, name + r.stdout + r.stderr);
+  };
+  run("Remove the checkout's OpenCode configuration");
+  for (const gone of [".opencode", "opencode.json", "opencode.jsonc"])
+    assert.ok(!fs.existsSync(path.join(checkout, gone)), gone);
+  assert.ok(fs.existsSync(path.join(checkout, "src/opencode.json")));
+
+  run("Move .git out of the checkout for OpenCode");
+  assert.ok(!fs.existsSync(path.join(checkout, ".git")));
+  assert.equal(fs.readFileSync(path.join(temp, "checkout-git/HEAD"), "utf8"), "x\n");
+  run("Put .git back in the checkout");
+  assert.equal(fs.readFileSync(path.join(checkout, ".git/HEAD"), "utf8"), "x\n");
+  assert.ok(!fs.existsSync(path.join(temp, "checkout-git")));
+  // Nothing to put back (the move never ran) is fine, and a .git that is
+  // there already stays as it is.
+  run("Put .git back in the checkout");
+  assert.deepEqual(fs.readdirSync(path.join(checkout, ".git")), ["HEAD"]);
+  fs.mkdirSync(path.join(temp, "checkout-git"));
+  run("Put .git back in the checkout");
+  assert.deepEqual(fs.readdirSync(path.join(checkout, ".git")), ["HEAD"]);
+  assert.ok(fs.existsSync(path.join(temp, "checkout-git")));
+});

@@ -29,17 +29,29 @@ function record(head, base) {
 }
 
 // Runs a copy of the step on this event; returns its output, what it wrote
-// to GITHUB_ENV and the gh calls it made.
+// to GITHUB_ENV and the gh calls it made. A comment is its body (the bot's,
+// id 70) or { id, login, body }; each id reads as its latest comment.
 function skipStep(t, { run = script, action = "edited", mode = "push", comments = [], baseNow = BASE_SHA }) {
   const dir = tempDir(t);
+  const list = comments.map((c) => ({
+    id: 70,
+    login: "github-actions[bot]",
+    ...(typeof c === "string" ? { body: c } : c),
+  }));
+  const byId = new Map(list.map((c) => [c.id, c.body]));
+  if (!byId.size) byId.set(70, "");
   const stub = stubGh(dir, [
     {
       match: "^api --paginate repos/acme/widgets/issues/7/comments --jq ",
-      json: comments.map((body) => ({ id: 70, user: { login: "github-actions[bot]" }, body })),
+      json: list.map(({ id, login, body }) => ({ id, user: { login }, body })),
     },
+    ...[...byId].map(([id, body]) => ({
+      match: `^api repos/acme/widgets/issues/comments/${id} --jq `,
+      json: { body },
+    })),
     {
-      match: "^api repos/acme/widgets/issues/comments/70 --jq ",
-      json: { body: comments.at(-1) ?? "" },
+      match: "^api --method PATCH repos/acme/widgets/issues/comments/",
+      stdout: "https://github.com/acme/widgets/pull/7#issuecomment-1\n",
     },
     {
       match: "^api --method GET repos/acme/widgets/git/ref/heads/main --jq ",
@@ -105,6 +117,65 @@ test("a push in mode open skips once a scan has completed, and scans before", (t
   const none = skipStep(t, { run: earlyScript, action: "synchronize", mode: "open" });
   assert.match(none.out, /no scan has completed/);
   assert.equal(none.env, "");
+});
+
+// A record carrying the not-completed notice of this run (1001) or another.
+function withNotice(head, base, run = "1001") {
+  return [
+    "<!-- security-scan-record -->",
+    "<!-- scan-not-completed -->",
+    `<!-- scan-not-completed-run ${run} -->`,
+    "### Security scan: the latest run did not complete",
+    "<!-- /scan-not-completed -->",
+    record(head, base).split("\n").slice(1).join("\n"),
+  ].join("\n");
+}
+const patches = (calls) => calls.filter((c) => c.args.includes("PATCH"));
+
+test("a re-run that the record covers takes its own not-completed notice down, in both copies", (t) => {
+  for (const run of [script, earlyScript])
+    for (const [action, mode] of [["edited", "push"], ["synchronize", "open"]]) {
+      const own = skipStep(t, { run, action, mode, comments: [withNotice(HEAD, BASE_SHA)] });
+      assert.equal(own.env, "RUN=false\n");
+      assert.match(own.out, /removed this run's not-completed notice/);
+      const [patch] = patches(own.calls);
+      assert.ok(patch, `${action}: the notice comes down`);
+      assert.deepEqual(patch.args.slice(0, 4), ["api", "--method", "PATCH", "repos/acme/widgets/issues/comments/70"]);
+      assert.equal(patch.args[5], `body=${record(HEAD, BASE_SHA)}`);
+      // Another run's notice stays: a later scan replaces it.
+      const other = skipStep(t, { run, action, mode, comments: [withNotice(HEAD, BASE_SHA, "1000")] });
+      assert.equal(other.env, "RUN=false\n");
+      assert.deepEqual(patches(other.calls), []);
+    }
+});
+
+test("only the bot's comments that start with the record's marker count, for the record and the notice", (t) => {
+  for (const run of [script, earlyScript]) {
+    // The notice is on the bot's record; a later look-alike by someone
+    // else, or a bot comment that only quotes a record, is not touched.
+    const r = skipStep(t, {
+      run,
+      comments: [
+        { id: 70, body: withNotice(HEAD, BASE_SHA) },
+        { id: 71, login: "mallory", body: withNotice(HEAD, BASE_SHA) },
+        { id: 72, body: `Quoted:\n${withNotice(HEAD, BASE_SHA)}` },
+      ],
+    });
+    assert.equal(r.env, "RUN=false\n");
+    assert.deepEqual(
+      patches(r.calls).map((c) => c.args[3]),
+      ["repos/acme/widgets/issues/comments/70"],
+    );
+    // Neither look-alike stands for a scan of this head.
+    for (const fake of [
+      { id: 71, login: "mallory", body: record(HEAD, BASE_SHA) },
+      { id: 72, body: `Quoted:\n${record(HEAD, BASE_SHA).split("\n").slice(1).join("\n")}` },
+    ]) {
+      const f = skipStep(t, { run, comments: [record("d".repeat(40), BASE_SHA), fake] });
+      assert.match(f.out, /does not cover/);
+      assert.equal(f.env, "");
+    }
+  }
 });
 
 // The pass step with these settings and RUN, as the settings job leaves them.
