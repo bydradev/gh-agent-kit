@@ -15,17 +15,17 @@ files first:
 | --- | --- | --- |
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 
-**In short (phase 1):** of 1,129 rules, 1,083 are caught by a test, 10
+**In short (phase 1):** of 1,200 rules, 1,140 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
-reply it waits for never comes). The 46 left are listed
+reply it waits for never comes). The 60 left are listed
 with the reason:
 
 | Reason | `pr-review.yml` | `mcp-server.mjs` |
 | --- | --- | --- |
-| Equivalent: switching it off changes nothing the code can do | 5 | 15 |
+| Equivalent: switching it off changes nothing the code can do | 8 | 17 |
 | Unreachable: no input reaches the other branch | 1 | 5 |
-| Not a rule: a message's wording, a count only the log shows, a cache, or removing a scratch file | 10 | 4 |
-| Left untested: runner provisioning only a GitHub runner can run | 6 | 0 |
+| Not a rule: a message's wording, a count only the log shows, a cache, or removing a scratch file | 16 | 4 |
+| Left untested: runner provisioning only a GitHub runner can run | 9 | 0 |
 
 The tests this phase added cover, among others: which events and states run each
 pr-review job and step, as GitHub evaluates each `if:`; the report check's
@@ -46,23 +46,26 @@ practice, each of these is switched off on its own:
   forced to `true` and to `false`; every operand of an `&&` or `||` chain in
   such a test, or in an expression of comparisons and predicates, set to
   the value that makes it decide nothing (`true` under `&&`, `false` under
-  `||`); every `continue` or `break`; and every statement that writes a
-  file or the run's state (`fs.appendFileSync`, `fs.writeFileSync`,
-  `fs.rmSync`, `record(...)`) or writes to GitHub, removed.
+  `||`); the predicate passed to `filter`, `find`, `findIndex`, `some` or
+  `every`, set the same ways; every `continue` or `break`; and every
+  statement that writes a file, the run's state or a reply
+  (`fs.appendFileSync`, `fs.writeFileSync`, `fs.rmSync`, `record(...)`,
+  `process.stdout.write`) or writes to GitHub, removed.
 - **Workflows**: every job and step `if:`, forced to `true` and to `false`,
   and each operand of its `&&` and `||` chains, set as above.
-- **Shell** (each step's `run:`, a command continued with `\` read as
-  one line): every `if`, `elif` and `while` condition, forced to `true`
+- **Shell** (each step's `run:`, a one-line `run:` included, a command
+  continued with `\` read as one line): every `if`, `elif` and `while` condition, forced to `true`
   and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains;
   the condition of a command list such as `[ -z "$x" ] && exit 1`; every
   `case` arm, `*)` included, given a pattern nothing matches; each jq `select()`
   predicate and each of its `and` and `or` operands, and each jq `if` and
   `elif` condition, forced to `true` and to `false`;
-  every `continue`, `break`, `exit 0` and `return 0`; and every line that
-  writes `GITHUB_OUTPUT` or `GITHUB_ENV`, writes a file in `RUNNER_TEMP` or
-  the run's result file, removes or moves a
-  file, or writes to GitHub (`gh issue`, `gh pr`, `gh label`, or a POST, PATCH, PUT
-  or DELETE).
+  every `continue`, `break`, `exit 0` and `return 0`; every command that
+  writes `GITHUB_OUTPUT` or `GITHUB_ENV`, removes, moves, copies or
+  installs a file, or writes to GitHub (`gh issue`, `gh pr`, `gh label`, or
+  a POST, PATCH, PUT or DELETE, inside a `$( )` too), made a no-op; and
+  every redirect of a command's output to a file, pointed at `/dev/null`,
+  so the command still runs and keeps its exit status.
 
 ## How it was checked
 
@@ -109,12 +112,12 @@ form GitHub accepts.
 
 | File | Rules | Caught | Left, with the reason |
 | --- | --- | --- | --- |
-| `.github/workflows/pr-review.yml` | 587 | 565 | 22 |
-| `.github/scripts/mcp-server.mjs` | 542 | 518 | 24 |
+| `.github/workflows/pr-review.yml` | 601 | 567 | 34 |
+| `.github/scripts/mcp-server.mjs` | 599 | 573 | 26 |
 
 ### `.github/workflows/pr-review.yml`
 
-587 rules: 565 caught (4 of them by a time limit), 22 left with the reason given.
+601 rules: 567 caught (4 of them by a time limit), 34 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
 
@@ -254,41 +257,41 @@ form GitHub accepts.
 | 418 | if: && operand | `(env.KIT_REVIEW_MODE == 'push' \|\| env.KIT_REVIEW_MODE == 'open')` | `true` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 418 | if: \|\| operand | `env.KIT_REVIEW_MODE == 'push'` | `false` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
 | 418 | if: \|\| operand | `env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the early skip runs only when the in-flight check succeeded and did not defer" |
-| 456 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 456 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 456 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 459 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 459 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 460 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 460 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 462 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 472 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 472 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if \|\| operand | `[ -z "$base_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if \|\| operand | `[ -z "$title_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 492 | sh if \|\| operand | `[ -z "$head_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 494 | sh elif && operand | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 494 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 494 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 494 | sh elif && operand | `[ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 496 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 496 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 498 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 498 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 500 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 500 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 509 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 509 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 514 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 514 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 515 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 456 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 456 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 456 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 456 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 459 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 459 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 460 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 460 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 462 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 472 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: the last report is the bot's latest comment headed as a review" |
+| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: the last report is the bot's latest comment headed as a review" |
+| 472 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 472 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: the last report is the bot's latest comment headed as a review" |
+| 492 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a last report without one of its four lines reviews" |
+| 492 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 492 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a last report without one of its four lines reviews" |
+| 492 | sh if \|\| operand | `[ -z "$base_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a last report without one of its four lines reviews" |
+| 492 | sh if \|\| operand | `[ -z "$title_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a last report without one of its four lines reviews" |
+| 492 | sh if \|\| operand | `[ -z "$head_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a last report without one of its four lines reviews" |
+| 494 | sh elif && operand | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 494 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 494 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 494 | sh elif && operand | `[ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 496 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 496 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a moved base, another title or other closing references review" |
+| 498 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 498 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a moved base, another title or other closing references review" |
+| 500 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `true` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 500 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a moved base, another title or other closing references review" |
+| 509 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `true` | Not caught, equivalent: when the heads match, lookup is set to the head it already holds; only a log line differs |
+| 509 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 514 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 514 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
+| 515 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "the early copy skips, run without a checkout" |
 | 527 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
 | 529 | sh if whole | `[ "${RUN:-}" = false ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
 | 529 | sh if whole | `[ "${RUN:-}" = false ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job passes the early skip on, and only a skip" |
@@ -316,6 +319,7 @@ form GitHub accepts.
 | 631 | sh if whole | `[ "$(gh pr view "$PR" --json isCrossRepository --jq .isCrossRepository)" = "true…` | `false` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 639 | sh output statement | (before `echo "BASE=$(gh pr view "$PR" --json baseRefName --jq .baseR`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
 | 640 | sh output statement | (before `echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"`) | `: ` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
+| 649 | sh output statement | (before `rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gi`) | `: ` | `workflow-guards.test.mjs`: "pr-review.yml: the head's executable Claude configuration is removed" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 686 | sh if whole | `git cat-file -e "origin/$BASE:$f" 2>/dev/null` | `false` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 690 | sh while whole | `[ "${rest#*/}" != "$rest" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
@@ -329,15 +333,20 @@ form GitHub accepts.
 | 699 | sh output statement | (before `rm -f -- "$f"`) | `: ` | `pr-review-rules.test.mjs`: "the reviewer's rules and server come from the base, and no CLAUDE.md is left to load" |
 | 702 | sh if whole | `[ -L "$p" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 702 | sh if whole | `[ -L "$p" ]` | `false` | `pr-review-rules.test.mjs`: "a first adoption whose server is a symlink is refused before root copies it" |
+| 707 | sh output statement | (before `sudo install -d -o root -g root -m 0755 /opt/agent-kit`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every review run exercises it |
+| 708 | sh output statement | (before `sudo install -o root -g root -m 0755 .github/scripts/mcp-ser`) | `: ` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 717 | sh list condition | `[ -n "$entry" ]` | `true` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 717 | sh list condition | `[ -n "$entry" ]` | `false` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 719 | sh case arm | `100644\|100755` | `__mutant_never__` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 720 | sh case arm | `*` | `__mutant_never__` | `public-content-install.test.mjs`: "pr-review fails on a base check committed as a symlink" |
+| 723 | sh file write | `"$tmp"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
+| 727 | sh file write | `"$RUNNER_TEMP/public-content-empty"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 729 | sh case arm | `*.py` | `__mutant_never__` | `public-content-install.test.mjs`: "pr-review takes a base's Python check" |
 | 730 | sh case arm | `*` | `__mutant_never__` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 732 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `true` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 732 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `false` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
 | 736 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/public-content-empty"`) | `: ` | Not a rule: removes a scratch file in RUNNER_TEMP, which the runner discards |
+| 738 | sh output statement | (before `sudo install -o root -g root -m 0644 "$tmp" "$dest"`) | `: ` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 739 | sh output statement | (before `rm -f -- "$tmp"`) | `: ` | Not a rule: removes a scratch copy in RUNNER_TEMP, which the runner discards |
 | 740 | sh output statement | (before `echo "PUBLIC_CONTENT_CHECK=$dest" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
 | 741 | sh skip statement | `break` | `:` | `pr-review-step-rules.test.mjs`: "a base with both public-content checks installs only the Node one" |
@@ -347,41 +356,41 @@ form GitHub accepts.
 | 783 | if: whole | `github.event.action == 'edited' && github.event.changes.base == null && github.e…` | `false` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 783 | if: && operand | `github.event.changes.base == null` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 783 | if: && operand | `github.event.changes.title == null` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
-| 820 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 820 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 820 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 823 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 823 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 824 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 824 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 826 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 836 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 836 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if \|\| operand | `[ -z "$base_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if \|\| operand | `[ -z "$title_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 856 | sh if \|\| operand | `[ -z "$head_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 858 | sh elif && operand | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 858 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 858 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 858 | sh elif && operand | `[ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 860 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 860 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 862 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 862 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 864 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 864 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 873 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 873 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 878 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 878 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
-| 879 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "the settings job's early copy is the review job's step, byte for byte" |
+| 820 | jq select and operand | `.status == \"completed\"` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 820 | jq select whole | `.status == \"completed\" and .conclusion != \"skipped\" and .id != $GITHUB_RUN_I…` | `false` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 820 | jq select and operand | `.conclusion != \"skipped\"` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 820 | jq select and operand | `.id != $GITHUB_RUN_ID` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 823 | jq select whole | `.name == "pr-review"` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 823 | jq select whole | `.name == "pr-review"` | `false` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 824 | sh if whole | `[ "$conclusion" != skipped ]` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 824 | sh if whole | `[ "$conclusion" != skipped ]` | `false` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 826 | sh skip statement | `return 0` | `:` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 836 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: the last report is the bot's latest comment headed as a review" |
+| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: the last report is the bot's latest comment headed as a review" |
+| 836 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| contains("## Review R"))` | `false` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 836 | jq select and operand | `(.body \| contains("## Review R"))` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: the last report is the bot's latest comment headed as a review" |
+| 856 | sh if \|\| operand | `[ -z "$reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a last report without one of its four lines reviews" |
+| 856 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 856 | sh if whole | `[ -z "$reviewed" ] \|\| [ -z "$base_reviewed" ] \|\| [ -z "$title_reviewed" ] \|\| [ -…` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a last report without one of its four lines reviews" |
+| 856 | sh if \|\| operand | `[ -z "$base_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a last report without one of its four lines reviews" |
+| 856 | sh if \|\| operand | `[ -z "$title_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a last report without one of its four lines reviews" |
+| 856 | sh if \|\| operand | `[ -z "$head_reviewed" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a last report without one of its four lines reviews" |
+| 858 | sh elif && operand | `[ "$head_reviewed" != "$HEAD" ]` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 858 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 858 | sh elif whole | `[ "$head_reviewed" != "$HEAD" ] && [ "$MODE" != "open" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 858 | sh elif && operand | `[ "$MODE" != "open" ]` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 860 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 860 | sh elif whole | `[ "$base_reviewed" != "$base_cmp at $base_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "a base branch that moved since the last report reviews" |
+| 862 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 862 | sh elif whole | `[ "$title_reviewed" != "$title_now" ]` | `false` | `pr-review-body-edit.test.mjs`: "the title compared is the event's, read from the event file" |
+| 864 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `true` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 864 | sh elif whole | `[ "$(printf '%s' "$reviewed" \| sed 's/^Closes reviewed:[[:space:]]*//' \| tr ',' …` | `false` | `pr-review-body-edit.test.mjs`: "an edit that changes a closing reference reviews" |
+| 873 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `true` | Not caught, equivalent: when the heads match, lookup is set to the head it already holds; only a log line differs |
+| 873 | sh if whole | `[ "$head_reviewed" != "$HEAD" ]` | `false` | `pr-review-body-edit.test.mjs`: "the review job's step: a later head reviews in mode push, and in mode open counts the reviewed head's run" |
+| 878 | sh if whole | `[ "$earlier" = "success" ]` | `true` | `pr-review-body-edit.test.mjs`: "the review job's step: only the latest completed, unskipped other run counts, and its review job's conclusion" |
+| 878 | sh if whole | `[ "$earlier" = "success" ]` | `false` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
+| 879 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-body-edit.test.mjs`: "an edit that keeps the closing references skips the review" |
 | 896 | if: && operand | `github.event.action == 'synchronize'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 896 | if: whole | `github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'` | `true` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
 | 896 | if: whole | `github.event.action == 'synchronize' && env.KIT_REVIEW_MODE == 'open'` | `false` | `pr-review-conditions.test.mjs`: "the review job's event steps run for their own events" |
@@ -408,6 +417,7 @@ form GitHub accepts.
 | 935 | sh output statement | (before `echo "RUN=false" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "the push skip counts only completed, unskipped runs other than this one" |
 | 949 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 949 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
+| 959 | sh output statement | (before `gh api -X POST "repos/$REPO/check-runs" --input - --jq .id)`) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
 | 960 | sh output statement | (before `echo "VERDICT_CHECK_ID=$id" >> "$GITHUB_ENV"`) | `: ` | `pr-review-step-rules.test.mjs`: "the verdict and start steps write what the later steps read" |
 | 971 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 971 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
@@ -438,11 +448,11 @@ form GitHub accepts.
 | 1074 | sh case arm | `*[!0-9a-f]*\|''` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
 | 1077 | sh list condition | `[ -n "$base" ]` | `true` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
 | 1077 | sh list condition | `[ -n "$base" ]` | `false` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
-| 1078 | sh file write | (before `cat > "$RUNNER_TEMP/claude-settings.json" <<EOF`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
-| 1088 | sh file write | (before `(umask 077 && printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-tok`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1078 | sh file write | `"$RUNNER_TEMP/claude-settings.json"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1088 | sh file write | `"$RUNNER_TEMP/gh-token"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
 | 1091 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `true` | `public-content-install.test.mjs`: "pr-review.yml: without a check the server's configuration is as before" |
 | 1091 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `false` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
-| 1092 | sh file write | (before `(umask 077 && printf '%s' "$PRIVATE_REPO_NAMES" > "$RUNNER_T`) | `: ` | `pr-review-step-rules.test.mjs`: "the settings step hands both runners the denied and allowed tool lists" |
+| 1092 | sh file write | `"$RUNNER_TEMP/private-repo-names"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "with a public-content check, the settings step writes the private names for the server alone" |
 | 1095 | jq if whole | `$check == ""` | `true` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
 | 1095 | jq if whole | `$check == ""` | `false` | `public-content-install.test.mjs`: "pr-review.yml: without a check the server's configuration is as before" |
 | 1096 | sh output statement | (before `echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"`) | `: ` | `public-content-install.test.mjs`: "pr-review.yml: the server gets the check and a private file of the names, never the names inline" |
@@ -452,6 +462,7 @@ form GitHub accepts.
 | 1117 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1117 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER != 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1117 | if: && operand | `env.KIT_REVIEW_RUNNER != 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
+| 1132 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every review run exercises it |
 | 1133 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Not a rule: removes the downloaded binary from RUNNER_TEMP after installing it |
 | 1144 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1144 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
@@ -462,6 +473,7 @@ form GitHub accepts.
 | 1155 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1155 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'opencode'` | `false` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1155 | if: && operand | `env.KIT_REVIEW_RUNNER == 'opencode'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
+| 1166 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every review run exercises it |
 | 1167 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Not a rule: removes the downloaded archive from RUNNER_TEMP after installing it |
 | 1198 | if: && operand | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
 | 1198 | if: whole | `env.RUN != 'false' && env.KIT_REVIEW_RUNNER == 'claude-code'` | `true` | `pr-review-conditions.test.mjs`: "each runner's steps run only for that runner, and not after a skip" |
@@ -479,6 +491,7 @@ form GitHub accepts.
 | 1231 | sh list condition | `[ -z "$KIT_REVIEW_EFFORT" ]` | `false` | `model-provider.test.mjs`: "pr-review.yml, Run the review: the effort level reaches the CLI, and none when unset" |
 | 1232 | sh list condition | `/opt/agent-kit/claude -p "$PROMPT" \ --output-format json \ --model "$KIT_REVIEW…` | `true` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
 | 1232 | sh list condition | `/opt/agent-kit/claude -p "$PROMPT" \ --output-format json \ --model "$KIT_REVIEW…` | `false` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
+| 1245 | sh file write | `"$RESULT"` | `/dev/null` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
 | 1246 | sh if whole | `[ ! -s "$RESULT" ]` | `true` | `pr-review-step-rules.test.mjs`: "the review step reads the last result from a stream that Claude Code wrote as an array" |
 | 1246 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run that ends in error, or with no result, fails" |
 | 1251 | jq if whole | `type == "array"` | `true` | `model-provider.test.mjs`: "pr-review.yml, Run the review: the effort level reaches the CLI, and none when unset" |
@@ -516,6 +529,7 @@ form GitHub accepts.
 | 1344 | jq elif whole | `startswith("mcp__agent-kit__")` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1381 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1381 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1381 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1383 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1383 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a model the pinned CLI does not list fails before the run" |
 | 1389 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -531,12 +545,14 @@ form GitHub accepts.
 | 1423 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a carried-on step keeps its start, and a run without GITHUB_ENV writes none" |
 | 1423 | sh list \|\| operand | `[ -z "${GITHUB_ENV:-}" ]` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a carried-on step keeps its start, and a run without GITHUB_ENV writes none" |
 | 1423 | sh output statement | (before `echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1425 | sh file write | `"$RESULT"` | `/dev/null` | Not caught, equivalent: the job's RUNNER_TEMP starts empty and no earlier step writes this file, so it starts empty either way |
 | 1431 | sh while whole | `:` | `true` | Not caught, equivalent: `while :` and `while true` are the same loop |
 | 1431 | sh while whole | `:` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1433 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_REVIEW_MODE…` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1433 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_REVIEW_MODE…` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
-| 1436 | sh file write | (before `jq -cR 'fromjson? \| objects' "$RUNNER_TEMP/opencode-attempt.`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
-| 1437 | sh file write | (before `cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1434 | sh file write | `"$RUNNER_TEMP/opencode-attempt.jsonl"` | `/dev/null` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1436 | sh file write | `"$RUNNER_TEMP/opencode-attempt-events.jsonl"` | `/dev/null` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1437 | sh file write | `"$RESULT"` | `/dev/null` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1440 | jq select whole | `.type == "error"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish" |
 | 1440 | jq select whole | `.type == "error"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1441 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: another error, no session or no steps left end the run" |
@@ -569,17 +585,17 @@ form GitHub accepts.
 | 1488 | jq select whole | `.type == "step_finish"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the refusal is the attempt's last error, and the last step is its last step_finish" |
 | 1488 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1489 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1489 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1489 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1490 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1490 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1490 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1491 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1491 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1491 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1492 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1492 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1492 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1493 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1493 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1493 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1494 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the cost and token counts go only to the run log |
-| 1494 | jq select whole | `.type == "step_finish"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1494 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the cost and token counts go only to the run log |
 | 1495 | jq select whole | `.type == "error"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1495 | jq select whole | `.type == "error"` | `false` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1496 | jq select whole | `.type == "text"` | `true` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -608,6 +624,7 @@ form GitHub accepts.
 | 1532 | sh output statement | (before `mv -- "$RUNNER_TEMP/checkout-git" .git`) | `: ` | `review-opencode.test.mjs`: "pr-review.yml: .git leaves the checkout for OpenCode, the server still reads it, and it comes back" |
 | 1535 | if: whole | `always()` | `true` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
 | 1535 | if: whole | `always()` | `false` | `pr-review-conditions.test.mjs`: "the clean-up steps run after a failure, and the verdict steps only on theirs" |
+| 1536 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/gh-token" "$RUNNER_TEMP/private-repo-`) | `: ` | `pr-review-step-rules.test.mjs`: "the token file and the private names are removed after the run" |
 | 1544 | if: whole | `env.RUN != 'false'` | `true` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1544 | if: whole | `env.RUN != 'false'` | `false` | `pr-review-conditions.test.mjs`: "every review step after the skips runs unless a skip set RUN to false" |
 | 1555 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `pr-review-steps.test.mjs`: "pr-review.yml: the report check passes a report whose reviewed lines match the pull request" |
@@ -712,7 +729,7 @@ form GitHub accepts.
 
 ### `.github/scripts/mcp-server.mjs`
 
-542 rules: 518 caught (6 of them by a time limit), 24 left with the reason given.
+599 rules: 573 caught (7 of them by a time limit), 26 left with the reason given.
 
 <details><summary>Every rule of <code>.github/scripts/mcp-server.mjs</code></summary>
 
@@ -725,6 +742,8 @@ form GitHub accepts.
 | 33 | js && operand (expression) | `typeof s === "string"` | `true` | Not caught, equivalent: repoName() reads only GITHUB_REPOSITORY, a string or undefined, and the pattern refuses undefined too |
 | 34 | js && operand (expression) | `/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s)` | `true` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 35 | js && operand (expression) | `!s.split("/").some((part) => /^\.+$/.test(part))` | `true` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
+| 35 | js callback test | `/^\.+$/.test(part)` | `true` | `mcp-server-rules.test.mjs`: "the server reads the job token from GH_TOKEN_FILE and gives it to gh" |
+| 35 | js callback test | `/^\.+$/.test(part)` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 39 | js && operand (expression) | `typeof s === "string"` | `true` | `mcp-server-rules.test.mjs`: "the git tools refuse a ref, range or path that is not plain, before running git" |
 | 40 | js \|\| operand (expression) | `s === 'origin/${env.BASE}'` | `false` | `mcp-server-rules.test.mjs`: "the git tools take the fetched base whatever its name, and a plain range" |
 | 40 | js && operand (expression) | `s === 'origin/${env.BASE}' \|\| (/^[A-Za-z0-9_./:-]+$/.test(s) && !s.startsWith("-…` | `true` | `mcp-server-rules.test.mjs`: "the git tools refuse a ref, range or path that is not plain, before running git" |
@@ -815,6 +834,8 @@ form GitHub accepts.
 | 293 | js if test | `hits.length === 0` | `false` | `public-content-guard.test.mjs`: "an exit 1 without a line the check names, and a long list of findings" |
 | 294 | js if test | `hits.some(([, , kind]) => kind === PRIVATE_NAME)` | `true` | `public-content-guard.test.mjs`: "post_report is refused, unposted, while the check finds something, and posts once reworded" |
 | 294 | js if test | `hits.some(([, , kind]) => kind === PRIVATE_NAME)` | `false` | `public-content-guard.test.mjs`: "a bare private name is refused only when PRIVATE_REPO_NAMES reaches the check" |
+| 294 | js callback test | `kind === PRIVATE_NAME` | `true` | `public-content-guard.test.mjs`: "post_report is refused, unposted, while the check finds something, and posts once reworded" |
+| 294 | js callback test | `kind === PRIVATE_NAME` | `false` | `public-content-guard.test.mjs`: "a bare private name is refused only when PRIVATE_REPO_NAMES reaches the check" |
 | 295 | js output statement | `record({ closed: true });` | `void 0;` | `public-content-guard.test.mjs`: "a private name says nothing of where it was and closes the run's posts, across a new server" |
 | 303 | js ternary test | `CONTENT_KINDS.has(kind)` | `true` | `public-content-guard.test.mjs`: "the check's own output never reaches the model, and it gets no token" |
 | 303 | js ternary test | `CONTENT_KINDS.has(kind)` | `false` | `public-content-guard.test.mjs`: "post_report is refused, unposted, while the check finds something, and posts once reworded" |
@@ -823,6 +844,8 @@ form GitHub accepts.
 | 310 | js ternary test | `found.length > CONTENT_SHOWN` | `true` | Not a rule: the wording of the refusal (an "and 0 more" tail); the post is refused either way |
 | 310 | js ternary test | `found.length > CONTENT_SHOWN` | `false` | `public-content-guard.test.mjs`: "an exit 1 without a line the check names, and a long list of findings" |
 | 316 | js output statement | `fs.rmSync(dir, { recursive: true, force: true });` | `void 0;` | `mcp-server-rules.test.mjs`: "with no private names configured, the public-content check gets no PRIVATE_REPO_NAMES at all, and no text is left on disk" |
+| 336 | js callback test | `m[1] === '${repo}#${pr}'` | `true` | `file-issue.test.mjs`: "file_issue reads the filed issues once a run and matches only this pull request's" |
+| 336 | js callback test | `m[1] === '${repo}#${pr}'` | `false` | `mcp-server-rules.test.mjs`: "file_issue finds an earlier issue for the finding on any page, not in a pull request, and names the first listed" |
 | 367 | js for test | `prev !== out` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 367 | js for test | `prev !== out` | `false` | `file-issue.test.mjs`: "file_issue keeps the reviewer's text from forging headings or another finding's marker" |
 | 393 | js ternary test | `references` | `true` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
@@ -847,12 +870,24 @@ form GitHub accepts.
 | 464 | js if test | `!/^[0-9a-f]{40}$/.test(sha)` | `false` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
 | 469 | js for test | `!found` | `true` | `mcp-server.test.mjs`: "range_diff finds the report that recorded an old_base on any page, reading no page past it" |
 | 469 | js for test | `!found` | `false` | `mcp-server.test.mjs`: "range_diff fetches an old_base a report recorded when the checkout lacks it" |
+| 473 | js && operand (callback) | `c.user` | `true` | `mcp-server.test.mjs`: "range_diff finds the report that recorded an old_base on any page, reading no page past it" |
+| 473 | js callback test | `c.user && c.user.login === "github-actions[bot]" && recorded.test(c.body \|\| "") …` | `true` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
+| 473 | js callback test | `c.user && c.user.login === "github-actions[bot]" && recorded.test(c.body \|\| "") …` | `false` | `mcp-server.test.mjs`: "range_diff fetches an old_base a report recorded when the checkout lacks it" |
+| 474 | js && operand (callback) | `c.user.login === "github-actions[bot]"` | `true` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
+| 475 | js && operand (callback) | `recorded.test(c.body \|\| "")` | `true` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
+| 476 | js && operand (callback) | `posted.test(c.body \|\| "")` | `true` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
 | 478 | js if test | `raw.length < 100` | `true` | `mcp-server.test.mjs`: "range_diff finds the report that recorded an old_base on any page, reading no page past it" |
 | 478 | js if test | `raw.length < 100` | `false` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
 | 480 | js if test | `!found` | `true` | `mcp-server.test.mjs`: "range_diff fetches an old_base a report recorded when the checkout lacks it" |
 | 480 | js if test | `!found` | `false` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
 | 515 | js ternary test | `hasCommit(sha)` | `true` | Not caught, equivalent in practice: git fetch of a sha exits 0 only once it has the commit |
 | 515 | js ternary test | `hasCommit(sha)` | `false` | `mcp-server.test.mjs`: "range_diff fetches an old_base a report recorded when the checkout lacks it" |
+| 535 | js callback test | `l.startsWith('${name}: ')` | `true` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
+| 535 | js callback test | `l.startsWith('${name}: ')` | `false` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
+| 542 | js callback test | `l.startsWith('${name}:')` | `true` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
+| 542 | js callback test | `l.startsWith('${name}:')` | `false` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
+| 543 | js callback test | `re.test(l)` | `true` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
+| 543 | js callback test | `re.test(l)` | `false` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
 | 544 | js \|\| operand (if) | `prefixed !== 1` | `false` | `mcp-server.test.mjs`: "post_report refuses a malformed Head reviewed line beside a valid one and posts nothing" |
 | 544 | js if test | `prefixed !== 1 \|\| valid !== 1` | `true` | `mcp-server.test.mjs`: "post_report posts once, with the run marker, when the run is current" |
 | 544 | js if test | `prefixed !== 1 \|\| valid !== 1` | `false` | `mcp-server.test.mjs`: "post_report refuses a missing Head reviewed line and posts nothing" |
@@ -907,8 +942,15 @@ form GitHub accepts.
 | 731 | js \|\| operand (if) | `before.body !== after.body` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue whose body changes while the vouch is read is withheld by read_issue, search and issue" |
 | 732 | js \|\| operand (if) | `before.lastEditedAt !== after.lastEditedAt` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue whose last edit moves while the vouch is read is withheld by read_issue, search and issue" |
 | 733 | js \|\| operand (if) | `JSON.stringify(before.labels) !== JSON.stringify(after.labels)` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue whose triaged label is removed while the vouch is read is withheld by read_issue, search and issue" |
-| 750 | js \|\| operand (expression) | `e.event === "labeled"` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
-| 750 | js \|\| operand (expression) | `e.event === "unlabeled"` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
+| 740 | js callback test | `e.event === type` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
+| 740 | js callback test | `e.event === type` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue retitled after the vouch is withheld by read_issue, search and issue" |
+| 750 | js callback test | `(e.event === "labeled" \|\| e.event === "unlabeled") && e.label && e.label.name ==…` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue labelled with another label by the operator is withheld by read_issue, search and issue" |
+| 750 | js callback test | `(e.event === "labeled" \|\| e.event === "unlabeled") && e.label && e.label.name ==…` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
+| 750 | js \|\| operand (callback) | `e.event === "labeled"` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
+| 750 | js && operand (callback) | `e.event === "labeled" \|\| e.event === "unlabeled"` | `true` | Not caught, equivalent: an event of another type that carries the label is neither labeled nor unlabeled, so both filters after this one drop it |
+| 750 | js \|\| operand (callback) | `e.event === "unlabeled"` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
+| 751 | js && operand (callback) | `e.label` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, with a label event that carries no label is shown by read_issue, search and issue" |
+| 752 | js && operand (callback) | `e.label.name === "needs-triage"` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue labelled with another label by the operator is withheld by read_issue, search and issue" |
 | 755 | js for test | `k >= 0` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue never vouched for is withheld by read_issue, search and issue" |
 | 755 | js for test | `k >= 0` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
 | 757 | js && operand (if) | `e.event === "labeled"` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then withdrawn by a person is withheld by read_issue, search and issue" |
@@ -922,10 +964,22 @@ form GitHub accepts.
 | 762 | js if test | `at === -1 \|\| !(marks[at].created_at > changedAt)` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
 | 762 | js if test | `at === -1 \|\| !(marks[at].created_at > changedAt)` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue never vouched for is withheld by read_issue, search and issue" |
 | 762 | js \|\| operand (if) | `!(marks[at].created_at > changedAt)` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue edited after the vouch is withheld by read_issue, search and issue" |
+| 763 | js callback test | `e.event === "unlabeled"` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then given needs-triage again by the bot is shown by read_issue, search and issue" |
+| 763 | js callback test | `e.event === "unlabeled"` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
 | 764 | js if test | `later.some((e) => !(e.actor && e.actor.login === KIT_BOT))` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
 | 764 | js if test | `later.some((e) => !(e.actor && e.actor.login === KIT_BOT))` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage, then its needs-triage removed by a person is withheld by read_issue, search and issue" |
+| 764 | js callback test | `!(e.actor && e.actor.login === KIT_BOT)` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then planned by triage, which removes needs-triage is shown by read_issue, search and issue" |
+| 764 | js callback test | `!(e.actor && e.actor.login === KIT_BOT)` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage, then its needs-triage removed by a person is withheld by read_issue, search and issue" |
+| 764 | js && operand (callback) | `e.actor` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then unlabelled by an account GitHub no longer names is withheld by read_issue, search and issue" |
+| 764 | js && operand (callback) | `e.actor.login === KIT_BOT` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage, then its needs-triage removed by a person is withheld by read_issue, search and issue" |
 | 766 | js if test | `later.length` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for by the operator is shown by read_issue, search and issue" |
 | 766 | js if test | `later.length` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
+| 779 | js && operand (callback) | `c.user` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage among comments by no one, without a body, or not triage's is shown by read_issue, search and issue" |
+| 779 | js callback test | `c.user && c.user.login === KIT_BOT && typeof c.body === "string" && TRIAGE_HEADI…` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by a look-alike comment from someone else is withheld by read_issue, search and issue" |
+| 779 | js callback test | `c.user && c.user.login === KIT_BOT && typeof c.body === "string" && TRIAGE_HEADI…` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then planned by triage, which removes needs-triage is shown by read_issue, search and issue" |
+| 780 | js && operand (callback) | `c.user.login === KIT_BOT` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by a look-alike comment from someone else is withheld by read_issue, search and issue" |
+| 781 | js && operand (callback) | `typeof c.body === "string"` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage among comments by no one, without a body, or not triage's is shown by read_issue, search and issue" |
+| 782 | js && operand (callback) | `TRIAGE_HEADING.test(c.body)` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage among comments by no one, without a body, or not triage's is shown by read_issue, search and issue" |
 | 786 | js \|\| operand (if) | `!labels.includes("triaged")` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage but no longer triaged is withheld by read_issue, search and issue" |
 | 786 | js if test | `!labels.includes("triaged") \|\| !plan` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue never vouched for is withheld by read_issue, search and issue" |
 | 786 | js if test | `!labels.includes("triaged") \|\| !plan` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
@@ -994,16 +1048,22 @@ form GitHub accepts.
 | 1061 | js if test | `why` | `false` | `mcp-server.test.mjs`: "range_diff fetches only a commit a Claude report names as its base" |
 | 1082 | js if test | `gitDiff(from, "diff", ['${from}...${old_head}']) === gitDiff(base, "diff", ['${b…` | `true` | `mcp-server.test.mjs`: "range_diff compares hidden changes by content" |
 | 1082 | js if test | `gitDiff(from, "diff", ['${from}...${old_head}']) === gitDiff(base, "diff", ['${b…` | `false` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
+| 1094 | js callback test | `c.trim()` | `true` | Not caught, equivalent: each side's log yields exactly one empty entry (after its last NUL, or the empty output), and the two match each other and cancel |
+| 1094 | js callback test | `c.trim()` | `false` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
 | 1097 | js ternary test | `nl === -1` | `true` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
 | 1097 | js ternary test | `nl === -1` | `false` | Not caught, unreachable: git log --format=%H%n%B always puts a newline after the sha |
 | 1099 | js ternary test | `/^[0-9a-f]{40}$/.test(sha)` | `true` | Not caught, unreachable: each entry git log -z --format=%H%n%B writes starts with a full sha |
 | 1099 | js ternary test | `/^[0-9a-f]{40}$/.test(sha)` | `false` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
 | 1100 | js ternary test | `nl === -1` | `true` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
 | 1100 | js ternary test | `nl === -1` | `false` | Not caught, unreachable: git log --format=%H%n%B always puts a newline after the sha |
+| 1105 | js callback test | `c.message === message` | `true` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
+| 1105 | js callback test | `c.message === message` | `false` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
 | 1106 | js if test | `i === -1` | `true` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
 | 1106 | js if test | `i === -1` | `false` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
 | 1111 | js if test | `sha === null` | `true` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
 | 1111 | js if test | `sha === null` | `false` | Not caught, equivalent: git merge-base given no sha fails, which also answers not in the base |
+| 1119 | js callback test | `!inBase(c.sha)` | `true` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
+| 1119 | js callback test | `!inBase(c.sha)` | `false` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
 | 1120 | js && operand (if) | `added.length === 0` | `true` | `mcp-server.test.mjs`: "range_diff with an unchanged diff and an empty old range says everything is new" |
 | 1120 | js if test | `added.length === 0 && dropped.length === 0` | `true` | `mcp-server.test.mjs`: "range_diff shows the series when only commit messages changed" |
 | 1120 | js if test | `added.length === 0 && dropped.length === 0` | `false` | `mcp-server-rules.test.mjs`: "range_diff takes only text shas, and sees an old commit the base now holds as no change" |
@@ -1064,6 +1124,8 @@ form GitHub accepts.
 | 1252 | js if test | `earlier` | `false` | `mcp-server-rules.test.mjs`: "file_issue finds an earlier issue for the finding on any page, not in a pull request, and names the first listed" |
 | 1253 | js if test | `runState.issues >= ISSUE_LIMIT` | `true` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
 | 1253 | js if test | `runState.issues >= ISSUE_LIMIT` | `false` | `mcp-server-refusals.test.mjs`: "the review's per-run limits hold from the state file" |
+| 1262 | js callback test | `value !== undefined` | `true` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
+| 1262 | js callback test | `value !== undefined` | `false` | `public-content-guard.test.mjs`: "inline_comment and file_issue are checked, file_issue field by field" |
 | 1265 | js if test | `why` | `true` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
 | 1265 | js if test | `why` | `false` | `file-issue.test.mjs`: "file_issue is refused once the run is stale" |
 | 1266 | js output call | `gh( ["api", "-X", "POST", 'repos/${repo}/issues', "--input", "-", "--jq", ".html…` | `"{}"` | `mcp-server-rules.test.mjs`: "file_issue keeps the reviewer's out-of-scope text, and marks the optional sections left empty" |
@@ -1097,8 +1159,17 @@ form GitHub accepts.
 | 1370 | js && operand (expression) | `textSha(i) !== vouchedSha` | `true` | `mcp-server-vouched.test.mjs`: "the vouched text is shown as it is" |
 | 1373 | js if test | `state !== "open"` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
 | 1373 | js if test | `state !== "open"` | `false` | `mcp-server.test.mjs`: "nothing is written on an issue closed since the run started" |
+| 1375 | js callback test | `l.name === name` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1375 | js callback test | `l.name === name` | `false` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1385 | js && operand (callback) | `e.event === "labeled"` | `true` | `mcp-server.test.mjs`: "info reports edited_after_approval true for another label, or the approval removed, after the edit" |
+| 1385 | js callback test | `e.event === "labeled" && e.label && e.label.name === "agent:approved"` | `true` | `mcp-server.test.mjs`: "info reports edited_after_approval true for another label, or the approval removed, after the edit" |
+| 1385 | js callback test | `e.event === "labeled" && e.label && e.label.name === "agent:approved"` | `false` | `mcp-server.test.mjs`: "info reports edited_after_approval true for an edit in the approval's second" |
+| 1385 | js && operand (callback) | `e.label` | `true` | `mcp-server.test.mjs`: "info reports edited_after_approval true for another label, or the approval removed, after the edit" |
+| 1385 | js && operand (callback) | `e.label.name === "agent:approved"` | `true` | `mcp-server.test.mjs`: "info reports edited_after_approval true for another label, or the approval removed, after the edit" |
 | 1387 | js ternary test | `approvals.length` | `true` | `mcp-server-rules.test.mjs`: "info gives empty dates for an issue never approved, reopened or retitled" |
 | 1387 | js ternary test | `approvals.length` | `false` | `mcp-server.test.mjs`: "info reports edited_after_approval true for an edit in the approval's second" |
+| 1389 | js callback test | `e.event === type` | `true` | `mcp-server.test.mjs`: "info reports edited_after_approval false for an edit before the approval" |
+| 1389 | js callback test | `e.event === type` | `false` | `mcp-server.test.mjs`: "info reports edited_after_approval true for a reopen after the approval" |
 | 1390 | js ternary test | `at.length` | `true` | `mcp-server-rules.test.mjs`: "info gives empty dates for an issue never approved, reopened or retitled" |
 | 1390 | js ternary test | `at.length` | `false` | `mcp-server.test.mjs`: "info reports edited_after_approval true for a reopen after the approval" |
 | 1413 | js && operand (ternary) | `Number.isInteger(start)` | `true` | `mcp-server-rules.test.mjs`: "search starts at 0 for a start it cannot use, from the start it is given otherwise" |
@@ -1193,6 +1264,8 @@ form GitHub accepts.
 | 1755 | js if test | `!eligible.includes(String(number))` | `false` | `mcp-server.test.mjs`: "dispatch queues a run once per eligible issue still eligible now, and starts none" |
 | 1757 | js if test | `dispatched.has(number)` | `true` | `mcp-server-rules.test.mjs`: "a sweep starts before its dispatch log exists, and its first dispatch writes it" |
 | 1757 | js if test | `dispatched.has(number)` | `false` | `mcp-server.test.mjs`: "dispatch queues a run once per eligible issue still eligible now, and starts none" |
+| 1766 | js callback test | `STATE_LABELS.includes(l)` | `true` | `mcp-server-rules.test.mjs`: "a sweep dispatches an issue still open and untriaged, or claimed and idle for a week, and nothing else" |
+| 1766 | js callback test | `STATE_LABELS.includes(l)` | `false` | `mcp-server-rules.test.mjs`: "a sweep dispatches an issue still open and untriaged, or claimed and idle for a week, and nothing else" |
 | 1768 | js && operand (expression) | `i.state === "open"` | `true` | `mcp-server-rules.test.mjs`: "a sweep dispatches an issue still open and untriaged, or claimed and idle for a week, and nothing else" |
 | 1769 | js \|\| operand (expression) | `labels.includes("needs-triage")` | `false` | `mcp-server.test.mjs`: "dispatch queues a run once per eligible issue still eligible now, and starts none" |
 | 1769 | js && operand (expression) | `labels.includes("needs-triage") \|\| state.length === 0 \|\| (labels.includes("in-pr…` | `true` | `mcp-server-rules.test.mjs`: "a sweep dispatches an issue still open and untriaged, or claimed and idle for a week, and nothing else" |
@@ -1238,6 +1311,7 @@ form GitHub accepts.
 | 1827 | js \|\| operand (if) | `!env.DISPATCH_LOG` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 1828 | js \|\| operand (if) | `!env.DISPATCH_QUEUE` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
 | 1829 | js \|\| operand (if) | `!env.GITHUB_REF_NAME` | `false` | `mcp-server-rules.test.mjs`: "each mode refuses to start on a malformed number, repository or run setting" |
+| 1844 | js output statement | `process.stdout.write( JSON.stringify(msg) .replace(/\u2028/g, "\\u2028") .replac…` | `void 0;` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1864 | js while test | `(end = pendingInput.indexOf("\n")) !== -1` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 1871 | js if test | `!line.trim()` | `true` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
@@ -1262,4 +1336,3 @@ form GitHub accepts.
 | 1914 | js if test | `id !== undefined` | `false` | `mcp-server-rules.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 
 </details>
-
