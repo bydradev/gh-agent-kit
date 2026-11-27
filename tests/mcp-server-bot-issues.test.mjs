@@ -253,6 +253,45 @@ const CASES = [
     },
   ],
   [
+    "labelled with another label by the operator",
+    { events: [mark("labeled", person("dra"), T2, "bug")], edited: T1 },
+    NOT_VOUCHED,
+  ],
+  [
+    "vouched for, then given needs-triage again by the bot",
+    { events: [mark("labeled", person("dra"), T2), mark("labeled", BOT, T3)], edited: T1 },
+  ],
+  [
+    "vouched for, then unlabelled by an account GitHub no longer names",
+    { events: [mark("labeled", person("dra"), T2), mark("unlabeled", null, T3)], edited: T1 },
+    NOT_VOUCHED,
+  ],
+  [
+    "vouched for, with a label event that carries no label",
+    {
+      events: [
+        mark("labeled", person("dra"), T2),
+        { event: "labeled", label: null, actor: person("dra"), created_at: T3 },
+      ],
+      edited: T1,
+    },
+  ],
+  [
+    "planned by triage among comments by no one, without a body, or not triage's",
+    {
+      events: ANSWERED,
+      edited: T1,
+      labels: ["triaged"],
+      comments: [
+        answer("## Triage\n\n**Summary:** fix it.", T3),
+        { user: null, body: "## Triage: questions\n\nWhich?", created_at: T3 },
+        { user: BOT, created_at: T3 },
+        { user: BOT, body: ["## Triage: questions"], created_at: T3 },
+        answer("Thanks for the report.", T3),
+      ],
+    },
+  ],
+  [
     "whose timeline cannot be read",
     { timelineFails: true },
     /^github-actions\[bot\] opened it and whether the operator vouched for its text could not be checked; the title/,
