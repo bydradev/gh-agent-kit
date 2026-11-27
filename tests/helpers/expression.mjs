@@ -281,7 +281,7 @@ export function ifOf(file, { job, step, uses }) {
     indent = 4;
   } else if (uses) {
     i = lines.findIndex((l) => l.trim().startsWith(`- uses: ${uses}`));
-    indent = lines[i]?.match(/^\s*/)[0].length + 2;
+    indent = i < 0 ? 0 : lines[i].match(/^\s*/)[0].length + 2;
   } else {
     i = lines.findIndex(
       (l, n) =>
