@@ -15,7 +15,7 @@ files first:
 | --- | --- | --- |
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 
-**In short (phase 1):** of 1,200 rules, 1,140 are caught by a test, 11
+**In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
 reply it waits for never comes). The 60 left are listed
 with the reason:
@@ -46,7 +46,8 @@ practice, each of these is switched off on its own:
   forced to `true` and to `false`; every operand of an `&&` or `||` chain in
   such a test, or in an expression of comparisons and predicates, set to
   the value that makes it decide nothing (`true` under `&&`, `false` under
-  `||`); the predicate passed to `filter`, `find`, `findIndex`, `some` or
+  `||`), and the same for each operand of such an expression kept in a
+  variable; the predicate passed to `filter`, `find`, `findIndex`, `some` or
   `every`, set the same ways; every `continue` or `break`; and every
   statement that writes a file, the run's state or a reply
   (`fs.appendFileSync`, `fs.writeFileSync`, `fs.rmSync`, `record(...)`,
@@ -55,7 +56,8 @@ practice, each of these is switched off on its own:
   and each operand of its `&&` and `||` chains, set as above.
 - **Shell** (each step's `run:`, a one-line `run:` included, a command
   continued with `\` read as one line): every `if`, `elif` and `while` condition, forced to `true`
-  and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains;
+  and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains, and of a
+  `{ }` group's or a subshell's list within them;
   the condition of a command list such as `[ -z "$x" ] && exit 1`; every
   `case` arm, `*)` included, given a pattern nothing matches; each jq `select()`
   predicate and each of its `and` and `or` operands, and each jq `if` and
@@ -112,12 +114,12 @@ form GitHub accepts.
 
 | File | Rules | Caught | Left, with the reason |
 | --- | --- | --- | --- |
-| `.github/workflows/pr-review.yml` | 601 | 567 | 34 |
-| `.github/scripts/mcp-server.mjs` | 599 | 573 | 26 |
+| `.github/workflows/pr-review.yml` | 603 | 569 | 34 |
+| `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
 
 ### `.github/workflows/pr-review.yml`
 
-601 rules: 567 caught (4 of them by a time limit), 34 left with the reason given.
+603 rules: 569 caught (4 of them by a time limit), 34 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
 
@@ -154,6 +156,8 @@ form GitHub accepts.
 | 164 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 164 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 164 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
+| 164 | sh if && operand | `[ "$l" = "---" ]` | `true` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
+| 164 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | `kit-settings.test.mjs`: "a --- is skipped only before the first setting" |
 | 165 | sh skip statement | `continue` | `:` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 167 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
 | 167 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | `kit-settings.test.mjs`: "the file sets what no variable does, and a variable wins" |
@@ -729,7 +733,7 @@ form GitHub accepts.
 
 ### `.github/scripts/mcp-server.mjs`
 
-599 rules: 573 caught (7 of them by a time limit), 26 left with the reason given.
+606 rules: 580 caught (7 of them by a time limit), 26 left with the reason given.
 
 <details><summary>Every rule of <code>.github/scripts/mcp-server.mjs</code></summary>
 
@@ -980,6 +984,9 @@ form GitHub accepts.
 | 780 | js && operand (callback) | `c.user.login === KIT_BOT` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by a look-alike comment from someone else is withheld by read_issue, search and issue" |
 | 781 | js && operand (callback) | `typeof c.body === "string"` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage among comments by no one, without a body, or not triage's is shown by read_issue, search and issue" |
 | 782 | js && operand (callback) | `TRIAGE_HEADING.test(c.body)` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage among comments by no one, without a body, or not triage's is shown by read_issue, search and issue" |
+| 785 | js && operand (expression) | `answer` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue whose needs-triage the bot removed without an answer is withheld by read_issue, search and issue" |
+| 785 | js && operand (expression) | `!TRIAGE_HEADING.exec(answer.body)[1]` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned, then asked about by a later triage is withheld by read_issue, search and issue" |
+| 785 | js && operand (expression) | `answer.created_at > changedAt` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then answered by a plan older than its last edit is withheld by read_issue, search and issue" |
 | 786 | js \|\| operand (if) | `!labels.includes("triaged")` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue planned by triage but no longer triaged is withheld by read_issue, search and issue" |
 | 786 | js if test | `!labels.includes("triaged") \|\| !plan` | `true` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue never vouched for is withheld by read_issue, search and issue" |
 | 786 | js if test | `!labels.includes("triaged") \|\| !plan` | `false` | `mcp-server-bot-issues.test.mjs`: "a github-actions[bot] issue vouched for, then asked about by triage is withheld by read_issue, search and issue" |
@@ -1235,6 +1242,10 @@ form GitHub accepts.
 | 1665 | js output statement | `gh(["issue", "edit", n, "--repo", repo, "--add-label", label]);` | `void 0;` | `mcp-server.test.mjs`: "add_label adds only the bot's labels, never needs-triage" |
 | 1679 | js if test | `LABELS_RESET.includes(label)` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
 | 1679 | js if test | `LABELS_RESET.includes(label)` | `false` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1684 | js \|\| operand (expression) | `["edited", "reopened", "labeled"].includes(event)` | `false` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1685 | js && operand (expression) | `event === "dispatch"` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1685 | js \|\| operand (expression) | `event === "dispatch" && hasLabel(issue(), "needs-triage")` | `false` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
+| 1685 | js && operand (expression) | `hasLabel(issue(), "needs-triage")` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
 | 1686 | js && operand (if) | `!retriage` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
 | 1686 | js if test | `!retriage && !editedAfterApproval().edited_after_approval` | `true` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
 | 1686 | js if test | `!retriage && !editedAfterApproval().edited_after_approval` | `false` | `mcp-server.test.mjs`: "remove_label takes agent:approved off only on a fresh triage or a later edit" |
