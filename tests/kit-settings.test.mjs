@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, root, stubGh, tempDir } from "./helpers/server.mjs";
-import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
+import { needsBash4, oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 import { jobOutputs, value } from "./helpers/expression.mjs";
 
 const READ = "Read the settings file and variables";
@@ -151,6 +151,7 @@ test("a --- is skipped only before the first setting", { skip: needsBash4 }, (t)
   const r = read(t, { file: "KIT_REVIEW_MODE: open\n---\n" });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /\.github\/gh-agent-kit\.yml line 2 is not a NAME: value line/);
+  oneError(r.stdout);
 });
 
 test("the file sets what no variable does, and a variable wins", { skip: needsBash4 }, (t) => {
@@ -201,6 +202,7 @@ test("a file that cannot be read fails the run instead of using the defaults", (
     r.stdout,
     /::error::could not read \.github\/gh-agent-kit\.yml from the default branch/,
   );
+  oneError(r.stdout);
   const dir = read(t, { rule: { match: CONTENTS, json: [{ type: "file" }] } });
   assert.equal(dir.status, 1, "a directory at the path is refused");
   const big = read(t, {
@@ -230,6 +232,7 @@ test("a line the kit does not read fails the run, naming the line but never prin
     const r = read(t, { file });
     assert.equal(r.status, 1, file);
     assert.match(r.stdout, message, file);
+    oneError(r.stdout);
     for (const secret of ["sk-ant-not-a-key", "ghp_not-a-token"])
       assert.ok(
         !r.stdout.includes(secret) && !r.stderr.includes(secret),
@@ -245,7 +248,15 @@ test("a variable that is not one word fails before it reaches GITHUB_ENV", { ski
     r.stdout,
     /the setting KIT_REVIEW_MODE must be one word or number.*\(the repository variable\)/,
   );
+  oneError(r.stdout);
   assert.equal(r.env.BASH_ENV, undefined);
+  oneError(r.stdout);
+  // A setting that is not a switch is stopped by the same check.
+  const turns = read(t, { vars: { KIT_REVIEW_MAX_TURNS: "40\nBASH_ENV=/tmp/x" } });
+  assert.equal(turns.status, 1);
+  assert.match(turns.stdout, /the setting KIT_REVIEW_MAX_TURNS must be one word or number/);
+  assert.equal(turns.env.BASH_ENV, undefined);
+  oneError(turns.stdout);
 });
 
 // KIT_REVIEW_SKILLS alone takes a list: names joined by commas. Every
@@ -358,6 +369,7 @@ test("a value out of range names where it came from", (t) => {
     const r = runStep(dir, stepScript(file, step), { GITHUB_ENV: envFile, ...env });
     assert.equal(r.status, 1, file);
     assert.match(r.stdout, message, file);
+    oneError(r.stdout);
   }
 });
 
@@ -550,6 +562,7 @@ test("the read step refuses a path that is not a file, and reads a last line wit
     const r = read(t, { rule: { match: CONTENTS, json: { type, size: 10, content: Buffer.from("KIT_REVIEW_MODE: off\n").toString("base64") } } });
     assert.equal(r.status, 1, `${type}: ${r.stdout}`);
     assert.match(r.stdout, /::error::could not read \.github\/gh-agent-kit\.yml from the default branch/, type);
+    oneError(r.stdout);
   }
   const last = read(t, { file: "KIT_REVIEW_MAX_TURNS: 90\nKIT_REVIEW_MODE: open" });
   assert.equal(last.status, 0, last.stdout + last.stderr);

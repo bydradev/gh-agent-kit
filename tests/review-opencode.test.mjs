@@ -12,7 +12,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { LOG_LINE, opencodeStub, ownEnvNames, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "pr-review.yml";
 const REVIEW_ALLOWED =
@@ -344,6 +344,7 @@ test("pr-review.yml, Run the review on OpenCode: an effort level is a variant th
     const r = run(t, opts);
     assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout + r.stderr);
     assert.match(r.stdout, message, JSON.stringify(opts));
+    oneError(r.stdout);
     assert.equal(r.env, null, JSON.stringify(opts));
   }
   // The last model in the list is read whole too.
@@ -377,6 +378,7 @@ test("pr-review.yml, Run the review on OpenCode: a model the pinned CLI does not
     failed.stdout,
     /^::error::OpenCode could not list its models \(exit status 1\), so KIT_REVIEW_MODEL could not be checked$/m,
   );
+  oneError(failed.stdout);
   assert.match(failed.stderr, /Error: no provider/);
   assert.equal(failed.env, null);
 });
@@ -475,6 +477,7 @@ test("pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhaust
     const r = run(t, opts);
     assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout);
     assert.match(r.stdout, message, JSON.stringify(opts));
+    oneError(r.stdout);
   }
   // A line that is not an event is left out of the summary.
   const noisy = run(t, { events: ["starting", "42", '"text"', ...SUCCESS] });
@@ -738,4 +741,5 @@ test("pr-review.yml, Run the review on OpenCode: a closed run withholds its erro
   assert.doesNotMatch(empty.stdout, /withheld/);
   assert.ok(empty.stdout.includes(LOG_LINE), empty.stdout);
   assert.match(empty.stdout, /^::error::OpenCode exited with status 2 and no events$/m);
+  oneError(empty.stdout);
 });

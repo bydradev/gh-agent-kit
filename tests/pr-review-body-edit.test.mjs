@@ -53,10 +53,14 @@ function bodyEdit(
     comments,
     runs = [RUN_55],
     jobs = { 55: [{ name: "pr-review", conclusion: "success" }] },
+    failing,
+    fails = false,
   },
 ) {
   const dir = tempDir(t);
   const stub = stubGh(dir, [
+    // A call that fails, ahead of the rule that would answer it.
+    ...(failing ? [{ match: failing, stderr: "gh: Server Error (HTTP 500)\n", status: 1 }] : []),
     {
       match: "^api --paginate repos/acme/widgets/issues/7/comments --jq ",
       json: comments ?? [
@@ -97,7 +101,8 @@ function bodyEdit(
     MODE: "push",
     ...env,
   });
-  assert.equal(r.status, 0, r.stdout + r.stderr);
+  if (fails) assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  else assert.equal(r.status, 0, r.stdout + r.stderr);
   return {
     out: r.stdout,
     env: fs.readFileSync(githubEnv, "utf8"),
@@ -116,6 +121,25 @@ test("an edit that keeps the closing references skips the review", (t) => {
   });
   assert.match(out, /nothing to review/);
   assert.equal(env, "RUN=false\n");
+});
+
+// A lookup that fails fails the step, in the review job and the settings
+// job's early copy: no answer is not "no review".
+test("an edit skip fails when it cannot list the runs or read a run's jobs", (t) => {
+  for (const run of [script, earlyScript])
+    for (const failing of [
+      "^api --method GET repos/acme/widgets/actions/workflows/pr-review\\.yml/runs\\?head_sha=",
+      "^api repos/acme/widgets/actions/runs/55/jobs ",
+    ]) {
+      const { env } = bodyEdit(t, {
+        title: "fix: keep the cache warm",
+        body: "Reworded the description.\n\nFixes #5\n",
+        run,
+        failing,
+        fails: true,
+      });
+      assert.equal(env, "", failing);
+    }
 });
 
 test("an edit that changes a closing reference reviews", (t) => {

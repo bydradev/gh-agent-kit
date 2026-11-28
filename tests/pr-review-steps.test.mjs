@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { gitRepo, root, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "pr-review.yml";
 const HEAD = "a".repeat(40);
@@ -114,6 +114,7 @@ test("pr-review.yml: a pull request beyond the diff limits, or with files the ch
   const lines = step(t, NAME, { dir: repo.dir, env: limits, rules: [prSize(3, 60, 41)] });
   assert.equal(lines.status, 1);
   assert.match(lines.stdout, /::error::3 files and 101 changed lines exceed/);
+  oneError(lines.stdout);
   // GitHub reports three files; the checkout shows two of them.
   const short = checkout(t, 2);
   const missing = step(t, NAME, { dir: short.dir, env: limits, rules: [prSize(3, 3, 0)] });
@@ -191,6 +192,7 @@ test("pr-review.yml: the run fails when it posted no report", (t) => {
   ]);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /::error::the reviewer posted no report on pull request 7/);
+  oneError(r.stdout);
 });
 
 test("pr-review.yml: the run fails on a missing, doubled or malformed reviewed line", (t) => {
@@ -207,6 +209,7 @@ test("pr-review.yml: the run fails on a missing, doubled or malformed reviewed l
       r.stdout,
       /::error::the report must carry exactly one well-formed 'Closes reviewed:'/,
     );
+    oneError(r.stdout);
   }
 });
 
@@ -395,6 +398,7 @@ test("pr-review.yml: with a base server that writes no marker, the report is the
     const r = legacyCheck(t, "none", [c]);
     assert.equal(r.status, 1, `${name}: ${r.stdout}`);
     assert.match(r.stdout, /::error::the reviewer posted no report on pull request 7/, name);
+    oneError(r.stdout);
     assert.doesNotMatch(r.stdout, WARNED, name);
   }
 });

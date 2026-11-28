@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { root, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 import { ifOf, jobOutputs, runs, value } from "./helpers/expression.mjs";
 
 const FILE = "issue-triage.yml";
@@ -75,6 +75,7 @@ test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once ea
   const bad = pass(t, "8\n9; rm -rf /\n");
   assert.equal(bad.status, 1);
   assert.match(bad.stdout, /::error::the dispatch queue holds something other than issue numbers/);
+  oneError(bad.stdout);
   assert.deepEqual(bad.outputs, {});
 
   // A number the sweep did not list never reaches the dispatch job, nor

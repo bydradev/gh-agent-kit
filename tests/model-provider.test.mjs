@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { root, tempDir } from "./helpers/server.mjs";
-import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const JOBS = [
   {
@@ -219,6 +219,7 @@ exit ${exit}
         const r = run(t, "anthropic", keys, "done", { report: true }, options);
         assert.equal(r.status, 1, `${why}: ${r.stdout}${r.stderr}`);
         assert.match(r.stdout, message, why);
+        oneError(r.stdout);
       }
     });
 

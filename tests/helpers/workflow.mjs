@@ -55,6 +55,13 @@ export const needsBash4 =
     : "the step uses bash 4 (declare -A, mapfile), and no bash 4+ was found: set STEP_BASH to one";
 
 // bash as the workflow's defaults.run.shell runs a step.
+// A guard stops its step: the step prints one ::error:: line, the
+// guard's own, and goes no further to fail again at a later check.
+export function oneError(stdout, label = "") {
+  const errors = stdout.split("\n").filter((l) => l.startsWith("::error::"));
+  assert.equal(errors.length, 1, `${label} printed ${errors.length} errors: ${errors.join(" | ")}`);
+}
+
 export function runStep(dir, script, env) {
   const file = path.join(dir, "step.sh");
   fs.writeFileSync(file, script);

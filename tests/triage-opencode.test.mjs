@@ -11,7 +11,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { LOG_LINE, opencodeStub, ownEnvNames, recorded, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "issue-triage.yml";
 const TRIAGE_ALLOWED =
@@ -277,6 +277,7 @@ test("issue-triage.yml, Run the triage on OpenCode: the model must be listed and
   const failed = run(t, { modelsExit: 1, models: "Error: no provider\n" });
   assert.equal(failed.status, 1, failed.stdout + failed.stderr);
   assert.match(failed.stdout, /^::error::OpenCode could not list its models \(exit status 1\), so KIT_TRIAGE_MODEL could not be checked$/m);
+  oneError(failed.stdout);
   assert.match(failed.stderr, /Error: no provider/);
   assert.equal(failed.env, null);
 });
@@ -366,6 +367,7 @@ test("issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exha
     const r = run(t, opts);
     assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout);
     assert.match(r.stdout, message, JSON.stringify(opts));
+    oneError(r.stdout);
   }
   // A line that is not an event is left out of the summary.
   const noisy = run(t, { events: ["starting", "42", '"text"', ...SUCCESS] });
@@ -512,6 +514,7 @@ test("issue-triage.yml, Run the triage on OpenCode: a run the server closed on a
   assert.equal(none.status, 1);
   assert.match(none.stdout, /^OpenCode's log: \(withheld: the run closed on a private repository name\)$/m);
   assert.match(none.stdout, /^::error::OpenCode exited with status 1 and no events$/m);
+  oneError(none.stdout);
 });
 
 // Go's capacity refusal, as the run's error event gives it.

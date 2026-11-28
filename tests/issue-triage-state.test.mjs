@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "issue-triage.yml";
 const stateScript = stepScript(FILE, "Fail when the run left the issue in the wrong state");
@@ -72,6 +72,7 @@ test("issue-triage.yml: the run fails without a comment of its own", (t) => {
       r.stdout,
       /::error::triage posted no comment on issue 8 \(labels: triaged bug P2\)/,
     );
+    oneError(r.stdout);
   }
 });
 
@@ -149,11 +150,13 @@ test("issue-triage.yml: only a dispatch skips the check on an approved or planne
   const opened = state(t, { labels: ["triaged", "agent:approved", "bug", "P2"], comments: [] });
   assert.equal(opened.status, 1, opened.stdout + opened.stderr);
   assert.match(opened.stdout, NONE);
+  oneError(opened.stdout);
   // A triaged issue neither approved nor requested gets the full check.
   const dispatch = { action: "", env: { EVENT: "workflow_dispatch" } };
   const plain = state(t, { labels: ["triaged", "bug", "P2"], comments: [], ...dispatch });
   assert.equal(plain.status, 1, plain.stdout + plain.stderr);
   assert.match(plain.stdout, NONE);
+  oneError(plain.stdout);
   // A dispatched run on an in-progress issue that is not stale has no
   // check to make.
   passes(state(t, { labels: ["in-progress", "agent:approved"], comments: [], ...dispatch }));

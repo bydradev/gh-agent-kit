@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const rulesScript = stepScript("pr-review.yml", "Use the base branch's reviewer rules");
 const triageScript = stepScript(
@@ -111,6 +111,7 @@ test("pr-review fails on a base check committed as a symlink", (t) => {
     step.stdout,
     /::error::\.github\/scripts\/public-content\.mjs on main is not a regular file/,
   );
+  oneError(step.stdout);
   assert.doesNotMatch(step.env, /PUBLIC_CONTENT_CHECK/);
 });
 

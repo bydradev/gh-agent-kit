@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
-import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const settingsScript = stepScript(FILE, "Read the scan settings");
@@ -287,10 +287,12 @@ test("the limits step refuses a large pull request and a checkout that misses fi
   const files = limits({ KIT_SECURITY_MAX_FILES: "1" });
   assert.equal(files.status, 1);
   assert.match(files.stdout, /::error::2 files and 2 changed lines exceed/);
+  oneError(files.stdout);
   // The event's line count alone refuses, before the checkout's diff is read.
   const lines = limits({ KIT_SECURITY_MAX_LINES: "1" });
   assert.equal(lines.status, 1);
   assert.match(lines.stdout, /::error::2 files and 2 changed lines exceed/);
+  oneError(lines.stdout);
   const missing = limits({ CHANGED: "3" });
   assert.equal(missing.status, 1);
   // BSD wc (macOS) pads the count it prints with spaces; the runner's does not.
@@ -989,6 +991,7 @@ test("the run fails without a results file or a completed review in it", (t) => 
   const missing = check();
   assert.equal(missing.status, 1);
   assert.match(missing.stdout, /::error::security scan produced no results file/);
+  oneError(missing.stdout);
   r.write("scan-results.json", "");
   assert.match(check().stdout, /::error::security scan produced no results file/);
   for (const answer of [

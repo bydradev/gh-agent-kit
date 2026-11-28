@@ -128,6 +128,29 @@ function pushSkip(t, comments, runs) {
 }
 const failedBefore = { id: 1, updated: "2026-10-26T01:00:00Z", conclusion: "failure", review: "failure" };
 
+// A lookup that fails fails the step: no answer is not "no review".
+test("the push skip fails when it cannot list the runs or read a run's jobs", (t) => {
+  const runsAt = `^api --method GET repos/acme/widgets/actions/workflows/pr-review\\.yml/runs\\?head_sha=${HEAD}&per_page=100 `;
+  const error = { stderr: "gh: Server Error (HTTP 500)\n", status: 1 };
+  for (const [name, rules] of [
+    ["the runs", [{ match: runsAt, ...error }]],
+    [
+      "a run's jobs",
+      [
+        { match: runsAt, json: { workflow_runs: [{ id: 2, updated_at: "2026-10-26T02:00:00Z", status: "completed", conclusion: "success" }] } },
+        { match: "^api repos/acme/widgets/actions/runs/2/jobs ", ...error },
+      ],
+    ],
+  ]) {
+    const r = run(t, PUSH_SKIP, {
+      rules: [{ match: "^api --paginate repos/acme/widgets/issues/7/comments ", json: [report()] }, ...rules],
+      env: { GITHUB_RUN_ID: "99", REPO: "acme/widgets", PR: "7", WORKFLOW_FILE: "acme/widgets/.github/workflows/pr-review.yml@refs/pull/7/merge" },
+    });
+    assert.notEqual(r.status, 0, `${name}: ${r.stdout}`);
+    assert.ok(!r.envText.includes("RUN=false"), name);
+  }
+});
+
 test("the push skip counts only completed, unskipped runs other than this one", (t) => {
   for (const [name, newer] of [
     ["a run in progress", { id: 2, updated: "2026-10-26T02:00:00Z", status: "in_progress", conclusion: null, review: "success" }],
