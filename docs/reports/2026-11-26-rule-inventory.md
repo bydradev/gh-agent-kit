@@ -15,12 +15,17 @@ files first:
 | --- | --- | --- |
 | 1 | `.github/scripts/mcp-server.mjs`, `.github/workflows/pr-review.yml` | `1ddf71c` |
 | 2 | `.github/workflows/security-scan.yml` | `05436e8` |
+| 3 | `.github/workflows/issue-triage.yml`, `.github/workflows/pr-issue-link.yml`, `.github/workflows/kit-update-check.yml` | `7bb6abf` |
 
 Phase 1's files are the same at both commits. Phase 1's sections stand as
 they merged. Phase 2's review found kinds of line the script had skipped (a
 command starting with `find`, a restore by `git checkout`, a skip that ends
 a command list), which add five rows to `pr-review.yml`; they are listed in
 a section of their own after phase 2's.
+
+The files of phases 1 and 2 are the same at phase 3's commit, so their
+sections stand as they merged too; phase 3's sweep found no new kind of
+line in them.
 
 **In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
@@ -67,6 +72,30 @@ inline comments' filters; both records' outcomes and modes; and the
 OpenCode scan's answer, export, retry and wait rules. One older test
 passed without running its step (a re-run with no results file) and now
 runs it.
+
+**In short (phase 3):** of 805 rules in the three workflows, 759 are
+caught by a test, 4 of them by a time limit and 90 through a copy of
+their step. The 46 left are listed with the reason:
+
+| Reason | `issue-triage.yml` | `pr-issue-link.yml` | `kit-update-check.yml` |
+| --- | --- | --- | --- |
+| Equivalent: switching it off changes nothing the code can do | 11 | 1 | 0 |
+| Unreachable: no input reaches the other branch | 5 | 0 | 0 |
+| Not a rule: a field or count only the log shows | 18 | 0 | 0 |
+| Left untested: runner provisioning only a GitHub runner can run | 11 | 0 | 0 |
+
+The tests this phase added cover, among others: which events and states
+run each triage, link and update-check job and step, as GitHub evaluates
+each `if:`; a labeled event's own label among the issue's labels; the
+triage run's turn and time limits; the OpenCode run's variants, its
+events file, the step that ends it and a refusal read from its last
+error; the gate's reading of who removed or added a label, and of an
+issue renamed after it was labelled; the sweep's list of issues and the
+records it truncates; the run's start record; the MCP configuration's
+vouched hash and the token file's mode; `.git` put back after OpenCode;
+the state check for a closed or claimed issue; the stale-claim backstop's
+look-alike comments; and a stopped sweep that passes nothing on. The
+pass-on step's test now runs it in every workflow that has it.
 
 ## What counts as a rule
 
@@ -143,7 +172,13 @@ follows the expressions reference for the forms `pr-review.yml` and
 `security-scan.yml` use
 (literals, comparisons, `!`, `&&`, `||`, property access, `contains`,
 `startsWith`, `endsWith`, `fromJSON` and the status functions), not every
-form GitHub accepts.
+form GitHub accepts. Phase 3 added the object filter (`labels.*.name`)
+that `issue-triage.yml` uses, from the same reference (read 2026-11-28);
+an item without the property is left out of the result.
+
+In phase 3 the copy rule covers the settings read step of all five
+workflows that have one, held to `pr-review.yml`'s, and a write inside a
+`{ }` group is switched off by making the whole group a no-op.
 
 ## What this does not cover
 
@@ -163,6 +198,9 @@ form GitHub accepts.
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
 | `.github/workflows/security-scan.yml` | 917 | 856 | 61 |
 | `.github/workflows/pr-review.yml`, rows found in phase 2 | 5 | 4 | 1 |
+| `.github/workflows/issue-triage.yml` | 602 | 557 | 45 |
+| `.github/workflows/pr-issue-link.yml` | 65 | 64 | 1 |
+| `.github/workflows/kit-update-check.yml` | 138 | 138 | 0 |
 
 ### `.github/workflows/pr-review.yml`
 
@@ -2336,5 +2374,843 @@ form GitHub accepts.
 | 717 | sh skip statement | `continue` | `:` | `pr-review-step-rules.test.mjs`: "a rule whose parent the head made a symlink is restored without touching the link's target" |
 | 1663 | sh skip statement | `continue` | `:` | Not caught, equivalent: an empty line comes only from an empty listing, which leaves no report either way |
 | 1742 | sh skip statement | `continue` | `:` | `pr-review-no-verdict.test.mjs`: "a failed access lookup still records, as the refusal step did not refuse" |
+
+</details>
+
+### `.github/workflows/issue-triage.yml`
+
+602 rules: 557 caught (4 of them by a time limit, 45 through a copy of their step), 45 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/issue-triage.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 72 | if: \|\| operand | `github.event_name != 'issues'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 72 | if: whole | `github.event_name != 'issues' \|\| (github.event.issue.state == 'open' && (github.…` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 72 | if: whole | `github.event_name != 'issues' \|\| (github.event.issue.state == 'open' && (github.…` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 73 | if: \|\| operand | `(github.event.issue.state == 'open' && (github.event.issue.user.type != 'Bot' \|\|…` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 73 | if: && operand | `github.event.issue.state == 'open'` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 74 | if: && operand | `(github.event.issue.user.type != 'Bot' \|\| (github.event.issue.user.login == 'git…` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 74 | if: \|\| operand | `github.event.issue.user.type != 'Bot'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 75 | if: \|\| operand | `(github.event.issue.user.login == 'github-actions[bot]' && (github.event.action …` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 75 | if: && operand | `github.event.issue.user.login == 'github-actions[bot]'` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 76 | if: && operand | `(github.event.action == 'edited' \|\| (github.event.action == 'labeled' && github.…` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 76 | if: \|\| operand | `github.event.action == 'edited'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 77 | if: \|\| operand | `(github.event.action == 'labeled' && github.event.label.name == 'needs-triage')` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 77 | if: && operand | `github.event.action == 'labeled'` | `true` | `issue-triage-gate.test.mjs`: "issue-triage.yml: the settings job passes a bot's issue only on a vouching needs-triage or an edit" |
+| 77 | if: && operand | `github.event.label.name == 'needs-triage'` | `true` | Not caught, equivalent: a labeled event passes only when the label is needs-triage, by the condition after it (`github.event.action != 'labeled' || github.event.label.name == 'needs-triage'`), so dropping the same test inside the github-actions[bot] branch changes nothing |
+| 78 | if: && operand | `(github.event.action != 'labeled' \|\| github.event.label.name == 'needs-triage')` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 78 | if: \|\| operand | `github.event.action != 'labeled'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 78 | if: \|\| operand | `github.event.label.name == 'needs-triage'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 79 | if: && operand | `(github.event.action != 'opened' \|\| !contains(github.event.issue.labels.*.name, …` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 79 | if: \|\| operand | `github.event.action != 'opened'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 79 | if: \|\| operand | `!contains(github.event.issue.labels.*.name, 'needs-triage')` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 136 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 136 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | jq if whole | `.type != "file"` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | jq elif whole | `.size > 16384` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh while \|\| operand | `[ -n "$l" ]` | `false` | Not caught, equivalent: the lines come from a here-string, which always ends its last line with a newline (bash 5.2, checked 2026-11-27), so `read` never ends on an unterminated line here |
+| 158 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 158 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 158 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 158 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 158 | sh if && operand | `[ "$l" = "---" ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 158 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 159 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 170 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 195 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 195 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 210 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 211 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 212 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 214 | sh if && operand | `[ -n "$states" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 214 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 214 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 214 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 214 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 218 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 219 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 227 | if: whole | `env.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
+| 227 | if: whole | `env.KIT_ISSUE_TRIAGE == 'on'` | `false` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
+| 241 | sh list condition | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 241 | sh list condition | `[ -n "$value" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 242 | sh if \|\| operand | `! [[ "$value" =~ ^[1-9][0-9]*$ ]]` | `false` | `kit-settings.test.mjs`: "a value out of range names where it came from" |
+| 242 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 242 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 242 | sh if \|\| operand | `[ "${#value}" -gt 6 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 242 | sh if \|\| operand | `[ "$value" -gt "$max" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 246 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 252 | sh list condition | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 252 | sh list condition | `[ -n "$value" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 253 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 253 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 257 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 274 | sh list condition | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 274 | sh list condition | `[ -n "$value" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 283 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 294 | sh if && operand | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 294 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 294 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 294 | sh if && operand | `! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 298 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 315 | sh case arm | `''` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 317 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 317 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 318 | sh case arm | `claude-code` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 320 | sh if whole | `[ "$PROVIDER" = opencode-go ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 320 | sh if whole | `[ "$PROVIDER" = opencode-go ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 323 | sh case arm | `opencode` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 324 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 324 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 329 | sh case arm | `*` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 333 | sh output statement | (before `echo "KIT_TRIAGE_RUNNER=$runner" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 336 | sh case arm | `''\|anthropic` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 337 | sh output statement | (before `echo "KIT_TRIAGE_PROVIDER=anthropic" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 340 | sh case arm | `opencode-go` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 341 | sh output statement | (before `echo "KIT_TRIAGE_PROVIDER=opencode-go" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 344 | sh case arm | `*` | `__mutant_never__` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 358 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
+| 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
+| 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `false` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
+| 434 | if: whole | `env.TRIAGE_ISSUE != ''` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 434 | if: whole | `env.TRIAGE_ISSUE != ''` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 449 | sh if whole | `[ "$EVENT" = "issues" ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch checks only the author, so a reader's dispatch of a write author's issue passes" |
+| 449 | sh if whole | `[ "$EVENT" = "issues" ]` | `false` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 451 | sh if && operand | `[ "$author" = "github-actions[bot]" ]` | `true` | `issue-triage-gate.test.mjs`: "another bot's issue is refused as before, needs-triage or not" |
+| 451 | sh if whole | `[ "$author" = "github-actions[bot]" ] && [ "$type" = Bot ]` | `true` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 451 | sh if whole | `[ "$author" = "github-actions[bot]" ] && [ "$type" = Bot ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 451 | sh if && operand | `[ "$type" = Bot ]` | `true` | Not caught, unreachable: only a GitHub App's account has a login ending in `[bot]` (a person's login takes letters, digits and hyphens), so an author named github-actions[bot] is always of type Bot |
+| 452 | sh if && operand | `[ "$EVENT" = "issues" ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue runs when needs-triage is newer than every edit" |
+| 452 | sh if whole | `[ "$EVENT" = "issues" ] && { [ "$ACTION" != labeled ] \|\| [ "$LABEL" != needs-tri…` | `true` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 452 | sh if whole | `[ "$EVENT" = "issues" ] && { [ "$ACTION" != labeled ] \|\| [ "$LABEL" != needs-tri…` | `false` | `issue-triage-gate.test.mjs`: "any other event on a github-actions[bot] issue is skipped with a notice" |
+| 452 | sh if && operand | `{ [ "$ACTION" != labeled ] \|\| [ "$LABEL" != needs-triage ]; }` | `true` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 452 | sh if \|\| operand | `[ "$ACTION" != labeled ]` | `false` | Not caught, unreachable: the label is set only on labeled and unlabeled events, and the workflow does not run on unlabeled (`types: [opened, edited, reopened, labeled]`), so an action other than labeled always comes with an empty label, which the other operand already refuses |
+| 452 | sh if \|\| operand | `[ "$LABEL" != needs-triage ]` | `false` | `issue-triage-gate.test.mjs`: "any other event on a github-actions[bot] issue is skipped with a notice" |
+| 454 | sh output statement | (before `echo "skip=true" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-gate.test.mjs`: "any other event on a github-actions[bot] issue is skipped with a notice" |
+| 455 | sh skip statement | `exit 0` | `:` | `issue-triage-gate.test.mjs`: "any other event on a github-actions[bot] issue is skipped with a notice" |
+| 471 | jq select or operand | `.event == "labeled"` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 471 | jq select whole | `.event == "labeled" or .event == "unlabeled" or .event == "renamed" or .event ==…` | `true` | Not caught, equivalent: the awk lines that read the list keep only the labeled, unlabeled, renamed and reopened rows, by their first field, so the other events a wider select lets through are never read |
+| 471 | jq select whole | `.event == "labeled" or .event == "unlabeled" or .event == "renamed" or .event ==…` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 471 | jq select or operand | `.event == "unlabeled"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 471 | jq select or operand | `.event == "renamed"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 471 | jq select or operand | `.event == "reopened"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 480 | sh list condition | `[[ -z "$edited" \|\| "$edited" < "$later" ]]` | `true` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 480 | sh list condition | `[[ -z "$edited" \|\| "$edited" < "$later" ]]` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 480 | sh list [[ \|\| ]] operand | `-z "$edited"` | `-z x` | Not caught, equivalent: with no edit, `[[ "" < "$later" ]]` is true whenever there is a later event, and when there is none, `later` becomes the empty edit time it already is |
+| 480 | sh list [[ \|\| ]] operand | `"$edited" < "$later"` | `-z x` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 481 | sh if \|\| operand | `! grep -qxF needs-triage <<<"$labels"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 481 | sh if whole | `! grep -qxF needs-triage <<<"$labels" \|\| [ -z "$by" ] \|\| ! [[ "$at" > "$later" ]…` | `true` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 481 | sh if whole | `! grep -qxF needs-triage <<<"$labels" \|\| [ -z "$by" ] \|\| ! [[ "$at" > "$later" ]…` | `false` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 481 | sh if \|\| operand | `[ -z "$by" ]` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 481 | sh if \|\| operand | `! [[ "$at" > "$later" ]]` | `false` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 481 | sh file write | `"$later"` | `/dev/null` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 483 | sh output statement | (before `echo "skip=true" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 484 | sh skip statement | `exit 0` | `:` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
+| 489 | sh if && operand | `[ "$EVENT" = "issues" ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue runs when needs-triage is newer than every edit" |
+| 489 | sh if whole | `[ "$EVENT" = "issues" ] && [ "$ACTOR" != "$by" ]` | `true` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 489 | sh if whole | `[ "$EVENT" = "issues" ] && [ "$ACTOR" != "$by" ]` | `false` | `issue-triage-gate.test.mjs`: "a label run checks its own sender as well as the latest labeller" |
+| 489 | sh if && operand | `[ "$ACTOR" != "$by" ]` | `true` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 493 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" -…` | `true` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 493 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" -…` | `false` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 495 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `true` | `issue-triage-gate.test.mjs`: "a lookup that fails for another reason fails the run, on any event" |
+| 495 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `false` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 502 | sh case arm | `admin\|write` | `__mutant_never__` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 503 | sh case arm | `*` | `__mutant_never__` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 504 | sh if whole | `[ "$vouched" = true ]` | `true` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 504 | sh if whole | `[ "$vouched" = true ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 506 | sh output statement | (before `echo "skip=true" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 507 | sh skip statement | `exit 0` | `:` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 509 | sh if whole | `[ "$EVENT" = "issues" ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of an issue whose author lacks write access still fails" |
+| 509 | sh if whole | `[ "$EVENT" = "issues" ]` | `false` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 511 | sh output statement | (before `echo "skip=true" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 512 | sh skip statement | `exit 0` | `:` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 521 | sh if whole | `[ "$vouched" = true ]` | `true` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
+| 521 | sh if whole | `[ "$vouched" = true ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 525 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 525 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 545 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 545 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 550 | sh case arm | `*[!0-9]*` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: an issue input that is not a number is refused before anything else" |
+| 552 | sh output statement | (before `echo "DISPATCH_LOG=$RUNNER_TEMP/dispatched" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 553 | sh output statement | (before `echo "DISPATCH_QUEUE=$RUNNER_TEMP/dispatch-queue" >> "$GITHU`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 554 | sh output statement | (before `echo "ELIGIBLE_ISSUES=$RUNNER_TEMP/eligible-issues" >> "$GIT`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 555 | sh output statement | (before `sudo install -d -o root -g root -m 0755 /opt/agent-kit`) | `: ` | Left untested: runner provisioning (sudo install -d /opt/agent-kit on the GitHub runner); every triage run exercises it |
+| 556 | sh output statement | (before `sudo install -o root -g root -m 0755 .github/scripts/mcp-ser`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 560 | sh output statement | (before `echo "DENIED=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 561 | sh if whole | `[ -n "$ISSUE" ]` | `true` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 561 | sh if whole | `[ -n "$ISSUE" ]` | `false` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 562 | sh output statement | (before `echo "MCP_MODE=triage" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 563 | sh output statement | (before `echo "ALLOWED=Read,Grep,Glob,mcp__agent-kit__view,mcp__agent`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 565 | sh output statement | (before `echo "MCP_MODE=sweep" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 566 | sh output statement | (before `echo "ALLOWED=mcp__agent-kit__list_eligible,mcp__agent-kit__`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
+| 576 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 576 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 582 | sh if whole | `! gh api "repos/$REPO/contents/$f" > "$RUNNER_TEMP/public-content.json" 2> "$RUN…` | `true` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 582 | sh if whole | `! gh api "repos/$REPO/contents/$f" > "$RUNNER_TEMP/public-content.json" 2> "$RUN…` | `false` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 582 | sh file write | `"$RUNNER_TEMP/public-content.json"` | `/dev/null` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 583 | sh if whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/public-content.err"` | `true` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
+| 583 | sh if whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/public-content.err"` | `false` | `public-content-install.test.mjs`: "triage takes the Python check when there is no Node one, and none when neither exists" |
+| 588 | jq if whole | `type == "object"` | `true` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
+| 588 | jq if whole | `type == "object"` | `false` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 589 | sh if whole | `[ "$type" != "file base64" ]` | `true` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 589 | sh if whole | `[ "$type" != "file base64" ]` | `false` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
+| 594 | sh file write | `"$tmp"` | `/dev/null` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 598 | sh file write | `"$RUNNER_TEMP/public-content-empty"` | `/dev/null` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
+| 600 | sh case arm | `*.py` | `__mutant_never__` | `public-content-install.test.mjs`: "triage takes the Python check when there is no Node one, and none when neither exists" |
+| 601 | sh case arm | `*` | `__mutant_never__` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 603 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `true` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 603 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `false` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
+| 607 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/public-content-empty"`) | `: ` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
+| 609 | sh output statement | (before `sudo install -o root -g root -m 0644 "$tmp" "$dest"`) | `: ` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 610 | sh output statement | (before `rm -f -- "$tmp"`) | `: ` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
+| 611 | sh output statement | (before `echo "PUBLIC_CONTENT_CHECK=$dest" >> "$GITHUB_ENV"`) | `: ` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 612 | sh skip statement | `break` | `:` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
+| 614 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/public-content.json" "$RUNNER_TEMP/pu`) | `: ` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
+| 620 | if: whole | `env.TRIAGE_ISSUE == ''` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 620 | if: whole | `env.TRIAGE_ISSUE == ''` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 628 | jq select and operand | `.pull_request == null` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 628 | jq select whole | `.pull_request == null and .user.type != "Bot"` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 628 | jq select whole | `.pull_request == null and .user.type != "Bot"` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 628 | jq select and operand | `.user.type != "Bot"` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 633 | sh file write | `"$DISPATCH_LOG"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the sweep starts each run's records empty" |
+| 634 | sh file write | `"$DISPATCH_QUEUE"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the sweep starts each run's records empty" |
+| 637 | sh file write | `"$ELIGIBLE_ISSUES"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the sweep starts each run's records empty" |
+| 638 | sh while whole | `IFS= read -r n` | `true` | `issue-triage-steps.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 638 | sh while whole | `IFS= read -r n` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 639 | sh list condition | `[ -n "$n" ]` | `true` | Not caught, unreachable: the list comes from `sort -n` over jq's numbers, one a line, so it holds no empty line |
+| 639 | sh list condition | `[ -n "$n" ]` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 639 | sh skip statement | `continue` | `:` | Not caught, unreachable: the list comes from `sort -n` over jq's numbers, one a line, so it holds no empty line |
+| 652 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$author/permission" …` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 652 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$author/permission" …` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 654 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `true` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
+| 654 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `false` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
+| 661 | sh case arm | `admin\|write` | `__mutant_never__` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 662 | sh case arm | `*` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
+| 662 | sh skip statement | `continue` | `:` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
+| 664 | sh if && operand | `grep -qxF -- in-progress <<<"$labels"` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 664 | sh if whole | `grep -qxF -- in-progress <<<"$labels" && ! grep -qxF -- needs-triage <<<"$labels…` | `true` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 664 | sh if whole | `grep -qxF -- in-progress <<<"$labels" && ! grep -qxF -- needs-triage <<<"$labels…` | `false` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 664 | sh if && operand | `! grep -qxF -- needs-triage <<<"$labels"` | `true` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 666 | jq select and operand | `.user.login == "github-actions[bot]"` | `true` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 666 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| split("\n") \| index("## Triage…` | `true` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 666 | jq select whole | `.user.login == "github-actions[bot]" and (.body \| split("\n") \| index("## Triage…` | `false` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 666 | jq select and operand | `(.body \| split("\n") \| index("## Triage: stale claim")) != null` | `true` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 667 | sh list condition | `[ "$warned" -eq 0 ]` | `true` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 667 | sh list condition | `[ "$warned" -eq 0 ]` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 667 | sh skip statement | `continue` | `:` | `issue-triage-steps.test.mjs`: "a stale in-progress issue already warned by the bot is not dispatched again" |
+| 669 | sh file write | `"$ELIGIBLE_ISSUES"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
+| 687 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 687 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 693 | sh file write | `"$RUNNER_TEMP/claude-settings.json"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the server's configuration carries the vouched hash only when the gate set one, and the token in a private file" |
+| 703 | sh file write | `"$RUNNER_TEMP/gh-token"` | `/dev/null` | `issue-triage-steps.test.mjs`: "the server's configuration carries the vouched hash only when the gate set one, and the token in a private file" |
+| 706 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `true` | `public-content-install.test.mjs`: "issue-triage.yml: without a check the server's configuration is as before" |
+| 706 | sh if whole | `[ -n "${PUBLIC_CONTENT_CHECK:-}" ]` | `false` | `public-content-install.test.mjs`: "issue-triage.yml: the server gets the check and a private file of the names, never the names inline" |
+| 707 | sh file write | `"$RUNNER_TEMP/private-repo-names"` | `/dev/null` | `public-content-install.test.mjs`: "issue-triage.yml: the server gets the check and a private file of the names, never the names inline" |
+| 711 | jq if whole | `$check == ""` | `true` | `public-content-install.test.mjs`: "issue-triage.yml: the server gets the check and a private file of the names, never the names inline" |
+| 711 | jq if whole | `$check == ""` | `false` | `public-content-install.test.mjs`: "issue-triage.yml: without a check the server's configuration is as before" |
+| 711 | jq if whole | `$vouched == ""` | `true` | `issue-triage-steps.test.mjs`: "the server's configuration carries the vouched hash only when the gate set one, and the token in a private file" |
+| 711 | jq if whole | `$vouched == ""` | `false` | `issue-triage-steps.test.mjs`: "the server's configuration carries the vouched hash only when the gate set one, and the token in a private file" |
+| 712 | sh output statement | (before `echo "MCP_CONFIG=$mcp" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "the server's configuration carries the vouched hash only when the gate set one, and the token in a private file" |
+| 719 | if: && operand | `env.KIT_TRIAGE_RUNNER != 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 719 | if: whole | `env.KIT_TRIAGE_RUNNER != 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 719 | if: whole | `env.KIT_TRIAGE_RUNNER != 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 719 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 726 | sh list \|\| operand | `sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code triage run exercises it |
+| 726 | sh list whole | `sudo apt-get update -qq \|\| sudo apt-get update -qq` | `true` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code triage run exercises it |
+| 726 | sh list whole | `sudo apt-get update -qq \|\| sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code triage run exercises it |
+| 726 | sh list \|\| operand | `sudo apt-get update -qq` | `false` | Left untested: runner provisioning (apt-get on the GitHub runner); every Claude Code triage run exercises it |
+| 729 | sh if whole | `[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]` | `true` | Left untested: runner provisioning (the runner's AppArmor setting); every Claude Code triage run exercises it |
+| 729 | sh if whole | `[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]` | `false` | Left untested: runner provisioning (the runner's AppArmor setting); every Claude Code triage run exercises it |
+| 740 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 740 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
+| 745 | sh output statement | (before `echo "STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_EN`) | `: ` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 747 | sh if && operand | `[ -n "$TRIAGE_ISSUE" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 747 | sh if whole | `[ -n "$TRIAGE_ISSUE" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 747 | sh if whole | `[ -n "$TRIAGE_ISSUE" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]` | `false` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 747 | sh if && operand | `[ "${{ github.event_name }}" = "workflow_dispatch" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 750 | sh list condition | `[ "$has_nt" = "true" ]` | `false` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 750 | sh list condition | `[ "$has_nt" = "true" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 751 | sh if && operand | `[ "$has_ip" = "true" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 751 | sh if whole | `[ "$has_ip" = "true" ] && [ "$(date -u -d "$updated" +%s)" -le "$(( $(date -u +%…` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 751 | sh if whole | `[ "$has_ip" = "true" ] && [ "$(date -u -d "$updated" +%s)" -le "$(( $(date -u +%…` | `false` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 751 | sh if && operand | `[ "$(date -u -d "$updated" +%s)" -le "$(( $(date -u +%s) - 7 * 86400 ))" ]` | `true` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 755 | sh output statement | (before `echo "RETRIAGE=$retriage" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 756 | sh output statement | (before `echo "STALE=$stale" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "a dispatched run records a re-triage and a stale claim; other runs record neither" |
+| 765 | if: && operand | `env.KIT_TRIAGE_RUNNER != 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 765 | if: whole | `env.KIT_TRIAGE_RUNNER != 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 765 | if: whole | `env.KIT_TRIAGE_RUNNER != 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 765 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 780 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 781 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 791 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 791 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 791 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 791 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 793 | sh output statement | (before `rm -rf -- .opencode opencode.json opencode.jsonc`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the checkout's OpenCode configuration goes before OpenCode first runs" |
+| 804 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 804 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 804 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 804 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 815 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 816 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 837 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'claude-code'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 837 | if: whole | `env.KIT_TRIAGE_RUNNER == 'claude-code' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 837 | if: whole | `env.KIT_TRIAGE_RUNNER == 'claude-code' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 837 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 848 | sh if whole | `[ "$KIT_TRIAGE_PROVIDER" = opencode-go ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 848 | sh if whole | `[ "$KIT_TRIAGE_PROVIDER" = opencode-go ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 849 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 849 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go without its key fails before the CLI starts" |
+| 861 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 861 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
+| 863 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
+| 863 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
+| 870 | sh list condition | `[ -z "$KIT_TRIAGE_EFFORT" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 870 | sh list condition | `[ -z "$KIT_TRIAGE_EFFORT" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 871 | sh list condition | `/opt/agent-kit/claude -p "$PROMPT" \ --output-format json \ --model "$KIT_TRIAGE…` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 871 | sh list condition | `/opt/agent-kit/claude -p "$PROMPT" \ --output-format json \ --model "$KIT_TRIAGE…` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 884 | sh file write | `"$RESULT"` | `/dev/null` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 885 | sh if whole | `[ ! -s "$RESULT" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 885 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 890 | jq if whole | `type == "array"` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 890 | jq if whole | `type == "array"` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a stream's last result decides the run" |
+| 890 | jq select whole | `.type == "result"` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a stream's last result decides the run" |
+| 890 | jq select whole | `.type == "result"` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a stream's last result decides the run" |
+| 897 | sh list condition | `[ "$closed" != true ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run closed on a private name withholds its last message and fails" |
+| 897 | sh list condition | `[ "$closed" != true ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run closed on a private name withholds its last message and fails" |
+| 902 | sh list condition | `[ "$KIT_TRIAGE_PROVIDER" != opencode-go ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go gets its key as a bearer token, and nothing else" |
+| 902 | sh list condition | `[ "$KIT_TRIAGE_PROVIDER" != opencode-go ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider passes the Anthropic key only" |
+| 909 | sh if whole | `[ "$closed" = true ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 909 | sh if whole | `[ "$closed" = true ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run closed on a private name withholds its last message and fails" |
+| 913 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 913 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
+| 913 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 913 | sh if \|\| operand | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 913 | sh if \|\| operand | `[ "$(jq -r '.subtype' <<<"$result")" != "success" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 928 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 928 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 928 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 928 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 930 | sh output statement | (before `mv -- .git "$RUNNER_TEMP/checkout-git"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: before OpenCode runs, .git and the symlinks leave the checkout" |
+| 932 | sh output statement | (before `rm -f -- "$link"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: before OpenCode runs, .git and the symlinks leave the checkout" |
+| 978 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 978 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 978 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 978 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
+| 984 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 984 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: no key fails before the CLI starts" |
+| 994 | jq if or operand | `. == "Read"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 994 | jq if whole | `. == "Read" or . == "Grep" or . == "Glob"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: everything is denied but reads and the run's server tools" |
+| 994 | jq if whole | `. == "Read" or . == "Grep" or . == "Glob"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 994 | jq if or operand | `. == "Grep"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 994 | jq if or operand | `. == "Glob"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 995 | jq elif whole | `startswith("mcp__agent-kit__")` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: everything is denied but reads and the run's server tools" |
+| 995 | jq elif whole | `startswith("mcp__agent-kit__")` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1032 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1032 | sh list condition | `oc "$list" models opencode-go --verbose > "$RUNNER_TEMP/opencode-models" \ 2> "$…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1032 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1045 | sh if whole | `[ -n "$KIT_TRIAGE_EFFORT" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1045 | sh if whole | `[ -n "$KIT_TRIAGE_EFFORT" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1046 | sh if whole | `! jq -e --arg v "$KIT_TRIAGE_EFFORT" '.variants // {} \| has($v)' >/dev/null <<<"…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
+| 1046 | sh if whole | `! jq -e --arg v "$KIT_TRIAGE_EFFORT" '.variants // {} \| has($v)' >/dev/null <<<"…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1047 | jq if whole | `length == 0` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
+| 1047 | jq if whole | `length == 0` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1074 | sh list \|\| operand | `[ -n "${AGENT_KIT_STARTED:-}" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1074 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1074 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1074 | sh list \|\| operand | `[ -z "${GITHUB_ENV:-}" ]` | `false` | Not caught, unreachable on a runner: GitHub always sets GITHUB_ENV; the guard only lets the step run outside Actions |
+| 1074 | sh output statement | (before `echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1076 | sh file write | `"$RESULT"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the events file starts empty, so an earlier run's events are not read" |
+| 1082 | sh while whole | `:` | `true` | Not caught, equivalent: `while true` and `while :` are the same loop |
+| 1082 | sh while whole | `:` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1084 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_TRIAGE_MODE…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1084 | sh list condition | `oc "$run_config" run --print-logs --format json -m "opencode-go/$KIT_TRIAGE_MODE…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1085 | sh file write | `"$RUNNER_TEMP/opencode-attempt.jsonl"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1087 | sh file write | `"$RUNNER_TEMP/opencode-attempt-events.jsonl"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1088 | sh file write | `"$RESULT"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1091 | jq select whole | `.type == "error"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1091 | jq select whole | `.type == "error"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1092 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run" |
+| 1092 | jq select whole | `test("ttft_admission_refused\|at capacity")` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1093 | jq if whole | `. > 3600` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1093 | jq if whole | `. > 3600` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run stops on a refusal when the wait would not fit in the job's time limit" |
+| 1096 | jq select whole | `.type == "step_start"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1096 | jq select whole | `.type == "step_start"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
+| 1097 | sh if \|\| operand | `[ -z "$pause" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1097 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1097 | sh if whole | `[ -z "$pause" ] \|\| [ -z "$session" ] \|\| [ "$left" -le 0 ]` | `false` | `triage-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1097 | sh if \|\| operand | `[ -z "$session" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run" |
+| 1097 | sh if \|\| operand | `[ "$left" -le 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: other errors, no session or no steps left end the run" |
+| 1098 | sh skip statement | `break` | `:` | `triage-opencode.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1101 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer" |
+| 1101 | sh if whole | `[ "$(jq -s 'map(select(.type == "step_finish")) \| length' "$RUNNER_TEMP/opencode…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a step served between refusals starts the row again" |
+| 1101 | jq select whole | `.type == "step_finish"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer" |
+| 1101 | jq select whole | `.type == "step_finish"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a step served between refusals starts the row again" |
+| 1106 | sh list condition | `[ "$pause" -le "$delay" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the waits are 60, 120 and 180 s for refusals in a row, or the named seconds when longer" |
+| 1106 | sh list condition | `[ "$pause" -le "$delay" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1108 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event" |
+| 1108 | sh if whole | `[ "$delay" -gt "$remaining" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run stops on a refusal when the wait would not fit in the job's time limit" |
+| 1110 | sh skip statement | `break` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run stops on a refusal when the wait would not fit in the job's time limit" |
+| 1125 | sh if whole | `[ -z "$events" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1125 | sh if whole | `[ -z "$events" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1126 | sh if whole | `[ "$closed" = true ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run with no events shows OpenCode's log, with commands stopped" |
+| 1126 | sh if whole | `[ "$closed" = true ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1138 | jq select whole | `.type == "step_start"` | `true` | Not a rule: the step count goes only to the run log; the turn limit counts the steps its own way, and the last step's reason, read apart, decides the step |
+| 1138 | jq select whole | `.type == "step_start"` | `false` | Not a rule: the step count goes only to the run log; the turn limit counts the steps its own way, and the last step's reason, read apart, decides the step |
+| 1139 | jq select whole | `.type == "step_finish"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the last step is the last step_finish, whatever event follows it" |
+| 1139 | jq select whole | `.type == "step_finish"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1140 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1140 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1141 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1141 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1142 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1142 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1143 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1143 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1144 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1144 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1145 | jq select whole | `.type == "step_finish"` | `true` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1145 | jq select whole | `.type == "step_finish"` | `false` | Not a rule: the step_finish parts' cost and tokens go only to the run log; the last step's reason, read apart, decides the step |
+| 1146 | jq select whole | `.type == "error"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1146 | jq select whole | `.type == "error"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1147 | jq select whole | `.type == "text"` | `true` | Not a rule: the last text goes only to the run log; the errors and the last step's reason, read apart, decide the step |
+| 1147 | jq select whole | `.type == "text"` | `false` | Not a rule: the last text goes only to the run log; the errors and the last step's reason, read apart, decide the step |
+| 1149 | sh list condition | `[ "$closed" != true ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1149 | sh list condition | `[ "$closed" != true ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1149 | jq if whole | `.errors == ""` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1149 | jq if whole | `.errors == ""` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1156 | sh if whole | `[ "$closed" = true ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1156 | sh if whole | `[ "$closed" = true ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1160 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1160 | sh if whole | `[ "$status" -ne 0 ] \|\| [ -n "$(jq -r '.errors' <<<"$summary")" ] \|\| [ "$(jq -r '…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1160 | sh if whole | `[ "$status" -ne 0 ] \|\| [ -n "$(jq -r '.errors' <<<"$summary")" ] \|\| [ "$(jq -r '…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1160 | sh if \|\| operand | `[ -n "$(jq -r '.errors' <<<"$summary")" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1160 | sh if \|\| operand | `[ "$(jq -r '.reason' <<<"$summary")" != "stop" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1173 | sh if whole | `[ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_TRIAGE_MAX_TURNS" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1173 | sh if whole | `[ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_TRIAGE_MAX_TURNS" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1180 | if: && operand | `always()` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1180 | if: whole | `always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 't…` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1180 | if: whole | `always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 't…` | `false` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1180 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1180 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1182 | sh if && operand | `[ -d "$RUNNER_TEMP/checkout-git" ]` | `true` | `issue-triage-steps.test.mjs`: ".git comes back only when it was moved out and nothing took its place" |
+| 1182 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `true` | `issue-triage-steps.test.mjs`: ".git comes back only when it was moved out and nothing took its place" |
+| 1182 | sh if whole | `[ -d "$RUNNER_TEMP/checkout-git" ] && [ ! -e .git ]` | `false` | `issue-triage-steps.test.mjs`: ".git comes back only when it was moved out and nothing took its place" |
+| 1182 | sh if && operand | `[ ! -e .git ]` | `true` | `issue-triage-steps.test.mjs`: ".git comes back only when it was moved out and nothing took its place" |
+| 1183 | sh output statement | (before `mv -- "$RUNNER_TEMP/checkout-git" .git`) | `: ` | `issue-triage-steps.test.mjs`: ".git comes back only when it was moved out and nothing took its place" |
+| 1186 | if: && operand | `always()` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1186 | if: whole | `always() && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1186 | if: whole | `always() && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1186 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
+| 1187 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/gh-token" "$RUNNER_TEMP/private-repo-`) | `: ` | `issue-triage-steps.test.mjs`: "the token and the private names are removed" |
+| 1199 | if: && operand | `env.TRIAGE_ISSUE != ''` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1199 | if: whole | `env.TRIAGE_ISSUE != '' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1199 | if: whole | `env.TRIAGE_ISSUE != '' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1199 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1210 | jq if and operand | `.author.is_bot` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1210 | jq if whole | `.author.is_bot and .author.login != "app/github-actions"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1210 | jq if whole | `.author.is_bot and .author.login != "app/github-actions"` | `false` | `issue-triage-backstop.test.mjs`: "a vouched github-actions[bot] issue gets the full check; another bot's is exempt" |
+| 1210 | jq if and operand | `.author.login != "app/github-actions"` | `true` | `issue-triage-backstop.test.mjs`: "a vouched github-actions[bot] issue gets the full check; another bot's is exempt" |
+| 1215 | sh if \|\| operand | `[ "$state" = "CLOSED" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1215 | sh if whole | `[ "$state" = "CLOSED" ] \|\| [ "$bot" = "true" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1215 | sh if whole | `[ "$state" = "CLOSED" ] \|\| [ "$bot" = "true" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1215 | sh if \|\| operand | `[ "$bot" = "true" ]` | `false` | `issue-triage-backstop.test.mjs`: "a vouched github-actions[bot] issue gets the full check; another bot's is exempt" |
+| 1216 | sh skip statement | `exit 0` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1231 | sh case arm | `edited\|reopened\|labeled` | `__mutant_never__` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1232 | sh case arm | `*` | `__mutant_never__` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1233 | sh if whole | `[ "$RETRIAGE" = "true" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1233 | sh if whole | `[ "$RETRIAGE" = "true" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1235 | sh elif && operand | `has in-progress` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1235 | sh elif whole | `has in-progress && [ "$EVENT" != "workflow_dispatch" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1235 | sh elif whole | `has in-progress && [ "$EVENT" != "workflow_dispatch" ]` | `false` | Not caught, equivalent: STALE is true only on a dispatch (the start record sets it there alone), so an issue event on an in-progress issue ends at the next branch's `exit 0` instead |
+| 1235 | sh elif && operand | `[ "$EVENT" != "workflow_dispatch" ]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1236 | sh skip statement | `exit 0` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: a closed issue, or an issue event on a claimed one, is left as it is" |
+| 1237 | sh elif && operand | `[ "$EVENT" = "workflow_dispatch" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a dispatch skips the check on an approved or planned requested issue" |
+| 1237 | sh elif whole | `[ "$EVENT" = "workflow_dispatch" ] && ! has in-progress \ && { has agent:approve…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1237 | sh elif whole | `[ "$EVENT" = "workflow_dispatch" ] && ! has in-progress \ && { has agent:approve…` | `false` | `issue-triage-backstop.test.mjs`: "a dispatch leaves an approved or a planned requested issue as it is" |
+| 1237 | sh elif && operand | `! has in-progress` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1238 | sh elif && operand | `{ has agent:approved \|\| { has requested && has triaged; }; }` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a dispatch skips the check on an approved or planned requested issue" |
+| 1238 | sh elif \|\| operand | `has agent:approved` | `false` | `issue-triage-backstop.test.mjs`: "a dispatch leaves an approved or a planned requested issue as it is" |
+| 1238 | sh elif \|\| operand | `{ has requested && has triaged; }` | `false` | `issue-triage-backstop.test.mjs`: "a dispatch leaves an approved or a planned requested issue as it is" |
+| 1238 | sh elif && operand | `has requested` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a dispatch skips the check on an approved or planned requested issue" |
+| 1238 | sh elif && operand | `has triaged` | `true` | `issue-triage-backstop.test.mjs`: "a dispatch leaves an approved or a planned requested issue as it is" |
+| 1244 | sh skip statement | `exit 0` | `:` | `issue-triage-backstop.test.mjs`: "a dispatch leaves an approved or a planned requested issue as it is" |
+| 1245 | sh elif && operand | `has in-progress` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1245 | sh elif whole | `has in-progress && [ "$STALE" != "true" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1245 | sh elif whole | `has in-progress && [ "$STALE" != "true" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a dispatch skips the check on an approved or planned requested issue" |
+| 1245 | sh elif && operand | `[ "$STALE" != "true" ]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1247 | sh skip statement | `exit 0` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a dispatch skips the check on an approved or planned requested issue" |
+| 1248 | sh elif whole | `has in-progress` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1248 | sh elif whole | `has in-progress` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1261 | jq select whole | `.body != null` | `true` | `issue-triage-backstop.test.mjs`: "a mention, another issue's number or no body does not count" |
+| 1261 | jq select whole | `.body != null` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1261 | jq select whole | `.body \| test(\"\\\\b(close\|closes\|closed\|fix\|fixes\|fixed\|resolve\|resolves\|resolv…` | `true` | `issue-triage-backstop.test.mjs`: "a mention, another issue's number or no body does not count" |
+| 1261 | jq select whole | `.body \| test(\"\\\\b(close\|closes\|closed\|fix\|fixes\|fixed\|resolve\|resolves\|resolv…` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1269 | sh while whole | `read -r account login` | `true` | `issue-triage-backstop.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 1269 | sh while whole | `read -r account login` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1270 | sh list condition | `[ -n "$account" ]` | `true` | Not a rule: with no closing pull request the list is one empty line, which would only print a 'malformed author' line; nothing counts either way |
+| 1270 | sh list condition | `[ -n "$account" ]` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1270 | sh skip statement | `continue` | `:` | Not a rule: with no closing pull request the list is one empty line, which would only print a 'malformed author' line; nothing counts either way |
+| 1271 | sh if && operand | `[ "$account" = Bot ]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1271 | sh if whole | `[ "$account" = Bot ] && [ -n "$login" ]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1271 | sh if whole | `[ "$account" = Bot ] && [ -n "$login" ]` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by a GitHub App passes without a lookup" |
+| 1271 | sh if && operand | `[ -n "$login" ]` | `true` | `issue-triage-backstop.test.mjs`: "an unknown author or a malformed login counts as no access, without a lookup" |
+| 1274 | sh skip statement | `break` | `:` | Not caught, equivalent: once a pull request counts, nothing later in the loop sets the count back or fails the step, so going on changes only the log |
+| 1276 | sh if whole | `! [[ "$login" =~ ^[A-Za-z0-9-]+(_[A-Za-z0-9]+)?$ ]]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1276 | sh if whole | `! [[ "$login" =~ ^[A-Za-z0-9-]+(_[A-Za-z0-9]+)?$ ]]` | `false` | `issue-triage-backstop.test.mjs`: "an unknown author or a malformed login counts as no access, without a lookup" |
+| 1278 | sh skip statement | `continue` | `:` | `issue-triage-backstop.test.mjs`: "an unknown author or a malformed login counts as no access, without a lookup" |
+| 1281 | sh if whole | `! permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission"…` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1281 | sh if whole | `! permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission"…` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1283 | sh skip statement | `continue` | `:` | Not caught, equivalent: with the lookup failed, the permission is empty and the case below counts it as no access, as the `continue` does; only the log line differs |
+| 1286 | sh case arm | `admin\|write` | `__mutant_never__` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1286 | sh skip statement | `break` | `:` | Not caught, equivalent: once a pull request counts, nothing later in the loop sets the count back or fails the step, so going on changes only the log |
+| 1287 | sh case arm | `*` | `__mutant_never__` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author without write access fails the stale check" |
+| 1291 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `issue-triage-backstop.test.mjs`: "no closing pull request and no stale-claim comment fails the stale check" |
+| 1291 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| split(\"\\n\") \| index(\"## …` | `true` | `issue-triage-backstop.test.mjs`: "no closing pull request and no stale-claim comment fails the stale check" |
+| 1291 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| split(\"\\n\") \| index(\"## …` | `false` | `issue-triage-backstop.test.mjs`: "a stale-claim comment passes even when only an untrusted author's pull request closes" |
+| 1291 | jq select and operand | `(.body \| split(\"\\n\") \| index(\"## Triage: stale claim\")) != null` | `true` | `issue-triage-backstop.test.mjs`: "no closing pull request and no stale-claim comment fails the stale check" |
+| 1293 | sh if \|\| operand | `[ "$closing" -gt 0 ]` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1293 | sh if whole | `[ "$closing" -gt 0 ] \|\| [ "$warned" -gt 0 ]` | `true` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author without write access fails the stale check" |
+| 1293 | sh if whole | `[ "$closing" -gt 0 ] \|\| [ "$warned" -gt 0 ]` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1293 | sh if \|\| operand | `[ "$warned" -gt 0 ]` | `false` | `issue-triage-backstop.test.mjs`: "a stale-claim comment passes even when only an untrusted author's pull request closes" |
+| 1294 | sh skip statement | `exit 0` | `:` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1306 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1306 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- issue-triage…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1306 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- issue-triage…` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1306 | jq select and operand | `(.body \| contains(\"<!-- issue-triage run $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT -->…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1307 | sh if whole | `[ -z "$posted" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1307 | sh if whole | `[ -z "$posted" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1314 | sh if whole | `has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1314 | sh if whole | `has needs-operator` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1315 | sh list condition | `grep -qx '## Triage: questions' <<<"$posted"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the comment's heading must match the state the issue ends in" |
+| 1315 | sh list condition | `grep -qx '## Triage: questions' <<<"$posted"` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1317 | sh list condition | `grep -qxE '## Triage( \(revised\))?' <<<"$posted"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the comment's heading must match the state the issue ends in" |
+| 1317 | sh list condition | `grep -qxE '## Triage( \(revised\))?' <<<"$posted"` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1319 | sh list condition | `has needs-triage` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: needs-triage must go, and triaged and needs-operator are one or the other" |
+| 1319 | sh list condition | `has needs-triage` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1320 | sh if && operand | `! has triaged` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1320 | sh if whole | `! has triaged && ! has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1320 | sh if whole | `! has triaged && ! has needs-operator` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: needs-triage must go, and triaged and needs-operator are one or the other" |
+| 1320 | sh if && operand | `! has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1321 | sh if && operand | `has triaged` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1321 | sh if whole | `has triaged && has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1321 | sh if whole | `has triaged && has needs-operator` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: needs-triage must go, and triaged and needs-operator are one or the other" |
+| 1321 | sh if && operand | `has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1325 | sh list condition | `[ "$(count 'bug\|feature\|chore')" -eq 1 ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the issue carries exactly one type and one priority" |
+| 1325 | sh list condition | `[ "$(count 'bug\|feature\|chore')" -eq 1 ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1326 | sh list condition | `[ "$(count 'P[0-3]')" -eq 1 ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the issue carries exactly one type and one priority" |
+| 1326 | sh list condition | `[ "$(count 'P[0-3]')" -eq 1 ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1330 | sh if \|\| operand | `[ "$ACTION" = edited ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1330 | sh if whole | `[ "$ACTION" = edited ] \|\| [ "$ACTION" = reopened ] \|\| [ "$ACTION" = labeled ] \|\|…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1330 | sh if whole | `[ "$ACTION" = edited ] \|\| [ "$ACTION" = reopened ] \|\| [ "$ACTION" = labeled ] \|\|…` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1330 | sh if \|\| operand | `[ "$ACTION" = reopened ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1330 | sh if \|\| operand | `[ "$ACTION" = labeled ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1330 | sh if \|\| operand | `[ "$RETRIAGE" = true ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1331 | sh list condition | `has agent:approved` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1331 | sh list condition | `has agent:approved` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1333 | sh if && operand | `[ "$ACTION" = "reopened" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: only a reopen must drop the claim" |
+| 1333 | sh if whole | `[ "$ACTION" = "reopened" ] && has in-progress` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
+| 1333 | sh if whole | `[ "$ACTION" = "reopened" ] && has in-progress` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1333 | sh if && operand | `has in-progress` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a fresh triage drops the approval, and a reopen the claim" |
+| 1338 | if: whole | `env.TRIAGE_ISSUE == ''` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1338 | if: whole | `env.TRIAGE_ISSUE == ''` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1341 | sh if whole | `[ -n "$missing" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the sweep fails when it left an eligible issue undispatched" |
+| 1341 | sh if whole | `[ -n "$missing" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: the sweep fails when it left an eligible issue undispatched" |
+| 1352 | if: whole | `${{ !cancelled() && env.TRIAGE_ISSUE == '' }}` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1352 | if: whole | `${{ !cancelled() && env.TRIAGE_ISSUE == '' }}` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1352 | if: && operand | `!cancelled()` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1352 | if: && operand | `env.TRIAGE_ISSUE == ''` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
+| 1354 | sh list && operand | `[ -n "${DISPATCH_QUEUE:-}" ]` | `true` | Not caught, equivalent: with no queue named, `[ -f "" ]` is false, so the step ends at the same `exit 0` |
+| 1354 | sh list whole | `[ -n "${DISPATCH_QUEUE:-}" ] && [ -f "$DISPATCH_QUEUE" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: a sweep that stopped before its queue passes nothing on" |
+| 1354 | sh list whole | `[ -n "${DISPATCH_QUEUE:-}" ] && [ -f "$DISPATCH_QUEUE" ]` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1354 | sh list && operand | `[ -f "$DISPATCH_QUEUE" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: a sweep that stopped before its queue passes nothing on" |
+| 1354 | sh skip statement | `exit 0` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: a sweep that stopped before its queue passes nothing on" |
+| 1357 | sh case arm | `*[!0-9\ ]*` | `__mutant_never__` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1360 | sh list condition | `grep -qx "$n" "$ELIGIBLE_ISSUES"` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1360 | sh list condition | `grep -qx "$n" "$ELIGIBLE_ISSUES"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1363 | sh output statement | (before `echo "issues=$queue" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1381 | if: whole | `${{ !cancelled() && needs.triage.outputs.dispatch != '' }}` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
+| 1381 | if: whole | `${{ !cancelled() && needs.triage.outputs.dispatch != '' }}` | `false` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
+| 1381 | if: && operand | `!cancelled()` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
+| 1381 | if: && operand | `needs.triage.outputs.dispatch != ''` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
+| 1398 | sh case arm | `*[!0-9]*` | `__mutant_never__` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job refuses anything but issue numbers" |
+| 1403 | sh if whole | `! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels \| map(.name)) as $l \| if .…` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1403 | sh if whole | `! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels \| map(.name)) as $l \| if .…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1404 | jq if whole | `.state != "open"` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1404 | jq if whole | `.state != "open"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1405 | jq elif or operand | `($l \| index("needs-triage")) != null` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1405 | jq elif whole | `($l \| index("needs-triage")) != null or ($l - ["needs-triage","triaged","in-prog…` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1405 | jq elif whole | `($l \| index("needs-triage")) != null or ($l - ["needs-triage","triaged","in-prog…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1406 | jq elif or operand | `($l - ["needs-triage","triaged","in-progress","needs-operator"] \| length) == ($l…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1407 | jq elif or operand | `(($l \| index("in-progress")) != null and (now - (.updated_at \| fromdate)) > 7 * …` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1409 | jq select or operand | `. == "triaged"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1409 | jq select whole | `. == "triaged" or . == "in-progress" or . == "needs-operator"` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1409 | jq select whole | `. == "triaged" or . == "in-progress" or . == "needs-operator"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1409 | jq select or operand | `. == "in-progress"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1409 | jq select or operand | `. == "needs-operator"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1412 | sh skip statement | `continue` | `:` | Not caught, equivalent: with the lookup failed the issue is already among the failures, and `now` is empty, so the next check skips it with a log line; the step fails the same |
+| 1414 | sh if whole | `[ "$now" != "eligible" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1414 | sh if whole | `[ "$now" != "eligible" ]` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1416 | sh skip statement | `continue` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job leaves an issue that changed since it was queued" |
+| 1418 | sh if whole | `gh workflow run issue-triage.yml --repo "$REPO" --ref "$GITHUB_REF_NAME" -f "iss…` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1418 | sh if whole | `gh workflow run issue-triage.yml --repo "$REPO" --ref "$GITHUB_REF_NAME" -f "iss…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1424 | sh if whole | `[ -n "$failed" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
+| 1424 | sh if whole | `[ -n "$failed" ]` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job tries every issue, then fails naming those it could not start" |
+
+</details>
+
+### `.github/workflows/pr-issue-link.yml`
+
+65 rules: 64 caught (0 of them by a time limit, 45 through a copy of their step), 1 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/pr-issue-link.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 47 | if: && operand | `github.event.pull_request.user.login != 'dependabot[bot]'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 47 | if: whole | `github.event.pull_request.user.login != 'dependabot[bot]' && !(startsWith(github…` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 47 | if: whole | `github.event.pull_request.user.login != 'dependabot[bot]' && !(startsWith(github…` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 48 | if: && operand | `!(startsWith(github.head_ref, 'release-please--') && github.event.pull_request.u…` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 48 | if: && operand | `startsWith(github.head_ref, 'release-please--')` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 49 | if: && operand | `github.event.pull_request.user.type == 'Bot'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 94 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 94 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 95 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 95 | jq if whole | `.type != "file"` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 95 | jq elif whole | `.size > 16384` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 95 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 113 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 113 | sh while \|\| operand | `[ -n "$l" ]` | `false` | Not caught, equivalent: the lines come from a here-string, which always ends its last line with a newline (bash 5.2, checked 2026-11-27), so `read` never ends on an unterminated line here |
+| 116 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 116 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 116 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 116 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 116 | sh if && operand | `[ "$l" = "---" ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 116 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 117 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 126 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 128 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 130 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 153 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 153 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 169 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 170 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh if && operand | `[ -n "$states" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 172 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 176 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 177 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 185 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
+| 195 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| needs.settings.output…` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 195 | if: whole | `${{ !cancelled() && (needs.settings.result == 'failure' \|\| needs.settings.output…` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 195 | if: && operand | `!cancelled()` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 195 | if: && operand | `(needs.settings.result == 'failure' \|\| needs.settings.outputs.KIT_ISSUE_LINK_CHE…` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 195 | if: \|\| operand | `needs.settings.result == 'failure'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 195 | if: \|\| operand | `needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 208 | if: whole | `needs.settings.result == 'failure'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 208 | if: whole | `needs.settings.result == 'failure'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 243 | sh if whole | `grep -qiE -- "$close$target" <<< "$text"` | `true` | `pr-issue-link.test.mjs`: "a No issue line with a reason passes, plain, bold, emphasised or as a list item" |
+| 243 | sh if whole | `grep -qiE -- "$close$target" <<< "$text"` | `false` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 247 | sh elif whole | `grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*\|__)?No issue:((\*\*\|__)[[:s…` | `true` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 247 | sh elif whole | `grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*\|__)?No issue:((\*\*\|__)[[:s…` | `false` | `pr-issue-link.test.mjs`: "a No issue line with a reason passes, plain, bold, emphasised or as a list item" |
+
+</details>
+
+### `.github/workflows/kit-update-check.yml`
+
+138 rules: 138 caught (0 of them by a time limit), 0 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/kit-update-check.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 102 | jq if whole | `.type != "file"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 102 | jq if whole | `.type != "file"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 102 | jq elif whole | `.size > 16384` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 102 | jq elif whole | `.size > 16384` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 120 | sh while \|\| operand | `IFS= read -r l` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 120 | sh while \|\| operand | `[ -n "$l" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if && operand | `[ "$l" = "---" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 123 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 124 | sh skip statement | `continue` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 133 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 135 | sh case arm | `KIT_*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 137 | sh case arm | `*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 160 | sh if whole | `[ -n "$v" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 160 | sh if whole | `[ -n "$v" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 175 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 176 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 177 | sh case arm | `*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 179 | sh if && operand | `[ -n "$states" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 179 | sh if && operand | `[ -n "$v" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 179 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 183 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 184 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 192 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
+| 197 | if: whole | `needs.settings.outputs.KIT_UPDATE_CHECK == 'on'` | `true` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
+| 197 | if: whole | `needs.settings.outputs.KIT_UPDATE_CHECK == 'on'` | `false` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
+| 216 | sh if \|\| operand | `[ -L "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 216 | sh if whole | `[ -L "$lock" ] \|\| [ ! -f "$lock" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 216 | sh if whole | `[ -L "$lock" ] \|\| [ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 216 | sh if \|\| operand | `[ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 218 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 233 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 241 | sh if whole | `[ -z "$tag" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 241 | sh if whole | `[ -z "$tag" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 243 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 247 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
+| 248 | sh if whole | `[ "$ref" = "$release" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 248 | sh if whole | `[ "$ref" = "$release" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 250 | sh elif whole | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 250 | sh elif whole | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 251 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 272 | sh skip statement | `return 0` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 275 | sh if whole | `skip "$p"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 275 | sh if whole | `skip "$p"` | `false` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
+| 276 | sh skip statement | `continue` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 277 | sh elif whole | `! has "$p" "${was[@]}"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 277 | sh elif whole | `! has "$p" "${was[@]}"` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 278 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 279 | sh elif && operand | `[ "$line" = "$p" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 279 | sh elif whole | `[ "$line" = "$p" ] && [ "$(entry "$ref" "$p")" != "$(entry "$release" "$p")" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 279 | sh elif whole | `[ "$line" = "$p" ] && [ "$(entry "$ref" "$p")" != "$(entry "$release" "$p")" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 279 | sh elif && operand | `[ "$(entry "$ref" "$p")" != "$(entry "$release" "$p")" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 280 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 283 | sh list condition | `has "seed $p" "${before[@]}"` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 283 | sh list condition | `has "seed $p" "${before[@]}"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 284 | sh list condition | `[ "$line" = "$p" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 284 | sh list condition | `[ "$line" = "$p" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 285 | sh list condition | `[ "$was_seed" = "$now_seed" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a file moving between seed and managed" |
+| 285 | sh list condition | `[ "$was_seed" = "$now_seed" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 285 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports a file moving between seed and managed" |
+| 289 | sh if && operand | `! skip "$p"` | `true` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
+| 289 | sh if whole | `! skip "$p" && ! has "$p" "${now[@]#seed }" && ! has "$p" "${seeds[@]}"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 289 | sh if whole | `! skip "$p" && ! has "$p" "${now[@]#seed }" && ! has "$p" "${seeds[@]}"` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 289 | sh if && operand | `! has "$p" "${now[@]#seed }"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 289 | sh if && operand | `! has "$p" "${seeds[@]}"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 290 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 307 | sh if \|\| operand | `[ "$ref" = "$release" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 307 | sh if whole | `[ "$ref" = "$release" ] \|\| ! kit cat-file -e "$ref^{commit}" 2> /dev/null \ \|\| !…` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 307 | sh if whole | `[ "$ref" = "$release" ] \|\| ! kit cat-file -e "$ref^{commit}" 2> /dev/null \ \|\| !…` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 307 | sh if \|\| operand | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 308 | sh if \|\| operand | `! kit merge-base --is-ancestor "$release" "$ref"` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 311 | sh if whole | `[ -n "$want" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 311 | sh if whole | `[ -n "$want" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 314 | sh if && operand | `[ -f "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 314 | sh if whole | `[ -f "$agents" ] && [ ! -L "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 314 | sh if whole | `[ -f "$agents" ] && [ ! -L "$agents" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 314 | sh if && operand | `[ ! -L "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 336 | sh if whole | `[ -z "$have" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 336 | sh if whole | `[ -z "$have" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 337 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 338 | sh elif whole | `[ "$have" != "$want" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 338 | sh elif whole | `[ "$have" != "$want" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 339 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 343 | sh if whole | `[ -s "$report" ]` | `true` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
+| 343 | sh if whole | `[ -s "$report" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 344 | sh output statement | `{ echo "state=$state"; echo "ref=$release"; echo "tag=$tag"; echo "source=$sourc…` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 350 | if: whole | `steps.check.outputs.state != ''` | `true` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
+| 350 | if: whole | `steps.check.outputs.state != ''` | `false` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
+| 362 | jq select and operand | `.pull_request == null` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select and operand | `.body != null` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select and operand | `(.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 364 | sh if whole | `[ "$STATE" = current ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 364 | sh if whole | `[ "$STATE" = current ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 365 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 365 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 366 | sh output statement | (before `gh api --method POST "repos/$REPO/issues/$open/comments" \`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 368 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f state=cl`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 371 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 384 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 384 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 385 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f title="$`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 388 | sh output statement | (before `gh api --method POST "repos/$REPO/issues" -f title="$title" `) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
 
 </details>
