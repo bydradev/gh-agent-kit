@@ -24,8 +24,11 @@ a command list), which add five rows to `pr-review.yml`; they are listed in
 a section of their own after phase 2's.
 
 The files of phases 1 and 2 are the same at phase 3's commit, so their
-sections stand as they merged too; phase 3's sweep found no new kind of
-line in them.
+sections stand as they merged too. Phase 3's review found three kinds of
+rule the script had skipped (an `awk` program's conditions and
+statements, each command of a `{ }` group written to a file, and a job's
+`outputs:`), which add rows to `pr-review.yml` and `security-scan.yml`;
+they are listed in sections of their own after phase 3's.
 
 **In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
@@ -73,16 +76,21 @@ OpenCode scan's answer, export, retry and wait rules. One older test
 passed without running its step (a re-run with no results file) and now
 runs it.
 
-**In short (phase 3):** of 805 rules in the three workflows, 759 are
-caught by a test, 4 of them by a time limit and 90 through a copy of
-their step. The 46 left are listed with the reason:
+**In short (phase 3):** of 905 rules in the three workflows, 852 are
+caught by a test, 7 of them by a time limit and 135 through a copy of
+their step. The 53 left are listed with the reason:
 
 | Reason | `issue-triage.yml` | `pr-issue-link.yml` | `kit-update-check.yml` |
 | --- | --- | --- | --- |
-| Equivalent: switching it off changes nothing the code can do | 11 | 1 | 0 |
+| Equivalent: switching it off changes nothing the code can do | 12 | 1 | 6 |
 | Unreachable: no input reaches the other branch | 5 | 0 | 0 |
-| Not a rule: a field or count only the log shows | 18 | 0 | 0 |
-| Left untested: runner provisioning only a GitHub runner can run | 11 | 0 | 0 |
+| Not a rule: a field or count only the log shows, or removing a downloaded file | 20 | 0 | 0 |
+| Left untested: runner provisioning only a GitHub runner can run | 9 | 0 | 0 |
+
+Of the rows phase 3 added to the earlier phases' files, all 20 in
+`pr-review.yml` are caught, and 40 of 43 in `security-scan.yml`; the
+other three are not rules (the commas between the file names a message
+lists).
 
 The tests this phase added cover, among others: which events and states
 run each triage, link and update-check job and step, as GitHub evaluates
@@ -94,7 +102,11 @@ issue renamed after it was labelled; the sweep's list of issues and the
 records it truncates; the run's start record; the MCP configuration's
 vouched hash and the token file's mode; `.git` put back after OpenCode;
 the state check for a closed or claimed issue; the stale-claim backstop's
-look-alike comments; and a stopped sweep that passes nothing on. The
+look-alike comments; a stopped sweep that passes nothing on; each job
+output, as GitHub evaluates it, against what its step wrote; the update
+check's fences and markers in `AGENTS.md`, a lock or an `AGENTS.md`
+that is a symlink, and the notice's choice of issue; the issue-link
+check's fences; and the scan's line count over renamed paths. The
 pass-on step's test now runs it in every workflow that has it.
 
 ## What counts as a rule
@@ -115,7 +127,8 @@ practice, each of these is switched off on its own:
   (`fs.appendFileSync`, `fs.writeFileSync`, `fs.rmSync`, `record(...)`,
   `process.stdout.write`) or writes to GitHub, removed.
 - **Workflows**: every job and step `if:`, forced to `true` and to `false`,
-  and each operand of its `&&` and `||` chains, set as above.
+  and each operand of its `&&` and `||` chains, set as above; from phase 3,
+  each entry of a job's `outputs:`, emptied.
 - **Shell** (each step's `run:`, a one-line `run:` included, a command
   continued with `\` read as one line): every `if`, `elif` and `while` condition, forced to `true`
   and to `false`, and each operand of its `&&`, `||` and `[[ ]]` chains, and of a
@@ -131,7 +144,12 @@ practice, each of these is switched off on its own:
   (`git checkout <ref> -- <path>`) a file, or writes to GitHub (`gh issue`, `gh pr`, `gh label`, or
   a POST, PATCH, PUT or DELETE, inside a `$( )` too), made a no-op; and
   every redirect of a command's output to a file, pointed at `/dev/null`,
-  so the command still runs and keeps its exit status.
+  so the command still runs and keeps its exit status. From phase 3, also
+  each command of a `{ }` group whose output goes to a file, made a no-op
+  on its own; and in an `awk` program, each pattern and each `if` and
+  `while` condition, forced to true (`1`) and to false (`0`), each operand
+  of its `&&` and `||` chains, set as above, and each `next`, `exit`,
+  `print` and `printf`, made a no-op.
 
 ## How it was checked
 
@@ -158,6 +176,14 @@ the file that caught it run again. A kill counts when the same test fails
 again (its line may have moved, since tests were added after the sweep).
 A kill that did not reproduce was swept again from the start. A mutant that no file caught is listed with its reason.
 
+In phase 3 the container at first held only the worktree, not the
+repository's git directory, so the two tests that run git (one installs
+the kit with `install.sh`) failed whatever the mutant, and most of
+`kit-update-check.yml`'s rows named one of them. The container now holds
+the git directory too, every test passes in it before any mutant is
+applied, and `kit-update-check.yml` was swept again. No row of phases 1
+and 2 names either test.
+
 Some steps are copies that a test holds byte for byte to another step:
 the settings read step of every workflow, held to `pr-review.yml`'s; the
 OpenCode verification, held to the OpenCode scan below its prompt line;
@@ -173,8 +199,12 @@ follows the expressions reference for the forms `pr-review.yml` and
 (literals, comparisons, `!`, `&&`, `||`, property access, `contains`,
 `startsWith`, `endsWith`, `fromJSON` and the status functions), not every
 form GitHub accepts. Phase 3 added the object filter (`labels.*.name`)
-that `issue-triage.yml` uses, from the same reference (read 2026-11-28);
-an item without the property is left out of the result.
+that `issue-triage.yml` uses, from the same reference (read 2026-11-28),
+applied to each item as the runner applies it (`actions/runner`,
+`Operators/Index.cs`, read 2026-11-28): an item's property is kept, a
+present `null` included, and an item without it is left out. The same
+evaluator gives a job output's value, which the job-output tests compare
+with what the step wrote.
 
 In phase 3 the copy rule covers the settings read step of all five
 workflows that have one, held to `pr-review.yml`'s, and a write inside a
@@ -198,9 +228,11 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
 | `.github/workflows/security-scan.yml` | 917 | 856 | 61 |
 | `.github/workflows/pr-review.yml`, rows found in phase 2 | 5 | 4 | 1 |
-| `.github/workflows/issue-triage.yml` | 602 | 557 | 45 |
-| `.github/workflows/pr-issue-link.yml` | 65 | 64 | 1 |
-| `.github/workflows/kit-update-check.yml` | 138 | 138 | 0 |
+| `.github/workflows/issue-triage.yml` | 631 | 585 | 46 |
+| `.github/workflows/pr-issue-link.yml` | 88 | 87 | 1 |
+| `.github/workflows/kit-update-check.yml` | 186 | 180 | 6 |
+| `.github/workflows/pr-review.yml`, rows found in phase 3 | 20 | 20 | 0 |
+| `.github/workflows/security-scan.yml`, rows found in phase 3 | 43 | 40 | 3 |
 
 ### `.github/workflows/pr-review.yml`
 
@@ -2379,7 +2411,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 
 ### `.github/workflows/issue-triage.yml`
 
-602 rules: 557 caught (4 of them by a time limit, 45 through a copy of their step), 45 left with the reason given.
+631 rules: 585 caught (4 of them by a time limit, 45 through a copy of their step), 46 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/issue-triage.yml</code></summary>
 
@@ -2405,6 +2437,13 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 79 | if: && operand | `(github.event.action != 'opened' \|\| !contains(github.event.issue.labels.*.name, …` | `true` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
 | 79 | if: \|\| operand | `github.event.action != 'opened'` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
 | 79 | if: \|\| operand | `!contains(github.event.issue.labels.*.name, 'needs-triage')` | `false` | `issue-triage-conditions.test.mjs`: "the settings job runs on a sweep, a dispatch, and the issue events triage reads" |
+| 98 | job output | `${{ steps.pass.outputs.KIT_ISSUE_TRIAGE }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 99 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_PROVIDER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 100 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_RUNNER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 101 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_MODEL }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 102 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_EFFORT }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 103 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_MAX_TURNS }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 104 | job output | `${{ steps.pass.outputs.KIT_TRIAGE_TIMEOUT_MINUTES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 136 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 136 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 137 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -2497,6 +2536,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 358 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
 | 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
 | 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `false` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
+| 371 | job output | `${{ steps.queue.outputs.issues }}` | `''` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the triage job hands the passed-on queue to the dispatch job" |
 | 434 | if: whole | `env.TRIAGE_ISSUE != ''` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
 | 434 | if: whole | `env.TRIAGE_ISSUE != ''` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
 | 449 | sh if whole | `[ "$EVENT" = "issues" ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch checks only the author, so a reader's dispatch of a write author's issue passes" |
@@ -2519,8 +2559,19 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 471 | jq select or operand | `.event == "unlabeled"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 471 | jq select or operand | `.event == "renamed"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 471 | jq select or operand | `.event == "reopened"` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 475 | awk pattern && operand | `($1 == "labeled" \|\| $1 == "unlabeled")` | `1` | Not caught, equivalent: the timeline is filtered to labeled, unlabeled, renamed and reopened events, and only the first two carry a label name, so $3 == "needs-triage" alone selects the same events |
+| 475 | awk pattern whole | `($1 == "labeled" \|\| $1 == "unlabeled") && $3 == "needs-triage"` | `1` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 475 | awk pattern whole | `($1 == "labeled" \|\| $1 == "unlabeled") && $3 == "needs-triage"` | `0` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 475 | awk pattern \|\| operand | `$1 == "labeled"` | `0` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 475 | awk pattern \|\| operand | `$1 == "unlabeled"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 475 | awk pattern && operand | `$3 == "needs-triage"` | `1` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 479 | awk pattern \|\| operand | `$1 == "renamed"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 479 | awk pattern whole | `$1 == "renamed" \|\| $1 == "reopened"` | `1` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
+| 479 | awk pattern whole | `$1 == "renamed" \|\| $1 == "reopened"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 479 | awk pattern \|\| operand | `$1 == "reopened"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 479 | awk output statement | `print $2` | `;` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 480 | sh list condition | `[[ -z "$edited" \|\| "$edited" < "$later" ]]` | `true` | `issue-triage-gate.test.mjs`: "a label run finds the issue edited after the label it came from, and is skipped" |
 | 480 | sh list condition | `[[ -z "$edited" \|\| "$edited" < "$later" ]]` | `false` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 480 | sh list [[ \|\| ]] operand | `-z "$edited"` | `-z x` | Not caught, equivalent: with no edit, `[[ "" < "$later" ]]` is true whenever there is a later event, and when there is none, `later` becomes the empty edit time it already is |
@@ -2668,7 +2719,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 765 | if: whole | `env.KIT_TRIAGE_RUNNER != 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 765 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 780 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/claude" /`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
-| 781 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 781 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/claude"`) | `: ` | Not a rule: removes the downloaded binary from RUNNER_TEMP after installing it |
 | 791 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 791 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 791 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
@@ -2679,7 +2730,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 804 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 804 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 815 | sh output statement | (before `sudo install -o root -g root -m 0755 "$RUNNER_TEMP/opencode-`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
-| 816 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Left untested: runner provisioning (sudo install into /opt/agent-kit on the GitHub runner); every triage run on that runner exercises it |
+| 816 | sh output statement | (before `rm -rf -- "$RUNNER_TEMP/opencode.tar.gz" "$RUNNER_TEMP/openc`) | `: ` | Not a rule: removes the downloaded archive from RUNNER_TEMP after installing it |
 | 837 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'claude-code'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 837 | if: whole | `env.KIT_TRIAGE_RUNNER == 'claude-code' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 837 | if: whole | `env.KIT_TRIAGE_RUNNER == 'claude-code' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
@@ -2738,6 +2789,16 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1032 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1039 | awk pattern whole | `$0 == want` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk pattern whole | `$0 == want` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk skip statement | `next` | `;` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk pattern && operand | `on` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
+| 1039 | awk pattern && operand | `/^[^ {}"]+\/[^ ]+$/` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk skip statement | `exit` | `;` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
+| 1039 | awk pattern whole | `on` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk pattern whole | `on` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1045 | sh if whole | `[ -n "$KIT_TRIAGE_EFFORT" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -2992,7 +3053,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 
 ### `.github/workflows/pr-issue-link.yml`
 
-65 rules: 64 caught (0 of them by a time limit, 45 through a copy of their step), 1 left with the reason given.
+88 rules: 87 caught (1 of them by a time limit, 45 through a copy of their step), 1 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-issue-link.yml</code></summary>
 
@@ -3004,6 +3065,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 48 | if: && operand | `!(startsWith(github.head_ref, 'release-please--') && github.event.pull_request.u…` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
 | 48 | if: && operand | `startsWith(github.head_ref, 'release-please--')` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
 | 49 | if: && operand | `github.event.pull_request.user.type == 'Bot'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the settings job skips Dependabot's and Release Please's pull requests" |
+| 62 | job output | `${{ steps.pass.outputs.KIT_ISSUE_LINK_CHECK }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 94 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 94 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 95 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3059,6 +3121,28 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 195 | if: \|\| operand | `needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
 | 208 | if: whole | `needs.settings.result == 'failure'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
 | 208 | if: whole | `needs.settings.result == 'failure'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 230 | awk if \|\| operand | `c == "'"` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 230 | awk if whole | `c == "'" \|\| c == "~"` | `1` | `pr-issue-link.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 230 | awk if whole | `c == "'" \|\| c == "~"` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 230 | awk if \|\| operand | `c == "~"` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 230 | awk while whole | `substr(l, n + 1, 1) == c` | `1` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 230 | awk while whole | `substr(l, n + 1, 1) == c` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 232 | awk if whole | `fence` | `1` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 232 | awk if whole | `fence` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 233 | awk if && operand | `c == fc` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 233 | awk if whole | `c == fc && n >= fl && rest ~ /^[ \t]*$/` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 233 | awk if whole | `c == fc && n >= fl && rest ~ /^[ \t]*$/` | `0` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 233 | awk if && operand | `n >= fl` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 233 | awk if && operand | `rest ~ /^[ \t]*$/` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 234 | awk skip statement | `next` | `;` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 236 | awk if && operand | `n >= 3` | `1` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 236 | awk if whole | `n >= 3 && !(c == "'" && index(rest, "'"))` | `1` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 236 | awk if whole | `n >= 3 && !(c == "'" && index(rest, "'"))` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 236 | awk if && operand | `!(c == "'" && index(rest, "'"))` | `1` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
+| 236 | awk if && operand | `c == "'"` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 236 | awk if && operand | `index(rest, "'")` | `1` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 236 | awk skip statement | `next` | `;` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
+| 237 | awk output statement | `print` | `;` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
 | 243 | sh if whole | `grep -qiE -- "$close$target" <<< "$text"` | `true` | `pr-issue-link.test.mjs`: "a No issue line with a reason passes, plain, bold, emphasised or as a list item" |
 | 243 | sh if whole | `grep -qiE -- "$close$target" <<< "$text"` | `false` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
 | 247 | sh elif whole | `grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*\|__)?No issue:((\*\*\|__)[[:s…` | `true` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
@@ -3068,88 +3152,89 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 
 ### `.github/workflows/kit-update-check.yml`
 
-138 rules: 138 caught (0 of them by a time limit), 0 left with the reason given.
+186 rules: 180 caught (2 of them by a time limit, 45 through a copy of their step), 6 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/kit-update-check.yml</code></summary>
 
 | Line | Kind | Rule | Switched off as | Caught by, or why not |
 | --- | --- | --- | --- | --- |
-| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 102 | jq if whole | `.type != "file"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 102 | jq if whole | `.type != "file"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 102 | jq elif whole | `.size > 16384` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 102 | jq elif whole | `.size > 16384` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 120 | sh while \|\| operand | `IFS= read -r l` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 120 | sh while \|\| operand | `[ -n "$l" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if && operand | `[ "$l" = "---" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 123 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 124 | sh skip statement | `continue` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 133 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 135 | sh case arm | `KIT_*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 137 | sh case arm | `*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 160 | sh if whole | `[ -n "$v" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 160 | sh if whole | `[ -n "$v" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 175 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 176 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 177 | sh case arm | `*` | `__mutant_never__` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 179 | sh if && operand | `[ -n "$states" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 179 | sh if && operand | `[ -n "$v" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 179 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 183 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 184 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 69 | job output | `${{ steps.pass.outputs.KIT_UPDATE_CHECK }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `true` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 101 | sh if whole | `content=$(gh api "repos/$REPO/contents/$file" \ --jq 'if .type != "file" then er…` | `false` | its copy at `pr-review.yml` line 142, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 102 | jq if whole | `.type != "file"` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 102 | jq if whole | `.type != "file"` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 102 | jq elif whole | `.size > 16384` | `true` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 102 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 120 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 120 | sh while \|\| operand | `[ -n "$l" ]` | `false` | Not caught, equivalent: the lines come from a here-string, which always ends its last line with a newline (bash 5.2, checked 2026-11-27), so `read` never ends on an unterminated line here |
+| 123 | sh if \|\| operand | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]]` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 123 | sh if whole | `[[ "$l" =~ ^[[:space:]]*(#.*)?$ ]] \|\| { [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 …` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 123 | sh if \|\| operand | `{ [ "$l" = "---" ] && [ "${#at[@]}" -eq 0 ]; }` | `false` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 123 | sh if && operand | `[ "$l" = "---" ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 123 | sh if && operand | `[ "${#at[@]}" -eq 0 ]` | `true` | its copy at `pr-review.yml` line 164, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 124 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 133 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 135 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 160 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 175 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 176 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 177 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh if && operand | `[ -n "$states" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 183 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 184 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 192 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
 | 197 | if: whole | `needs.settings.outputs.KIT_UPDATE_CHECK == 'on'` | `true` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
 | 197 | if: whole | `needs.settings.outputs.KIT_UPDATE_CHECK == 'on'` | `false` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
-| 216 | sh if \|\| operand | `[ -L "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 216 | sh if \|\| operand | `[ -L "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 216 | sh if whole | `[ -L "$lock" ] \|\| [ ! -f "$lock" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 216 | sh if whole | `[ -L "$lock" ] \|\| [ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 216 | sh if \|\| operand | `[ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 218 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 216 | sh if whole | `[ -L "$lock" ] \|\| [ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
+| 216 | sh if \|\| operand | `[ ! -f "$lock" ]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
+| 218 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 233 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 233 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step warns and stops when it cannot fetch the kit" |
 | 241 | sh if whole | `[ -z "$tag" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 241 | sh if whole | `[ -z "$tag" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 243 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 241 | sh if whole | `[ -z "$tag" ]` | `false` | `kit-update-check.test.mjs`: "the compare step warns and stops when the kit has no release" |
+| 243 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step warns and stops when the kit has no release" |
 | 247 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
 | 248 | sh if whole | `[ "$ref" = "$release" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 248 | sh if whole | `[ "$ref" = "$release" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 248 | sh if whole | `[ "$ref" = "$release" ]` | `false` | Not caught, equivalent: with the lock at the release, the next branch asks whether the release is an ancestor of the lock's ref, and git counts a commit as its own ancestor, so that branch skips the comparison the same way |
 | 250 | sh elif whole | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
-| 250 | sh elif whole | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 251 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 250 | sh elif whole | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | `kit-update-check.test.mjs`: "the compare step says so when the lock's ref is not in the kit's history" |
+| 251 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step says so when the lock's ref is not in the kit's history" |
 | 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 272 | sh skip statement | `return 0` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 275 | sh if whole | `skip "$p"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 275 | sh if whole | `skip "$p"` | `false` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
-| 276 | sh skip statement | `continue` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 276 | sh skip statement | `continue` | `:` | Not caught, equivalent: the continue ends the loop body's only statement, an if chain, so the next file comes next without it too |
 | 277 | sh elif whole | `! has "$p" "${was[@]}"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 277 | sh elif whole | `! has "$p" "${was[@]}"` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 278 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
@@ -3174,14 +3259,57 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 307 | sh if \|\| operand | `[ "$ref" = "$release" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 307 | sh if whole | `[ "$ref" = "$release" ] \|\| ! kit cat-file -e "$ref^{commit}" 2> /dev/null \ \|\| !…` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 307 | sh if whole | `[ "$ref" = "$release" ] \|\| ! kit cat-file -e "$ref^{commit}" 2> /dev/null \ \|\| !…` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
-| 307 | sh if \|\| operand | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 307 | sh if \|\| operand | `! kit cat-file -e "$ref^{commit}" 2> /dev/null` | `false` | Not caught, equivalent: for a ref not in the kit's history, the next operand (git merge-base --is-ancestor) fails too, so the release's block is read for the same refs |
 | 308 | sh if \|\| operand | `! kit merge-base --is-ancestor "$release" "$ref"` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 311 | sh if whole | `[ -n "$want" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 311 | sh if whole | `[ -n "$want" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 314 | sh if && operand | `[ -f "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 314 | sh if whole | `[ -f "$agents" ] && [ ! -L "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 314 | sh if whole | `[ -f "$agents" ] && [ ! -L "$agents" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
-| 314 | sh if && operand | `[ ! -L "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 314 | sh if && operand | `[ ! -L "$agents" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reads no AGENTS.md through a symlink" |
+| 321 | awk if \|\| operand | `c == "'"` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 321 | awk if whole | `c == "'" \|\| c == "~"` | `1` | `kit-update-check.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 321 | awk if whole | `c == "'" \|\| c == "~"` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 321 | awk if \|\| operand | `c == "~"` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 321 | awk while whole | `substr(l, n + 1, 1) == c` | `1` | `kit-update-check.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
+| 321 | awk while whole | `substr(l, n + 1, 1) == c` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 323 | awk if whole | `fence` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 323 | awk if whole | `fence` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 324 | awk if && operand | `c == fc` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 324 | awk if whole | `c == fc && n >= fl && rest ~ /^[ \t]*$/` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 324 | awk if whole | `c == fc && n >= fl && rest ~ /^[ \t]*$/` | `0` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 324 | awk if && operand | `n >= fl` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 324 | awk if && operand | `rest ~ /^[ \t]*$/` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 325 | awk if whole | `open` | `1` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 325 | awk if whole | `open` | `0` | `kit-update-check.test.mjs`: "the compare step keeps a fence inside the block" |
+| 326 | awk skip statement | `next` | `;` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if && operand | `n >= 3` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if whole | `n >= 3 && !(c == "'" && index(rest, "'"))` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if whole | `n >= 3 && !(c == "'" && index(rest, "'"))` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if && operand | `!(c == "'" && index(rest, "'"))` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if && operand | `c == "'"` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 328 | awk if && operand | `index(rest, "'")` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 330 | awk pattern whole | `$0 == s` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 330 | awk pattern whole | `$0 == s` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 330 | awk if whole | `!ends` | `1` | Not caught, equivalent: the block is printed only when there is one end and it came while the block was open, so an end before the start already makes it no block, whether the start opens it or not |
+| 330 | awk if whole | `!ends` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 331 | awk pattern whole | `open` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 331 | awk pattern whole | `open` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 332 | awk pattern whole | `$0 == e` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 332 | awk pattern whole | `$0 == e` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 332 | awk if whole | `open` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 332 | awk if whole | `open` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if && operand | `starts == 1` | `1` | Not caught, equivalent: with two starts and one end, the block printed holds both start lines, so it differs from the release's block, as the malformed result it replaces does: AGENTS.md counts as updated either way |
+| 333 | awk if whole | `starts == 1 && ends == 1 && closed` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if whole | `starts == 1 && ends == 1 && closed` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if && operand | `ends == 1` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if && operand | `closed` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk output statement | `printf "%s", block` | `;` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if \|\| operand | `starts` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if whole | `starts \|\| ends` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if whole | `starts \|\| ends` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk if \|\| operand | `ends` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk output statement | `print "malformed"` | `;` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 336 | sh if whole | `[ -z "$have" ]` | `true` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 336 | sh if whole | `[ -z "$have" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 337 | sh file write | `"$report"` | `/dev/null` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
@@ -3191,26 +3319,115 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 343 | sh if whole | `[ -s "$report" ]` | `true` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
 | 343 | sh if whole | `[ -s "$report" ]` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 344 | sh output statement | `{ echo "state=$state"; echo "ref=$release"; echo "tag=$tag"; echo "source=$sourc…` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 344 | sh group command | `echo "state=$state"` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 344 | sh group command | `echo "ref=$release"` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 344 | sh group command | `echo "tag=$tag"` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 344 | sh group command | `echo "source=$source"` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 350 | if: whole | `steps.check.outputs.state != ''` | `true` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
 | 350 | if: whole | `steps.check.outputs.state != ''` | `false` | `kit-update-check-conditions.test.mjs`: "the check runs while it is on, and the notice step once it has a state" |
-| 362 | jq select and operand | `.pull_request == null` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select and operand | `.body != null` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 362 | jq select and operand | `(.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 364 | sh if whole | `[ "$STATE" = current ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 364 | sh if whole | `[ "$STATE" = current ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 365 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 365 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 366 | sh output statement | (before `gh api --method POST "repos/$REPO/issues/$open/comments" \`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 368 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f state=cl`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 371 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 384 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 384 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 385 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f title="$`) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
-| 388 | sh output statement | (before `gh api --method POST "repos/$REPO/issues" -f title="$title" `) | `: ` | `kit-update-check.test.mjs`: "the compare step finds the block install.sh writes current" |
+| 362 | jq select and operand | `.pull_request == null` | `true` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+| 362 | jq select whole | `.pull_request == null and .user.login == \"github-actions[bot]\"` | `false` | `kit-update-check.test.mjs`: "the notice step updates the open notice instead of opening another" |
+| 362 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+| 362 | jq select and operand | `.body != null` | `true` | `kit-update-check.test.mjs`: "the notice step takes only a bot issue that starts with the marker, one without a body included" |
+| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the notice step takes only a bot issue that starts with the marker, one without a body included" |
+| 362 | jq select whole | `.body != null and (.body \| startswith(\"$marker\"))` | `false` | `kit-update-check.test.mjs`: "the notice step updates the open notice instead of opening another" |
+| 362 | jq select and operand | `(.body \| startswith(\"$marker\"))` | `true` | `kit-update-check.test.mjs`: "the notice step takes only a bot issue that starts with the marker, one without a body included" |
+| 364 | sh if whole | `[ "$STATE" = current ]` | `true` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+| 364 | sh if whole | `[ "$STATE" = current ]` | `false` | `kit-update-check.test.mjs`: "the notice step closes the open notice once current" |
+| 365 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the notice step leaves a look-alike alone and writes nothing when current" |
+| 365 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the notice step closes the open notice once current" |
+| 366 | sh output statement | (before `gh api --method POST "repos/$REPO/issues/$open/comments" \`) | `: ` | `kit-update-check.test.mjs`: "the notice step closes the open notice once current" |
+| 368 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f state=cl`) | `: ` | `kit-update-check.test.mjs`: "the notice step closes the open notice once current" |
+| 371 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the notice step closes the open notice once current" |
+| 384 | sh if whole | `[ -n "$open" ]` | `true` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+| 384 | sh if whole | `[ -n "$open" ]` | `false` | `kit-update-check.test.mjs`: "the notice step updates the open notice instead of opening another" |
+| 385 | sh output statement | (before `gh api --method PATCH "repos/$REPO/issues/$open" -f title="$`) | `: ` | `kit-update-check.test.mjs`: "the notice step updates the open notice instead of opening another" |
+| 388 | sh output statement | (before `gh api --method POST "repos/$REPO/issues" -f title="$title" `) | `: ` | `kit-update-check.test.mjs`: "the notice step opens one issue when behind and none is open" |
+
+</details>
+
+### `.github/workflows/pr-review.yml`, rows found in phase 3
+
+20 rules: 20 caught (0 of them by a time limit), 0 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 100 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MODE }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 101 | job output | `${{ steps.pass.outputs.KIT_REVIEW_PROVIDER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 102 | job output | `${{ steps.pass.outputs.KIT_REVIEW_RUNNER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 103 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MODEL }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 104 | job output | `${{ steps.pass.outputs.KIT_REVIEW_EFFORT }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 105 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MAX_TURNS }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 106 | job output | `${{ steps.pass.outputs.KIT_REVIEW_TIMEOUT_MINUTES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 107 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MAX_FILES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 108 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MAX_LINES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 110 | job output | `${{ steps.pass.outputs.SKIP }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 1388 | awk pattern whole | `$0 == want` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern whole | `$0 == want` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk skip statement | `next` | `;` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern && operand | `on` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern && operand | `/^[^ {}"]+\/[^ ]+$/` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk skip statement | `exit` | `;` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern whole | `on` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk pattern whole | `on` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+
+</details>
+
+### `.github/workflows/security-scan.yml`, rows found in phase 3
+
+43 rules: 40 caught (0 of them by a time limit), 3 left with the reason given.
+
+<details><summary>Every rule of <code>.github/workflows/security-scan.yml</code></summary>
+
+| Line | Kind | Rule | Switched off as | Caught by, or why not |
+| --- | --- | --- | --- | --- |
+| 99 | job output | `${{ steps.pass.outputs.KIT_SECURITY_SCAN }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 100 | job output | `${{ steps.pass.outputs.KIT_SECURITY_PROVIDER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 101 | job output | `${{ steps.pass.outputs.KIT_SECURITY_RUNNER }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 102 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MODEL }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 103 | job output | `${{ steps.pass.outputs.KIT_SECURITY_EFFORT }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 104 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_TURNS }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 105 | job output | `${{ steps.pass.outputs.KIT_SECURITY_TIMEOUT_MINUTES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 106 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_FILES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 107 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_LINES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 109 | job output | `${{ steps.pass.outputs.SKIP }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 850 | awk pattern && operand | `NF >= 2` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
+| 850 | awk pattern whole | `NF >= 2 && $1 ~ /^[0-9]+$/` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
+| 850 | awk pattern whole | `NF >= 2 && $1 ~ /^[0-9]+$/` | `0` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 850 | awk pattern && operand | `$1 ~ /^[0-9]+$/` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
+| 850 | awk output statement | `print n + 0` | `;` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 1199 | awk pattern whole | `$0 == want` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern whole | `$0 == want` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk skip statement | `next` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern && operand | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern && operand | `/^[^ {}"]+\/[^ ]+$/` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk skip statement | `exit` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern whole | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk pattern whole | `on` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1410 | sh group command | (before `echo "OpenCode's server log, its last 50 lines:"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1411 | sh group command | (before `tail -n 50 "$RUNNER_TEMP/opencode-serve.log" \| awk 1`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1616 | awk pattern whole | `$0 == want` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern whole | `$0 == want` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk skip statement | `next` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern && operand | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern whole | `on && /^[^ {}"]+\/[^ ]+$/` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern && operand | `/^[^ {}"]+\/[^ ]+$/` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk skip statement | `exit` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern whole | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk pattern whole | `on` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1827 | sh group command | (before `echo "OpenCode's server log, its last 50 lines:"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1828 | sh group command | (before `tail -n 50 "$RUNNER_TEMP/opencode-serve.log" \| awk 1`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 2134 | awk pattern whole | `NR > 1` | `1` | Not a rule: the comma between the file names a message lists |
+| 2134 | awk pattern whole | `NR > 1` | `0` | Not a rule: the comma between the file names a message lists |
+| 2134 | awk output statement | `printf ", "` | `;` | Not a rule: the comma between the file names a message lists |
+| 2134 | awk output statement | `printf "'%s'", $0` | `;` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
 
 </details>
