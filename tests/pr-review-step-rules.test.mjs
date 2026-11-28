@@ -148,6 +148,11 @@ test("the push skip fails when it cannot list the runs or read a run's jobs", (t
     });
     assert.notEqual(r.status, 0, `${name}: ${r.stdout}`);
     assert.ok(!r.envText.includes("RUN=false"), name);
+    // It failed at the lookup it names, on the error that lookup gave.
+    assert.match(r.stderr, /HTTP 500/, name);
+    assert.doesNotMatch(r.stderr, /gh stub: no rule/, name);
+    const made = r.calls().split("\n").filter(Boolean).map((l) => JSON.parse(l).args.join(" "));
+    assert.ok(made.some((c) => new RegExp(rules.at(-1).match).test(`${c} `)), name);
   }
 });
 

@@ -105,6 +105,7 @@ function bodyEdit(
   else assert.equal(r.status, 0, r.stdout + r.stderr);
   return {
     out: r.stdout,
+    err: r.stderr,
     env: fs.readFileSync(githubEnv, "utf8"),
     calls: () => ghCalls({ log: stub.log }).map((c) => c.args.join(" ")),
   };
@@ -131,7 +132,7 @@ test("an edit skip fails when it cannot list the runs or read a run's jobs", (t)
       "^api --method GET repos/acme/widgets/actions/workflows/pr-review\\.yml/runs\\?head_sha=",
       "^api repos/acme/widgets/actions/runs/55/jobs ",
     ]) {
-      const { env } = bodyEdit(t, {
+      const { env, err, calls } = bodyEdit(t, {
         title: "fix: keep the cache warm",
         body: "Reworded the description.\n\nFixes #5\n",
         run,
@@ -139,6 +140,10 @@ test("an edit skip fails when it cannot list the runs or read a run's jobs", (t)
         fails: true,
       });
       assert.equal(env, "", failing);
+      // It failed at the lookup it names, on the error that lookup gave.
+      assert.match(err, /HTTP 500/, failing);
+      assert.doesNotMatch(err, /gh stub: no rule/, failing);
+      assert.ok(calls().some((c) => new RegExp(failing).test(c)), failing);
     }
 });
 
