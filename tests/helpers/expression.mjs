@@ -114,7 +114,7 @@ function parse(src) {
           const a = v;
           v = (ctx) => {
             const o = a(ctx);
-            return o && typeof o === "object" ? Object.values(o) : [];
+            return filtered(o && typeof o === "object" ? Object.values(o) : []);
           };
           continue;
         }
@@ -167,7 +167,19 @@ function parse(src) {
   return { fn, usesStatus };
 }
 
+// An object filter's result (labels.*.name): a property read after it is
+// read from each item, as the reference's fruits.*.name example shows (read
+// 2026-11-28). The reference does not say what an item without the property
+// gives; here it is left out, and no test depends on that.
+const FILTERED = Symbol("filtered");
+function filtered(a) {
+  a[FILTERED] = true;
+  return a;
+}
+
 function prop(o, k) {
+  if (Array.isArray(o) && o[FILTERED])
+    return filtered(o.map((x) => prop(x, k)).filter((x) => x !== null));
   if (o === null || o === undefined || typeof o !== "object") return null;
   const key =
     typeof k === "string" ? Object.keys(o).find((x) => x.toLowerCase() === k.toLowerCase()) : k;
