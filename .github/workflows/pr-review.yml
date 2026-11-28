@@ -769,7 +769,8 @@ jobs:
               done
               rm -rf -- "$f"
               # The base's .gitattributes, not the head's, so a head cannot
-              # re-encode or convert the restored bytes on checkout.
+              # re-encode or convert the restored bytes on checkout
+              # (--attr-source needs git 2.41, as the server's diff tools do).
               git --attr-source="origin/$BASE" checkout "origin/$BASE" -- "$f"
             fi
           done
