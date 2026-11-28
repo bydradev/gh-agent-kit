@@ -151,7 +151,6 @@ jobs:
           # the run naming the line, and a line is never printed: one that
           # is not a setting could hold a secret.
           declare -A value=() at=()
-          word='[A-Za-z0-9._-]'
           item='[A-Za-z0-9._,-]'
           lists=" KIT_REVIEW_SKILLS "
           shape() {
@@ -204,9 +203,10 @@ jobs:
           done <<< "$content"
           # Each setting this workflow reads: the repository variable when
           # set, else the file's value, else unset (the kit's default). Every
-          # legitimate value is a word or a number, so anything else fails
-          # here, before it reaches GITHUB_ENV, where a line break would set
-          # another variable.
+          # legitimate value is a word or a number, or for a list setting
+          # words joined by commas, so anything else fails here, before it
+          # reaches GITHUB_ENV, where a line break would set another
+          # variable.
           for name in $SETTINGS; do
             v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
             if [ -n "$v" ]; then

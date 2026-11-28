@@ -159,7 +159,6 @@ jobs:
           # the run naming the line, and a line is never printed: one that
           # is not a setting could hold a secret.
           declare -A value=() at=()
-          word='[A-Za-z0-9._-]'
           item='[A-Za-z0-9._,-]'
           lists=" KIT_REVIEW_SKILLS "
           shape() {
@@ -212,9 +211,10 @@ jobs:
           done <<< "$content"
           # Each setting this workflow reads: the repository variable when
           # set, else the file's value, else unset (the kit's default). Every
-          # legitimate value is a word or a number, so anything else fails
-          # here, before it reaches GITHUB_ENV, where a line break would set
-          # another variable.
+          # legitimate value is a word or a number, or for a list setting
+          # words joined by commas, so anything else fails here, before it
+          # reaches GITHUB_ENV, where a line break would set another
+          # variable.
           for name in $SETTINGS; do
             v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
             if [ -n "$v" ]; then
@@ -739,7 +739,18 @@ jobs:
             IFS=, read -r -a skills <<< "$KIT_REVIEW_SKILLS"
           fi
           for s in "${skills[@]}"; do
-            if git cat-file -e "origin/$BASE:.agents/skills/$s/SKILL.md" 2>/dev/null; then
+            # git does not follow a symlink the base commits on the way to
+            # SKILL.md, so a skill path or parent that the base has as a link
+            # or a file would read as missing: say so rather than log a
+            # first adoption.
+            notdir=""
+            for p in .agents .agents/skills ".agents/skills/$s"; do
+              type=$(git cat-file -t "origin/$BASE:$p" 2>/dev/null) || break
+              if [ "$type" != tree ]; then notdir=$p; break; fi
+            done
+            if [ -n "$notdir" ]; then
+              echo "::warning::KIT_REVIEW_SKILLS names $s, but $notdir on $BASE is not a directory (a symlink or a file), so the skill is not read from $BASE; commit it there as a real directory"
+            elif git cat-file -e "origin/$BASE:.agents/skills/$s/SKILL.md" 2>/dev/null; then
               restore+=(".agents/skills/$s")
               echo "review skill $s: the copy on $BASE"
             elif git cat-file -e "HEAD:.agents/skills/$s" 2>/dev/null; then

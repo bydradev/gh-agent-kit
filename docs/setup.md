@@ -296,7 +296,9 @@ KIT_REVIEW_SKILLS: acme-code-review
 - **The whole directory.** Before the reviewer starts, the review job
   replaces each listed `.agents/skills/<name>/` in the checkout with the
   base branch's copy, its reference files included, and removes files the
-  pull request added there. The base's `.gitattributes` apply to the
+  pull request added there. Only that directory is restored, so keep
+  everything the skill relies on inside it: a file it points to elsewhere
+  is still the pull request's copy. The base's `.gitattributes` apply to the
   restored files, not the pull request's, and a `CLAUDE.md` in a restored
   directory is removed like any other. Both runners, Claude Code and OpenCode's CLI,
   read that checkout, so both follow the base copy.
@@ -304,6 +306,11 @@ KIT_REVIEW_SKILLS: acme-code-review
   does not have yet keeps the pull request's copy, as the kit's own skills do on the pull
   request that installs the kit, and the run's log says so. A name neither
   side has is a warning in the log, most likely a typo.
+- **A real directory on the base.** A listed skill must be a directory on
+  the base branch, not a symlink to one: git does not follow a link the
+  base commits, so a skill whose directory, `.agents/skills` or `.agents`
+  is a link or a file there is not read from the base, and the run's log
+  warns.
 - **Symlinks.** A skill directory, or a parent of one, that the pull
   request made a symlink is unlinked before the restore, leaving its
   target untouched, and every symlink left in the checkout is removed
@@ -902,7 +909,7 @@ The workflows also:
   server), except an `AGENTS.md` or the instructions file, which is
   removed. The reviewer runs with `--restricted`, which loads no project
   memory, and as a second guard every `CLAUDE.md` and `CLAUDE.local.md` in
-  the checkout is removed first, so no file a `CLAUDE.md` imports is read
+  the checkout is removed before the reviewer starts, so no file a `CLAUDE.md` imports is read
   from the head; every symlink is removed too, so a link the head commits
   cannot lead the reviewer's reads to a runner file;
 - remove `.claude`, `.mcp.json` and similar executable configuration from
