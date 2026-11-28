@@ -114,6 +114,7 @@ function parse(src) {
           const a = v;
           v = (ctx) => {
             const o = a(ctx);
+            if (Array.isArray(o) && o[FILTERED]) return index(o, WILDCARD);
             return filtered(o && typeof o === "object" ? Object.values(o) : []);
           };
           continue;
@@ -167,19 +168,39 @@ function parse(src) {
   return { fn, usesStatus };
 }
 
-// An object filter's result (labels.*.name): a property read after it is
-// read from each item, as the reference's fruits.*.name example shows (read
-// 2026-11-28). The reference does not say what an item without the property
-// gives; here it is left out, and no test depends on that.
+// An object filter's result (labels.*.name): an index after it is applied
+// to each item, as the reference's fruits.*.name example shows (read
+// 2026-11-28). As the runner does it (actions/runner,
+// src/Sdk/DTExpressions2/Expressions2/Sdk/Operators/Index.cs,
+// HandleFilteredArray, read 2026-11-28): a name keeps each object item's
+// value when the item has the property, a null value included, and skips
+// the rest; a number keeps each array item's element at that index; a
+// wildcard adds every value of each object or array item; an item that is
+// neither is skipped.
 const FILTERED = Symbol("filtered");
+const WILDCARD = Symbol("wildcard");
 function filtered(a) {
   a[FILTERED] = true;
   return a;
 }
 
+function index(a, k) {
+  const out = [];
+  for (const x of a) {
+    if (x === null || x === undefined || typeof x !== "object") continue;
+    if (k === WILDCARD) out.push(...(Array.isArray(x) ? x : Object.values(x)).filter((v) => v !== undefined));
+    else if (Array.isArray(x)) {
+      if (typeof k === "number" && Number.isInteger(k) && k >= 0 && k < x.length) out.push(x[k]);
+    } else if (typeof k === "string") {
+      const key = Object.keys(x).find((y) => y.toLowerCase() === k.toLowerCase());
+      if (key !== undefined && x[key] !== undefined) out.push(x[key]);
+    }
+  }
+  return filtered(out);
+}
+
 function prop(o, k) {
-  if (Array.isArray(o) && o[FILTERED])
-    return filtered(o.map((x) => prop(x, k)).filter((x) => x !== null));
+  if (Array.isArray(o) && o[FILTERED]) return index(o, k);
   if (o === null || o === undefined || typeof o !== "object") return null;
   const key =
     typeof k === "string" ? Object.keys(o).find((x) => x.toLowerCase() === k.toLowerCase()) : k;
@@ -279,6 +300,30 @@ export function runs(condition, ctx) {
   // which short-circuits before the condition is read.
   if (!usesStatus && (ctx.status ?? "success") !== "success") return false;
   return truthy(fn(ctx));
+}
+
+// What a ${{ }} value gives as a job output, which is a string: null
+// gives "", as for an output the step never wrote.
+export function value(expression, ctx) {
+  const src = expression.trim().replace(/^\$\{\{([\s\S]*)\}\}$/, "$1");
+  const v = parse(src).fn(ctx);
+  return v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
+// A job's outputs: mapping in .github/workflows/<file>, { name: value }.
+export function jobOutputs(file, job) {
+  const lines = fs.readFileSync(path.join(root, ".github/workflows", file), "utf8").split("\n");
+  const at = lines.indexOf(`  ${job}:`);
+  if (at < 0) throw new Error(`no job ${job} in ${file}`);
+  const out = {};
+  let j = at + 1;
+  while (j < lines.length && !/^ {2}\S/.test(lines[j]) && lines[j] !== "    outputs:") j++;
+  if (lines[j] !== "    outputs:") return out;
+  for (j++; j < lines.length && (/^ {6}\S/.test(lines[j]) || lines[j].trim() === ""); j++) {
+    const m = lines[j].match(/^ {6}([A-Za-z0-9_-]+): (.*)$/);
+    if (m) out[m[1]] = m[2];
+  }
+  return out;
 }
 
 // The if: of a job (by id), a step (by name) or the first step that uses an

@@ -11,6 +11,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, root, stubGh, tempDir } from "./helpers/server.mjs";
 import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
+import { jobOutputs, value } from "./helpers/expression.mjs";
 
 const READ = "Read the settings file and variables";
 const WORKFLOWS = {
@@ -377,6 +378,28 @@ test("each workflow's pass step hands every setting on as an output", (t) => {
       "KIT_SECURITY_SCAN=open\nKIT_SECURITY_MODEL=claude-opus-5-5\nKIT_SECURITY_EFFORT=\n",
       file,
     );
+  }
+});
+
+// Each settings job output, as GitHub evaluates it, is the value its pass
+// step wrote, the early skip's SKIP included where the job has one.
+test("each settings job hands on every value its pass step wrote", (t) => {
+  for (const file of Object.keys(WORKFLOWS)) {
+    const names = settingsNames(workflow(file));
+    const dir = tempDir(t);
+    const out = path.join(dir, "github-output");
+    fs.writeFileSync(out, "");
+    const env = { GITHUB_OUTPUT: out, SETTINGS: names.join(" "), RUN: "false" };
+    for (const n of names) env[n] = `value-of-${n}`;
+    const r = runStep(dir, stepScript(file, "Pass the settings on"), env);
+    assert.equal(r.status, 0, `${file}: ${r.stderr}`);
+    const wrote = Object.fromEntries(
+      fs.readFileSync(out, "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)),
+    );
+    const mapped = jobOutputs(file, "settings");
+    assert.deepEqual(Object.keys(mapped).sort(), Object.keys(wrote).sort(), file);
+    for (const [name, expression] of Object.entries(mapped))
+      assert.equal(value(expression, { steps: { pass: { outputs: wrote } } }), wrote[name], `${file}: ${name}`);
   }
 });
 

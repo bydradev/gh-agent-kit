@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { root, stubGh, tempDir } from "./helpers/server.mjs";
 import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { ifOf, jobOutputs, runs, value } from "./helpers/expression.mjs";
 
 const FILE = "issue-triage.yml";
 const passOn = stepScript(FILE, "Pass the sweep's dispatches on");
@@ -45,6 +46,16 @@ test("issue-triage.yml: a sweep that stopped before its queue passes nothing on"
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.deepEqual(r.outputs, {});
   }
+});
+
+// The triage job's dispatch output, as GitHub evaluates it, is what the
+// pass-on step wrote, and it starts the dispatch job.
+test("issue-triage.yml: the triage job hands the passed-on queue to the dispatch job", (t) => {
+  const r = pass(t, "12\n8\n");
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const dispatch = value(jobOutputs(FILE, "triage").dispatch ?? "", { steps: { queue: { outputs: r.outputs } } });
+  assert.equal(dispatch, "8 12 ");
+  assert.equal(runs(ifOf(FILE, { job: "dispatch" }), { needs: { triage: { outputs: { dispatch } } } }), true);
 });
 
 test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once each", (t) => {

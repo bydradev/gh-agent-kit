@@ -159,3 +159,17 @@ test("the dispatch job runs when the sweep passed issues on, even after a failur
     ["cancelled", triage("3 5", "cancelled"), false],
   ]);
 });
+
+// The object filter the label checks use, as the runner applies it
+// (actions/runner, Operators/Index.cs, HandleFilteredArray, read
+// 2026-11-28).
+test("the helper's object filter keeps a present null, skips a missing name, and expands a second *", () => {
+  const items = { github: { event: { items: [{ name: null }, { other: 1 }, { name: "a" }, "text"] } } };
+  assert.equal(runs("contains(github.event.items.*.name, null)", items), true);
+  assert.equal(runs("contains(github.event.items.*.name, 'a')", items), true);
+  assert.equal(runs("contains(github.event.items.*.name, 1)", items), false);
+  const nested = { github: { event: { groups: [{ ids: [1, 2] }, { ids: [3] }] } } };
+  assert.equal(runs("contains(github.event.groups.*.ids.*, 3)", nested), true);
+  assert.equal(runs("contains(github.event.groups.*.ids[1], 2)", nested), true);
+  assert.equal(runs("contains(github.event.groups.*.ids[1], 3)", nested), false);
+});
