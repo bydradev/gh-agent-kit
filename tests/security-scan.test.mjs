@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
-import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const settingsScript = stepScript(FILE, "Read the scan settings");
@@ -287,10 +287,12 @@ test("the limits step refuses a large pull request and a checkout that misses fi
   const files = limits({ KIT_SECURITY_MAX_FILES: "1" });
   assert.equal(files.status, 1);
   assert.match(files.stdout, /::error::2 files and 2 changed lines exceed/);
+  oneError(files.stdout);
   // The event's line count alone refuses, before the checkout's diff is read.
   const lines = limits({ KIT_SECURITY_MAX_LINES: "1" });
   assert.equal(lines.status, 1);
   assert.match(lines.stdout, /::error::2 files and 2 changed lines exceed/);
+  oneError(lines.stdout);
   const missing = limits({ CHANGED: "3" });
   assert.equal(missing.status, 1);
   // BSD wc (macOS) pads the count it prints with spaces; the runner's does not.
@@ -304,6 +306,28 @@ test("the limits step refuses a large pull request and a checkout that misses fi
     /::error::the checkout's diff against main has +2 files and 2 changed lines/,
   );
   assert.equal(limits({ CHANGED: "2", ADDED: "1", KIT_SECURITY_MAX_LINES: "1" }).status, 1);
+});
+
+// git diff -z --numstat puts a rename's two paths on lines of their own:
+// a path that looks like a count is not one.
+test("the limits step counts a rename's lines, not its paths", (t) => {
+  const repo = gitRepo(t);
+  repo.commit("a.txt", "one\ntwo\nthree\nfour\n", "a");
+  const base = repo.commit("b.txt", "five\nsix\nseven\neight\n", "b");
+  repo.git("checkout", "-q", "-b", "feature");
+  repo.git("mv", "a.txt", "5000");
+  repo.git("mv", "b.txt", "7000x\ty");
+  repo.git("commit", "-q", "-m", "rename");
+  repo.git("update-ref", "refs/remotes/origin/main", base);
+  const r = runStep(repo.dir, limitsScript, {
+    BASE: "main",
+    CHANGED: "2",
+    ADDED: "0",
+    DELETED: "0",
+    KIT_SECURITY_MAX_FILES: "300",
+    KIT_SECURITY_MAX_LINES: "100",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
 test("every symlink in the checkout is removed, a directory link inside it too", (t) => {
@@ -967,6 +991,7 @@ test("the run fails without a results file or a completed review in it", (t) => 
   const missing = check();
   assert.equal(missing.status, 1);
   assert.match(missing.stdout, /::error::security scan produced no results file/);
+  oneError(missing.stdout);
   r.write("scan-results.json", "");
   assert.match(check().stdout, /::error::security scan produced no results file/);
   for (const answer of [

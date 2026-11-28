@@ -352,6 +352,27 @@ test("a dispatch of a github-actions[bot] issue without a vouching needs-triage 
       "reopened after",
       { timeline: [vouched, { event: "reopened", created_at: "2026-11-04T00:00:00Z" }] },
     ],
+    // Removed by someone after the labels were read: the timeline's last
+    // needs-triage event is the removal, whoever made it.
+    [
+      "removed after, by someone",
+      {
+        timeline: [
+          vouched,
+          { event: "unlabeled", created_at: "2026-11-04T00:00:00Z", label: { name: "needs-triage" }, actor: { login: "dra" } },
+        ],
+      },
+    ],
+    // A rename after the label counts even when an edit came before both.
+    [
+      "edited, labelled, then renamed",
+      {
+        timeline: [vouched, { event: "renamed", created_at: "2026-11-04T00:00:00Z" }],
+        edited: "2026-11-02T00:00:00Z",
+      },
+    ],
+    // A label whose actor is gone (a deleted account) vouches for nothing.
+    ["labelled by a deleted account", { timeline: [{ ...vouched, actor: null }] }],
   ]) {
     const r = gate(t, { ...BOT, labels: ["needs-triage"], event: "workflow_dispatch", ...over });
     assert.equal(r.status, 0, `${why}: ${r.stdout}${r.stderr}`);

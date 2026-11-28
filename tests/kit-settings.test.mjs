@@ -10,7 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { ghCalls, root, stubGh, tempDir } from "./helpers/server.mjs";
-import { needsBash4, runStep, stepScript } from "./helpers/workflow.mjs";
+import { needsBash4, oneError, runStep, stepScript } from "./helpers/workflow.mjs";
+import { jobOutputs, value } from "./helpers/expression.mjs";
 
 const READ = "Read the settings file and variables";
 const WORKFLOWS = {
@@ -150,6 +151,7 @@ test("a --- is skipped only before the first setting", { skip: needsBash4 }, (t)
   const r = read(t, { file: "KIT_REVIEW_MODE: open\n---\n" });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /\.github\/gh-agent-kit\.yml line 2 is not a NAME: value line/);
+  oneError(r.stdout);
 });
 
 test("the file sets what no variable does, and a variable wins", { skip: needsBash4 }, (t) => {
@@ -200,6 +202,7 @@ test("a file that cannot be read fails the run instead of using the defaults", (
     r.stdout,
     /::error::could not read \.github\/gh-agent-kit\.yml from the default branch/,
   );
+  oneError(r.stdout);
   const dir = read(t, { rule: { match: CONTENTS, json: [{ type: "file" }] } });
   assert.equal(dir.status, 1, "a directory at the path is refused");
   const big = read(t, {
@@ -229,6 +232,7 @@ test("a line the kit does not read fails the run, naming the line but never prin
     const r = read(t, { file });
     assert.equal(r.status, 1, file);
     assert.match(r.stdout, message, file);
+    oneError(r.stdout);
     for (const secret of ["sk-ant-not-a-key", "ghp_not-a-token"])
       assert.ok(
         !r.stdout.includes(secret) && !r.stderr.includes(secret),
@@ -244,7 +248,15 @@ test("a variable that is not one word fails before it reaches GITHUB_ENV", { ski
     r.stdout,
     /the setting KIT_REVIEW_MODE must be one word or number.*\(the repository variable\)/,
   );
+  oneError(r.stdout);
   assert.equal(r.env.BASH_ENV, undefined);
+  oneError(r.stdout);
+  // A setting that is not a switch is stopped by the same check.
+  const turns = read(t, { vars: { KIT_REVIEW_MAX_TURNS: "40\nBASH_ENV=/tmp/x" } });
+  assert.equal(turns.status, 1);
+  assert.match(turns.stdout, /the setting KIT_REVIEW_MAX_TURNS must be one word or number/);
+  assert.equal(turns.env.BASH_ENV, undefined);
+  oneError(turns.stdout);
 });
 
 // KIT_REVIEW_SKILLS alone takes a list: names joined by commas. Every
@@ -357,24 +369,50 @@ test("a value out of range names where it came from", (t) => {
     const r = runStep(dir, stepScript(file, step), { GITHUB_ENV: envFile, ...env });
     assert.equal(r.status, 1, file);
     assert.match(r.stdout, message, file);
+    oneError(r.stdout);
   }
 });
 
-test("the pass step hands every setting on as an output", (t) => {
-  const dir = tempDir(t);
-  const out = path.join(dir, "github-output");
-  fs.writeFileSync(out, "");
-  const r = runStep(dir, stepScript("security-scan.yml", "Pass the settings on"), {
-    GITHUB_OUTPUT: out,
-    SETTINGS: "KIT_SECURITY_SCAN KIT_SECURITY_MODEL KIT_SECURITY_EFFORT",
-    KIT_SECURITY_SCAN: "open",
-    KIT_SECURITY_MODEL: "claude-opus-5-5",
-  });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(
-    fs.readFileSync(out, "utf8"),
-    "KIT_SECURITY_SCAN=open\nKIT_SECURITY_MODEL=claude-opus-5-5\nKIT_SECURITY_EFFORT=\n",
-  );
+test("each workflow's pass step hands every setting on as an output", (t) => {
+  for (const file of Object.keys(WORKFLOWS)) {
+    const dir = tempDir(t);
+    const out = path.join(dir, "github-output");
+    fs.writeFileSync(out, "");
+    const r = runStep(dir, stepScript(file, "Pass the settings on"), {
+      GITHUB_OUTPUT: out,
+      SETTINGS: "KIT_SECURITY_SCAN KIT_SECURITY_MODEL KIT_SECURITY_EFFORT",
+      KIT_SECURITY_SCAN: "open",
+      KIT_SECURITY_MODEL: "claude-opus-5-5",
+    });
+    assert.equal(r.status, 0, `${file}: ${r.stderr}`);
+    assert.equal(
+      fs.readFileSync(out, "utf8"),
+      "KIT_SECURITY_SCAN=open\nKIT_SECURITY_MODEL=claude-opus-5-5\nKIT_SECURITY_EFFORT=\n",
+      file,
+    );
+  }
+});
+
+// Each settings job output, as GitHub evaluates it, is the value its pass
+// step wrote, the early skip's SKIP included where the job has one.
+test("each settings job hands on every value its pass step wrote", (t) => {
+  for (const file of Object.keys(WORKFLOWS)) {
+    const names = settingsNames(workflow(file));
+    const dir = tempDir(t);
+    const out = path.join(dir, "github-output");
+    fs.writeFileSync(out, "");
+    const env = { GITHUB_OUTPUT: out, SETTINGS: names.join(" "), RUN: "false" };
+    for (const n of names) env[n] = `value-of-${n}`;
+    const r = runStep(dir, stepScript(file, "Pass the settings on"), env);
+    assert.equal(r.status, 0, `${file}: ${r.stderr}`);
+    const wrote = Object.fromEntries(
+      fs.readFileSync(out, "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)),
+    );
+    const mapped = jobOutputs(file, "settings");
+    assert.deepEqual(Object.keys(mapped).sort(), Object.keys(wrote).sort(), file);
+    for (const [name, expression] of Object.entries(mapped))
+      assert.equal(value(expression, { steps: { pass: { outputs: wrote } } }), wrote[name], `${file}: ${name}`);
+  }
 });
 
 // With a settings job, a run whose review job was skipped (the review off)
@@ -524,6 +562,7 @@ test("the read step refuses a path that is not a file, and reads a last line wit
     const r = read(t, { rule: { match: CONTENTS, json: { type, size: 10, content: Buffer.from("KIT_REVIEW_MODE: off\n").toString("base64") } } });
     assert.equal(r.status, 1, `${type}: ${r.stdout}`);
     assert.match(r.stdout, /::error::could not read \.github\/gh-agent-kit\.yml from the default branch/, type);
+    oneError(r.stdout);
   }
   const last = read(t, { file: "KIT_REVIEW_MAX_TURNS: 90\nKIT_REVIEW_MODE: open" });
   assert.equal(last.status, 0, last.stdout + last.stderr);

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const script = stepScript(
   "issue-triage.yml",
@@ -118,6 +118,7 @@ test("a closing pull request by an author without write access fails the stale c
     assert.equal(r.status, 1, `${login}: ${r.stdout}${r.stderr}`);
     assert.ok(r.stdout.includes(`${said}\n`), r.stdout);
     assert.match(r.stdout, FAILED);
+    oneError(r.stdout);
     assert.deepEqual(r.lookups, [lookup(login)]);
   }
 });
@@ -133,6 +134,7 @@ test("an unknown author or a malformed login counts as no access, without a look
     r.stdout,
   );
   assert.match(r.stdout, FAILED);
+  oneError(r.stdout);
   assert.deepEqual(r.lookups, []);
 });
 
@@ -170,6 +172,18 @@ test("no closing pull request and no stale-claim comment fails the stale check",
   const r = backstop(t, { pulls: [] });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, FAILED);
+  oneError(r.stdout);
+  // A look-alike by someone else, or the heading inside a line, is no
+  // stale-claim comment.
+  for (const comment of [
+    { ...STALE_CLAIM, user: user("dra") },
+    { ...STALE_CLAIM, body: "Quoting: ## Triage: stale claim" },
+  ]) {
+    const look = backstop(t, { pulls: [], comments: [comment] });
+    assert.equal(look.status, 1, look.stdout + look.stderr);
+    assert.match(look.stdout, FAILED);
+    oneError(look.stdout);
+  }
 });
 
 // A dispatched run on an unclaimed issue: an approved plan stands, and so
@@ -210,6 +224,7 @@ test("a dispatch leaves an approved or a planned requested issue as it is", (t) 
   const r = dispatched(t, ["requested", "feature"]);
   assert.notEqual(r.status, 0);
   assert.match(r.stdout, /::error::triage posted no comment on issue 8/);
+  oneError(r.stdout);
 });
 
 // An issue github-actions[bot] opened reaches the model only once the
@@ -222,6 +237,7 @@ test("a vouched github-actions[bot] issue gets the full check; another bot's is 
   });
   assert.notEqual(actions.status, 0);
   assert.match(actions.stdout, /::error::triage posted no comment on issue 8/);
+  oneError(actions.stdout);
   const other = dispatched(t, ["needs-triage"], [], { is_bot: true, login: "app/dependabot" });
   assert.equal(other.status, 0, other.stdout + other.stderr);
 });

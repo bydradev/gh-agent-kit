@@ -119,20 +119,19 @@ function kitFixture(t, { moves = false, forms = false, block = false, blockDoc =
 }
 
 // A target repository's checkout with a lock (and an AGENTS.md when
-// agents is given), and the compare step run on it.
-function compare(t, kit, lock, agents) {
+// agents is given), and the compare step run on it. With links, each of
+// the two is a symlink to a file of that content beside it.
+function compare(t, kit, lock, agents, { links = false } = {}) {
   const dir = tempDir(t);
-  if (agents !== undefined) {
-    fs.mkdirSync(path.join(dir, "target"), { recursive: true });
-    fs.writeFileSync(path.join(dir, "target/AGENTS.md"), agents);
-  }
-  if (lock !== null) {
-    fs.mkdirSync(path.join(dir, "target/.github"), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, "target/.github/gh-agent-kit.lock"),
-      typeof lock === "string" ? lock : JSON.stringify(lock),
-    );
-  }
+  const put = (file, content) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!links) return fs.writeFileSync(file, content);
+    fs.writeFileSync(`${file}.real`, content);
+    fs.symlinkSync(`${path.basename(file)}.real`, file);
+  };
+  if (agents !== undefined) put(path.join(dir, "target/AGENTS.md"), agents);
+  if (lock !== null)
+    put(path.join(dir, "target/.github/gh-agent-kit.lock"), typeof lock === "string" ? lock : JSON.stringify(lock));
   const output = path.join(dir, "github-output");
   fs.writeFileSync(output, "");
   const temp = path.join(dir, "runner-temp");
@@ -324,11 +323,35 @@ test("the compare step reports a missing or differing Work tracking block", { sk
     [agentsWith(BLOCK + "\n" + BLOCK), "updated"],
     [agentsWith(`${END}\n${START}\n`), "updated"],
     [agentsWith("````md\n```\n" + BLOCK + "````\n"), "missing"],
+    // A block inside a tilde fence, or inside a fence that a line of the
+    // other character, or one with text after its backticks, does not
+    // close; a tilde fence whose info string has a backtick.
+    [agentsWith("~~~\n" + BLOCK + "~~~\n"), "missing"],
+    [agentsWith("```md\n~~~\n" + BLOCK + "```\n"), "missing"],
+    [agentsWith("```md\n``` x\n" + BLOCK + "```\n"), "missing"],
+    [agentsWith("~~~ a`b\n" + BLOCK + "~~~\n"), "missing"],
+    // A second end or a second start after the block, or a start or an
+    // end alone.
+    [agentsWith(BLOCK + END + "\n"), "updated"],
+    [agentsWith(BLOCK + START + "\n"), "updated"],
+    [agentsWith(START + "\n"), "updated"],
+    [agentsWith(END + "\n"), "updated"],
   ]) {
     const r = compare(t, kit, atRelease, agents);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, `${verb.padEnd(11)}AGENTS.md (Work tracking block)\n`);
   }
+  // Backticks with a backtick after them open no fence, so a block after
+  // them is found.
+  const notFence = compare(t, kit, atRelease, agentsWith("``` not`a fence\n\n" + BLOCK));
+  assert.equal(notFence.status, 0, notFence.stderr);
+  assert.equal(notFence.stdout, "");
+  // A lock or an AGENTS.md that is a symlink is not read: no lock is
+  // nothing to check, and no AGENTS.md is a missing block.
+  const linkedLock = compare(t, kit, atRelease, undefined, { links: true });
+  assert.equal(linkedLock.status, 0, linkedLock.stderr);
+  assert.match(linkedLock.stdout, /::notice::no \.github\/gh-agent-kit\.lock in this repository/);
+  assert.deepEqual(linkedLock.outputs, {});
   // A lock past the release is current, its block included: going back
   // is not an update.
   const unreleased = kit.unreleased();
@@ -341,6 +364,39 @@ test("the compare step reports a missing or differing Work tracking block", { sk
   assert.equal(past.status, 0, past.stderr);
   assert.equal(past.stdout, "");
   assert.equal(past.outputs.state, "current");
+});
+
+test("the compare step reads no AGENTS.md through a symlink", { skip: needsBash4 }, (t) => {
+  const kit = kitFixture(t, { block: true });
+  // The lock is a real file here; only AGENTS.md is a link.
+  const dir = tempDir(t);
+  fs.mkdirSync(path.join(dir, "target/.github"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "target/.github/gh-agent-kit.lock"), JSON.stringify({ ...LOCK_AT(kit.second), seeds: ["s1.md", "s3.md"], paths: ["a.txt", "run.sh", "keep.txt", "new.txt", "s1.md", "s3.md"] }));
+  fs.writeFileSync(path.join(dir, "elsewhere.md"), agentsWith(BLOCK));
+  fs.symlinkSync("../elsewhere.md", path.join(dir, "target/AGENTS.md"));
+  const output = path.join(dir, "github-output");
+  fs.writeFileSync(output, "");
+  fs.mkdirSync(path.join(dir, "runner-temp"));
+  const linked = runStep(dir, compareScript, {
+    GIT_CONFIG_GLOBAL: kit.config,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GITHUB_OUTPUT: output,
+    RUNNER_TEMP: path.join(dir, "runner-temp"),
+  });
+  assert.equal(linked.status, 0, linked.stderr);
+  assert.equal(linked.stdout, "missing    AGENTS.md (Work tracking block)\n");
+});
+
+// A fence inside the block is the block's: its lines are compared too.
+test("the compare step keeps a fence inside the block", { skip: needsBash4 }, (t) => {
+  const block = `${START}\n\n### Work tracking\n\n\`\`\`sh\nnpm test\n\`\`\`\n\n${END}\n`;
+  const kit = kitFixture(t, { block: true, blockDoc: `# The block\n\n\`\`\`\`markdown\n${block}\`\`\`\`\n` });
+  const lock = { ...LOCK_AT(kit.second), seeds: ["s1.md", "s3.md"], paths: ["a.txt", "run.sh", "keep.txt", "new.txt", "s1.md", "s3.md"] };
+  const same = compare(t, kit, lock, agentsWith(block));
+  assert.equal(same.status, 0, same.stderr);
+  assert.equal(same.stdout, "");
+  const edited = compare(t, kit, lock, agentsWith(block.replace("npm test", "npm run x")));
+  assert.equal(edited.stdout, "updated    AGENTS.md (Work tracking block)\n");
 });
 
 // What install.sh writes is what the compare step accepts: the kit's real
@@ -511,6 +567,8 @@ test("the compare step warns and stops when it cannot fetch the kit", (t) => {
     /::warning::could not fetch https:\/\/github\.com\/acme\/kit; the update check reads only a public repository/,
   );
   assert.doesNotMatch(r.stdout, /KIT_READ_TOKEN|add-mask/);
+  // It stops there: nothing is read from a kit it did not fetch.
+  assert.doesNotMatch(r.stdout, /has no release/);
   assert.deepEqual(r.outputs, {});
 });
 
@@ -613,4 +671,18 @@ test("the notice step leaves a look-alike alone and writes nothing when current"
   const r = notice(t, { state: "current", issues: [lookAlike] });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(r.writes, []);
+});
+
+test("the notice step takes only a bot issue that starts with the marker, one without a body included", (t) => {
+  const r = notice(t, {
+    state: "behind",
+    issues: [
+      { number: 3, pull_request: null, user: bot, body: null },
+      { number: 4, pull_request: null, user: bot, body: "Another of the bot's issues" },
+      { number: 8, pull_request: null, user: bot, body: `Not first: ${MARKER}` },
+    ],
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.writes.length, 1);
+  assert.deepEqual(r.writes[0].slice(0, 4), ["api", "--method", "POST", "repos/acme/widgets/issues"]);
 });

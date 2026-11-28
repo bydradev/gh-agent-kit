@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { gitRepo, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const rulesScript = stepScript("pr-review.yml", "Use the base branch's reviewer rules");
 const triageScript = stepScript(
@@ -111,6 +111,7 @@ test("pr-review fails on a base check committed as a symlink", (t) => {
     step.stdout,
     /::error::\.github\/scripts\/public-content\.mjs on main is not a regular file/,
   );
+  oneError(step.stdout);
   assert.doesNotMatch(step.env, /PUBLIC_CONTENT_CHECK/);
 });
 
@@ -133,7 +134,7 @@ function runTriage(t, rules) {
     const f = path.join(sudo.installed, name);
     return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null;
   };
-  return { ...step, env: fs.readFileSync(githubEnv, "utf8"), installed };
+  return { ...step, env: fs.readFileSync(githubEnv, "utf8"), installed, temp: dir };
 }
 const contents = (f, body) => ({
   match: `^api repos/acme/widgets/contents/${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
@@ -161,6 +162,19 @@ test("triage installs the default branch's check from the contents API", (t) => 
   assert.equal(step.status, 0, step.stdout + step.stderr);
   assert.equal(step.installed("public-content.mjs"), text);
   assert.match(step.env, /^PUBLIC_CONTENT_CHECK=\/opt\/agent-kit\/public-content\.mjs$/m);
+});
+
+test("triage runs the check on an empty file, then leaves none of its files behind", (t) => {
+  // A check that fails unless --text names a file that exists and is empty.
+  const check =
+    'import fs from "node:fs";\n' +
+    'const f = process.argv.find((a) => a.startsWith("--text=")).slice(7);\n' +
+    'process.exit(fs.readFileSync(f, "utf8") === "" ? 0 : 1);\n';
+  const step = runTriage(t, [contents(MJS, file(check))]);
+  assert.equal(step.status, 0, step.stdout + step.stderr);
+  assert.equal(step.installed("public-content.mjs"), check);
+  for (const name of ["public-content-empty", "public-content-check.mjs", "public-content.json", "public-content.err"])
+    assert.equal(fs.existsSync(path.join(step.temp, name)), false, `${name} is left in RUNNER_TEMP`);
 });
 
 test("triage takes the Python check when there is no Node one, and none when neither exists", (t) => {
@@ -265,4 +279,14 @@ test("a check that fails on an empty text stops either workflow before the model
   assert.equal(triage.status, 1);
   assert.match(triage.stdout, /does not pass on an empty text/);
   assert.doesNotMatch(triage.env, /PUBLIC_CONTENT_CHECK/);
+});
+
+// A read that fails for any reason but a 404 fails the step there: the
+// check is never skipped as if the file were absent.
+test("issue-triage.yml: a failed read of the default branch's check fails the step", (t) => {
+  const r = runTriage(t, [{ ...contents(MJS), stdout: "", stderr: "gh: Server Error (HTTP 500)\n", status: 1 }, notFound(PY)]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /::error::could not read \.github\/scripts\/public-content\.mjs from the default branch/);
+  oneError(r.stdout);
+  assert.doesNotMatch(r.env, /PUBLIC_CONTENT_CHECK/);
 });

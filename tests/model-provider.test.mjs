@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { root, tempDir } from "./helpers/server.mjs";
-import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const JOBS = [
   {
@@ -120,7 +120,7 @@ for (const job of JOBS) {
     // The run step with the CLI replaced by a stub that writes the
     // variables it was started with and answers like a successful run,
     // whose last message is text.
-    const run = (t, provider, keys, text = "done", state, { reply, exit = 0 } = {}) => {
+    const run = (t, provider, keys, text = "done", state, { reply, exit = 0, raw } = {}) => {
       const dir = tempDir(t);
       const temp = path.join(dir, "runner-temp");
       fs.mkdirSync(path.join(temp, "scan-input"), { recursive: true });
@@ -143,7 +143,8 @@ for (const job of JOBS) {
         result: text,
       };
       // reply: fields over the successful answer, or null for no output.
-      fs.writeFileSync(answer, reply === null ? "" : JSON.stringify({ ...success, ...reply }));
+      // raw: the CLI's whole output, given as is.
+      fs.writeFileSync(answer, raw ?? (reply === null ? "" : JSON.stringify({ ...success, ...reply })));
       fs.writeFileSync(
         stub,
         `#!/bin/bash
@@ -218,8 +219,27 @@ exit ${exit}
         const r = run(t, "anthropic", keys, "done", { report: true }, options);
         assert.equal(r.status, 1, `${why}: ${r.stdout}${r.stderr}`);
         assert.match(r.stdout, message, why);
+        oneError(r.stdout);
       }
     });
+
+    // An output that is a stream (an array of messages) is read by its
+    // last result, whatever follows it.
+    if (job.file === "issue-triage.yml")
+      test(`${job.file}, ${name}: a stream's last result decides the run`, (t) => {
+        const result = (subtype, text) => ({ type: "result", subtype, is_error: subtype !== "success", num_turns: 1, result: text, usage: {} });
+        const stream = (...last) => JSON.stringify([{ type: "system" }, ...last, { type: "assistant", message: {} }]);
+        const ok = run(t, "anthropic", { ANTHROPIC_API_KEY: "ak" }, "done", { report: true }, {
+          raw: stream(result("error_during_execution", "first"), result("success", "last")),
+        });
+        assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+        assert.match(ok.stdout, /^result: last$/m);
+        const failed = run(t, "anthropic", { ANTHROPIC_API_KEY: "ak" }, "done", { report: true }, {
+          raw: stream(result("success", "first"), result("error_max_turns", "last")),
+        });
+        assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+        assert.match(failed.stdout, /^subtype: error_max_turns$/m);
+      });
 
     // The run summary carries the model's last message, which the pull
     // request or issue may have steered, so it is printed with workflow

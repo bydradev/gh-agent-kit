@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { root, stubGh, tempDir } from "./helpers/server.mjs";
-import { runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, runStep, stepScript } from "./helpers/workflow.mjs";
+import { ifOf, jobOutputs, runs, value } from "./helpers/expression.mjs";
 
 const FILE = "issue-triage.yml";
 const passOn = stepScript(FILE, "Pass the sweep's dispatches on");
@@ -23,6 +24,8 @@ const outputs = (file) =>
       .map((l) => l.split(/=(.*)/s).slice(0, 2)),
   );
 
+// queue: the queue file's text; null names a queue file that was never
+// written; undefined sets no queue at all.
 function pass(t, queue, eligible = "8\n12\n") {
   const dir = tempDir(t);
   const output = path.join(dir, "github-output");
@@ -31,11 +34,29 @@ function pass(t, queue, eligible = "8\n12\n") {
   fs.writeFileSync(env.ELIGIBLE_ISSUES, eligible);
   if (queue !== undefined) {
     env.DISPATCH_QUEUE = path.join(dir, "dispatch-queue");
-    fs.writeFileSync(env.DISPATCH_QUEUE, queue);
+    if (queue !== null) fs.writeFileSync(env.DISPATCH_QUEUE, queue);
   }
   const r = runStep(dir, passOn, env);
   return { ...r, outputs: outputs(output) };
 }
+
+test("issue-triage.yml: a sweep that stopped before its queue passes nothing on", (t) => {
+  for (const queue of [undefined, null]) {
+    const r = pass(t, queue);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(r.outputs, {});
+  }
+});
+
+// The triage job's dispatch output, as GitHub evaluates it, is what the
+// pass-on step wrote, and it starts the dispatch job.
+test("issue-triage.yml: the triage job hands the passed-on queue to the dispatch job", (t) => {
+  const r = pass(t, "12\n8\n");
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const dispatch = value(jobOutputs(FILE, "triage").dispatch ?? "", { steps: { queue: { outputs: r.outputs } } });
+  assert.equal(dispatch, "8 12 ");
+  assert.equal(runs(ifOf(FILE, { job: "dispatch" }), { needs: { triage: { outputs: { dispatch } } } }), true);
+});
 
 test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once each", (t) => {
   const r = pass(t, "12\n8\n12\n");
@@ -54,6 +75,7 @@ test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once ea
   const bad = pass(t, "8\n9; rm -rf /\n");
   assert.equal(bad.status, 1);
   assert.match(bad.stdout, /::error::the dispatch queue holds something other than issue numbers/);
+  oneError(bad.stdout);
   assert.deepEqual(bad.outputs, {});
 
   // A number the sweep did not list never reaches the dispatch job, nor

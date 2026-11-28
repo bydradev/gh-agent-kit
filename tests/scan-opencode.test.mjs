@@ -12,7 +12,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { LOG_LINE, MODELS, readEnv, sleepStub } from "./helpers/opencode.mjs";
 import { root, tempDir } from "./helpers/server.mjs";
-import { publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
+import { oneError, publicContentGuard, runStep, stepScript } from "./helpers/workflow.mjs";
 
 const FILE = "security-scan.yml";
 const workflow = () => fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8");
@@ -649,6 +649,7 @@ test("security-scan.yml, Run the scan on OpenCode: no answer, an error or the tu
     const r = scan(t, opts);
     assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout + r.stderr);
     assert.match(r.stdout, message, JSON.stringify(opts));
+    oneError(r.stdout);
     assert.equal(r.alive, false, JSON.stringify(opts));
   }
   // A session that cannot be exported leaves the counts out, with a
@@ -671,6 +672,7 @@ test("security-scan.yml, Run the scan on OpenCode: the model and effort are chec
     const r = scan(t, opts);
     assert.equal(r.status, 1, JSON.stringify(opts) + r.stdout + r.stderr);
     assert.match(r.stdout, message, JSON.stringify(opts));
+    oneError(r.stdout);
     assert.equal(r.serve, undefined, JSON.stringify(opts));
   }
   // A failed listing shows what the CLI printed.
