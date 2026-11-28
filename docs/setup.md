@@ -296,10 +296,12 @@ KIT_REVIEW_SKILLS: acme-code-review
 - **The whole directory.** Before the reviewer starts, the review job
   replaces each listed `.agents/skills/<name>/` in the checkout with the
   base branch's copy, its reference files included, and removes files the
-  pull request added there. Both runners, Claude Code and OpenCode's CLI,
+  pull request added there. The base's `.gitattributes` apply to the
+  restored files, not the pull request's, and a `CLAUDE.md` in a restored
+  directory is removed like any other. Both runners, Claude Code and OpenCode's CLI,
   read that checkout, so both follow the base copy.
-- **First adoption.** A listed skill the base branch does not have yet
-  keeps the pull request's copy, as the kit's own skills do on the pull
+- **First adoption.** A listed skill whose `SKILL.md` the base branch
+  does not have yet keeps the pull request's copy, as the kit's own skills do on the pull
   request that installs the kit, and the run's log says so. A name neither
   side has is a warning in the log, most likely a typo.
 - **Symlinks.** A skill directory, or a parent of one, that the pull
@@ -309,10 +311,11 @@ KIT_REVIEW_SKILLS: acme-code-review
 - **Names only.** Each name is lowercase letters and digits in
   hyphen-separated runs, at most 64 characters, so a name cannot be a path
   or leave `.agents/skills/`; anything else fails the settings job, naming
-  where the value came from. `review-guidelines` and `github-pr-review` are
-  always read from the base, so listing them changes nothing; listing
-  another of the kit's skills only makes the review read the base copy of
-  it too.
+  where the value came from. The `SKILL.md` of `review-guidelines` and of
+  `github-pr-review` is always read from the base; listing either restores
+  its whole directory instead, and listing another of the kit's skills
+  makes the review read the base copy of it too. Neither weakens the
+  review.
 
 Each workflow runs a short `settings` job first: a job's `if:` and
 `timeout-minutes` can read only repository variables and earlier jobs'

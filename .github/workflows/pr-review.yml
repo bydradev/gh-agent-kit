@@ -720,17 +720,16 @@ jobs:
           GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
             git fetch --no-tags --no-recurse-submodules origin "$BASE"
-          find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print0 \
-            | xargs -0 -r rm -rf --
           # The repository's own review skills, which KIT_REVIEW_SKILLS lists:
           # the settings job read it from the default branch's settings file
           # or a repository variable, never from the head, so a pull request
-          # cannot change which skills its own review restores. Each is
-          # restored as a whole directory, reference files included. The
+          # cannot change which skills its own review restores. A skill the
+          # base has (its SKILL.md) is restored as a whole directory,
+          # reference files included; one it lacks is a first adoption. The
           # settings job checked the names; they are checked again here, as
           # this step removes what they name, so none can leave
           # .agents/skills.
-          skills=()
+          skills=() restore=()
           if [ -n "${KIT_REVIEW_SKILLS:-}" ]; then
             skill='[a-z0-9]+(-[a-z0-9]+)*'
             if ! [[ "$KIT_REVIEW_SKILLS" =~ ^$skill(,$skill)*$ ]]; then
@@ -740,7 +739,8 @@ jobs:
             IFS=, read -r -a skills <<< "$KIT_REVIEW_SKILLS"
           fi
           for s in "${skills[@]}"; do
-            if git cat-file -e "origin/$BASE:.agents/skills/$s" 2>/dev/null; then
+            if git cat-file -e "origin/$BASE:.agents/skills/$s/SKILL.md" 2>/dev/null; then
+              restore+=(".agents/skills/$s")
               echo "review skill $s: the copy on $BASE"
             elif git cat-file -e "HEAD:.agents/skills/$s" 2>/dev/null; then
               echo "review skill $s: not on $BASE, so the pull request's copy (a first adoption)"
@@ -754,8 +754,8 @@ jobs:
             printf '%s\0' .agents/skills/review-guidelines/SKILL.md \
               .agents/skills/github-pr-review/SKILL.md \
               .github/scripts/mcp-server.mjs
-            for s in "${skills[@]}"; do
-              printf '%s\0' ".agents/skills/$s"
+            for d in "${restore[@]}"; do
+              printf '%s\0' "$d"
             done
             git ls-tree -r -z --name-only "origin/$BASE" | grep -zE '(^|/)AGENTS\.md$' || true
           } | while IFS= read -r -d '' f; do
@@ -768,12 +768,17 @@ jobs:
                 [ -L "$dir" ] && rm -f -- "$dir"
               done
               rm -rf -- "$f"
-              git checkout "origin/$BASE" -- "$f"
+              # The base's .gitattributes, not the head's, so a head cannot
+              # re-encode or convert the restored bytes on checkout.
+              git --attr-source="origin/$BASE" checkout "origin/$BASE" -- "$f"
             fi
           done
           git ls-files -z -- 'AGENTS.md' '*/AGENTS.md' | while IFS= read -r -d '' f; do
             git cat-file -e "origin/$BASE:$f" 2>/dev/null || rm -f -- "$f"
           done
+          # After the restore, so none comes back with a restored directory.
+          find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print0 \
+            | xargs -0 -r rm -rf --
           for p in .github .github/scripts .github/scripts/mcp-server.mjs; do
             if [ -L "$p" ]; then
               echo "::error::$p is a symlink; the review server is not installed through one"
