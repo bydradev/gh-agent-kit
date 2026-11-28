@@ -330,8 +330,10 @@ test("the compare step reports a missing or differing Work tracking block", { sk
     [agentsWith("```md\n~~~\n" + BLOCK + "```\n"), "missing"],
     [agentsWith("```md\n``` x\n" + BLOCK + "```\n"), "missing"],
     [agentsWith("~~~ a`b\n" + BLOCK + "~~~\n"), "missing"],
-    // A second end, or a start or an end alone.
+    // A second end or a second start after the block, or a start or an
+    // end alone.
     [agentsWith(BLOCK + END + "\n"), "updated"],
+    [agentsWith(BLOCK + START + "\n"), "updated"],
     [agentsWith(START + "\n"), "updated"],
     [agentsWith(END + "\n"), "updated"],
   ]) {
