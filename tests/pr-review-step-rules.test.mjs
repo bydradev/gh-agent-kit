@@ -49,6 +49,47 @@ test("a number setting must be digits, at most six of them, and is written to GI
   }
 });
 
+test("KIT_REVIEW_SKILLS must be skill names joined by commas, and is written to GITHUB_ENV", (t) => {
+  const settings = (env) => run(t, "Read the review settings", { env });
+  const unset = settings({});
+  assert.equal(unset.status, 0, unset.stdout + unset.stderr);
+  assert.equal(unset.env.KIT_REVIEW_SKILLS, "");
+  for (const value of ["acme-review", "acme-review,api2,x", "a".repeat(64)]) {
+    const ok = settings({ SKILLS: value });
+    assert.equal(ok.status, 0, `${value}: ${ok.stdout}`);
+    assert.equal(ok.env.KIT_REVIEW_SKILLS, value);
+  }
+  for (const value of [
+    "..",
+    ".",
+    "../x",
+    "a/b",
+    "Acme",
+    "a_b",
+    "a.b",
+    "-a",
+    "a-",
+    "a--b",
+    "a,",
+    ",a",
+    "a,,b",
+  ]) {
+    const bad = settings({ SKILLS: value, FROM_KIT_REVIEW_SKILLS: ".github/gh-agent-kit.yml line 3" });
+    assert.equal(bad.status, 1, `${value}: ${bad.stdout}`);
+    assert.ok(
+      bad.stdout.includes(
+        `the setting KIT_REVIEW_SKILLS must be skill names (lowercase letters, digits and single hyphens) joined by commas, with no spaces, not '${value}' (.github/gh-agent-kit.yml line 3)`,
+      ),
+      `${value}: ${bad.stdout}`,
+    );
+    assert.equal(bad.env.KIT_REVIEW_SKILLS, undefined, value);
+  }
+  const long = settings({ SKILLS: `ok,${"a".repeat(65)}`, FROM_KIT_REVIEW_SKILLS: "the repository variable" });
+  assert.equal(long.status, 1, long.stdout);
+  assert.match(long.stdout, /the setting KIT_REVIEW_SKILLS names a skill longer than 64 characters, 'a{65}' \(the repository variable\)/);
+  assert.equal(long.env.KIT_REVIEW_SKILLS, undefined);
+});
+
 // The open-mode push skip, with the PR's comments and the workflow's runs on
 // the last reviewed head.
 const PUSH_SKIP = 'Skip a push in mode "open" once a review succeeded';

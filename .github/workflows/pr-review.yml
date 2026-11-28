@@ -96,6 +96,7 @@ jobs:
         KIT_REVIEW_TIMEOUT_MINUTES
         KIT_REVIEW_MAX_FILES
         KIT_REVIEW_MAX_LINES
+        KIT_REVIEW_SKILLS
     outputs:
       KIT_REVIEW_MODE: ${{ steps.pass.outputs.KIT_REVIEW_MODE }}
       KIT_REVIEW_PROVIDER: ${{ steps.pass.outputs.KIT_REVIEW_PROVIDER }}
@@ -106,6 +107,7 @@ jobs:
       KIT_REVIEW_TIMEOUT_MINUTES: ${{ steps.pass.outputs.KIT_REVIEW_TIMEOUT_MINUTES }}
       KIT_REVIEW_MAX_FILES: ${{ steps.pass.outputs.KIT_REVIEW_MAX_FILES }}
       KIT_REVIEW_MAX_LINES: ${{ steps.pass.outputs.KIT_REVIEW_MAX_LINES }}
+      KIT_REVIEW_SKILLS: ${{ steps.pass.outputs.KIT_REVIEW_SKILLS }}
       # "true" when the early skip below found nothing to review.
       SKIP: ${{ steps.pass.outputs.SKIP }}
     steps:
@@ -124,7 +126,7 @@ jobs:
           known=(
             KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_RUNNER KIT_REVIEW_MODEL
             KIT_REVIEW_EFFORT KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES
-            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES
+            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES KIT_REVIEW_SKILLS
             KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_RUNNER KIT_SECURITY_MODEL
             KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
@@ -151,12 +153,23 @@ jobs:
             exit 1
           fi
           # One "NAME: value" line per setting, a value being a word or a
-          # number, quoted or not; comments and blank lines are skipped.
-          # Anything else fails the run naming the line, and a line is never
-          # printed: one that is not a setting could hold a secret.
+          # number, quoted or not; comments and blank lines are skipped. A
+          # list setting's value is words joined by commas instead, which
+          # the workflow that reads it checks further. Anything else fails
+          # the run naming the line, and a line is never printed: one that
+          # is not a setting could hold a secret.
           declare -A value=() at=()
           word='[A-Za-z0-9._-]'
-          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          item='[A-Za-z0-9._,-]'
+          lists=" KIT_REVIEW_SKILLS "
+          shape() {
+            if [[ "$lists" == *" $1 "* ]]; then
+              printf 'names joined by commas, with no spaces'
+            else
+              printf 'one word or number'
+            fi
+          }
+          pair="^[[:space:]]+(\"($item*)\"|'($item*)'|($item+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
           n=0
           while IFS= read -r l || [ -n "$l" ]; do
             n=$((n + 1))
@@ -185,10 +198,16 @@ jobs:
               exit 1
             fi
             if ! [[ "$rest" =~ $pair ]]; then
-              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              echo "::error::$file line $n: $name must be $(shape "$name"), quoted or not"
               exit 1
             fi
-            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            v=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            # Only a list setting may hold a comma.
+            if [[ "$v" == *,* ]] && [[ "$lists" != *" $name "* ]]; then
+              echo "::error::$file line $n: $name must be $(shape "$name"), quoted or not"
+              exit 1
+            fi
+            value[$name]=$v
             at[$name]=$n
           done <<< "$content"
           # Each setting this workflow reads: the repository variable when
@@ -206,8 +225,8 @@ jobs:
             else
               from="unset"
             fi
-            if ! [[ "$v" =~ ^$word*$ ]]; then
-              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+            if ! [[ "$v" =~ ^$item*$ ]] || { [[ "$v" == *,* ]] && [[ "$lists" != *" $name "* ]]; }; then
+              echo "::error::the setting $name must be $(shape "$name"), as the kit's setup guide lists ($from)"
               exit 1
             fi
             # A switch takes only the values that name a state, so a typo
@@ -241,6 +260,7 @@ jobs:
           TIMEOUT: ${{ env.KIT_REVIEW_TIMEOUT_MINUTES }}
           MAX_FILES: ${{ env.KIT_REVIEW_MAX_FILES }}
           MAX_LINES: ${{ env.KIT_REVIEW_MAX_LINES }}
+          SKILLS: ${{ env.KIT_REVIEW_SKILLS }}
         run: |
           # Where a setting's value came from, for the errors below.
           from() { local v="FROM_$1"; printf '%s' "${!v:-unset}"; }
@@ -361,6 +381,30 @@ jobs:
           number KIT_REVIEW_TIMEOUT_MINUTES "$TIMEOUT" 30 360
           number KIT_REVIEW_MAX_FILES "$MAX_FILES" 300 300
           number KIT_REVIEW_MAX_LINES "$MAX_LINES" 20000 20000
+          # The repository's own review skills, which the review job restores
+          # from the base branch as it does review-guidelines: directory
+          # names under .agents/skills, joined by commas. A name is lowercase
+          # letters and digits in hyphen-separated runs, at most 64
+          # characters (the Agent Skills specification's name rule,
+          # https://agentskills.io/specification, read 2026-11-28), so none
+          # can be a path, "." or "..", or leave .agents/skills. Unset is
+          # none.
+          skill='[a-z0-9]+(-[a-z0-9]+)*'
+          if [ -n "$SKILLS" ]; then
+            if ! [[ "$SKILLS" =~ ^$skill(,$skill)*$ ]]; then
+              echo "::error::the setting KIT_REVIEW_SKILLS must be skill names (lowercase letters, digits and single hyphens) joined by commas, with no spaces, not '$SKILLS' ($(from KIT_REVIEW_SKILLS))"
+              exit 1
+            fi
+            IFS=, read -r -a names <<< "$SKILLS"
+            for s in "${names[@]}"; do
+              if [ "${#s}" -gt 64 ]; then
+                echo "::error::the setting KIT_REVIEW_SKILLS names a skill longer than 64 characters, '$s' ($(from KIT_REVIEW_SKILLS))"
+                exit 1
+              fi
+            done
+          fi
+          echo "KIT_REVIEW_SKILLS=$SKILLS" >> "$GITHUB_ENV"
+          echo "KIT_REVIEW_SKILLS=${SKILLS:-(unset, so none)}"
       # The review job's skip for a body edit, decided here too, so an edit
       # that changes nothing the last report reviewed starts no review job
       # (its checkout and the queue behind a review in flight). A skipped
@@ -566,6 +610,7 @@ jobs:
       KIT_REVIEW_TIMEOUT_MINUTES: ${{ needs.settings.outputs.KIT_REVIEW_TIMEOUT_MINUTES }}
       KIT_REVIEW_MAX_FILES: ${{ needs.settings.outputs.KIT_REVIEW_MAX_FILES }}
       KIT_REVIEW_MAX_LINES: ${{ needs.settings.outputs.KIT_REVIEW_MAX_LINES }}
+      KIT_REVIEW_SKILLS: ${{ needs.settings.outputs.KIT_REVIEW_SKILLS }}
     steps:
       # anthropics/claude-code-action refused a pull request event whose
       # actor lacked write access, and any bot actor (docs/security.md at
@@ -647,11 +692,13 @@ jobs:
         # The list anthropics/claude-code-action restores from the base on
         # pull request events (v1.0.256).
         run: rm -rf -- .claude .mcp.json .claude.json CLAUDE.local.md .gitmodules .ripgreprc .husky
-      # The reviewer's own rules and the MCP server that serves its reads
-      # and its writes (inline findings and the one report) come from the
-      # base branch, never from the change under review: a pull request
-      # cannot rewrite the instructions that review it or the code that
-      # posts the findings and the verdict. A file the base does
+      # The reviewer's own rules (its skills, the repository's review
+      # skills KIT_REVIEW_SKILLS lists and every AGENTS.md) and the MCP
+      # server that serves its reads and its writes (inline findings and
+      # the one report) come from the base branch, never from the change
+      # under review: a pull request cannot rewrite the instructions that
+      # review it or the code that posts the findings and the verdict. Both
+      # runners read this one checkout. A file or skill the base does
       # not have (a first adoption) keeps the head copy, as review-guidelines
       # says, but an AGENTS.md the base lacks is removed. The CLI runs with
       # --restricted below, which loads no project memory (with the pinned
@@ -675,12 +722,41 @@ jobs:
             git fetch --no-tags --no-recurse-submodules origin "$BASE"
           find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print0 \
             | xargs -0 -r rm -rf --
+          # The repository's own review skills, which KIT_REVIEW_SKILLS lists:
+          # the settings job read it from the default branch's settings file
+          # or a repository variable, never from the head, so a pull request
+          # cannot change which skills its own review restores. Each is
+          # restored as a whole directory, reference files included. The
+          # settings job checked the names; they are checked again here, as
+          # this step removes what they name, so none can leave
+          # .agents/skills.
+          skills=()
+          if [ -n "${KIT_REVIEW_SKILLS:-}" ]; then
+            skill='[a-z0-9]+(-[a-z0-9]+)*'
+            if ! [[ "$KIT_REVIEW_SKILLS" =~ ^$skill(,$skill)*$ ]]; then
+              echo "::error::KIT_REVIEW_SKILLS is not skill names joined by commas ('$KIT_REVIEW_SKILLS'); not reviewed"
+              exit 1
+            fi
+            IFS=, read -r -a skills <<< "$KIT_REVIEW_SKILLS"
+          fi
+          for s in "${skills[@]}"; do
+            if git cat-file -e "origin/$BASE:.agents/skills/$s" 2>/dev/null; then
+              echo "review skill $s: the copy on $BASE"
+            elif git cat-file -e "HEAD:.agents/skills/$s" 2>/dev/null; then
+              echo "review skill $s: not on $BASE, so the pull request's copy (a first adoption)"
+            else
+              echo "::warning::KIT_REVIEW_SKILLS names $s, which neither $BASE nor the pull request has under .agents/skills"
+            fi
+          done
           # Every AGENTS.md the base has, at any depth: the reviewer reads
           # more-local rules too, so a head may not add or change one.
           {
             printf '%s\0' .agents/skills/review-guidelines/SKILL.md \
               .agents/skills/github-pr-review/SKILL.md \
               .github/scripts/mcp-server.mjs
+            for s in "${skills[@]}"; do
+              printf '%s\0' ".agents/skills/$s"
+            done
             git ls-tree -r -z --name-only "origin/$BASE" | grep -zE '(^|/)AGENTS\.md$' || true
           } | while IFS= read -r -d '' f; do
             if git cat-file -e "origin/$BASE:$f" 2>/dev/null; then

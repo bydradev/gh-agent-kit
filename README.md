@@ -60,7 +60,9 @@ which program and which model each workflow uses.
   current on each install.
 
 The review and the scan follow the base branch's copies of their skills,
-the review guidelines and every `AGENTS.md`, and the review uses the
+the review guidelines and every `AGENTS.md`; the review also follows the
+base's copies of the repository's own review skills listed in
+[`KIT_REVIEW_SKILLS`](docs/setup.md#repository-review-skills) and uses the
 base's MCP server, never the change's copies. A skill or server the base
 lacks comes from the change, as on the pull request that first installs
 the kit. The workflow files are the exception: a pull request runs its
