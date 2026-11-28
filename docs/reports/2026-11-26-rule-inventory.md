@@ -30,6 +30,10 @@ statements, each command of a `{ }` group written to a file, a job's
 `outputs:`, and each failure statement), which add rows to `pr-review.yml` and `security-scan.yml`;
 they are listed in sections of their own after phase 3's.
 
+After phase 3's commit, #108 changed the settings read step of all five
+workflows and added rules to `pr-review.yml`. Those rules are not in the
+sections below; phase 4 counts them, against the later commit it pins.
+
 **In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
 of them by a time limit (the test never ends: an endless loop, or a
 reply it waits for never comes). The 60 left are listed

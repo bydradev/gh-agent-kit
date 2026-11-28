@@ -18,7 +18,8 @@ chose separate pull requests by file group on 2026-11-26: (1) the server
 and `pr-review.yml`, done; (2) `security-scan.yml`, done; (3) `issue-triage.yml`,
 `pr-issue-link.yml` and `kit-update-check.yml`, done; (4) `install.sh`,
 `sync-labels.sh`, `public-content.mjs` and the other workflows. The last
-one closes the issue. The mutation script stays out of the repository.
+one closes the issue; it also counts the rules #108 added after phase 3's
+pinned commit. The mutation script stays out of the repository.
 
 ### Triage for issues the reviewer files (2026-11-25)
 
