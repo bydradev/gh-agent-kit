@@ -170,6 +170,16 @@ test("no closing pull request and no stale-claim comment fails the stale check",
   const r = backstop(t, { pulls: [] });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, FAILED);
+  // A look-alike by someone else, or the heading inside a line, is no
+  // stale-claim comment.
+  for (const comment of [
+    { ...STALE_CLAIM, user: user("dra") },
+    { ...STALE_CLAIM, body: "Quoting: ## Triage: stale claim" },
+  ]) {
+    const look = backstop(t, { pulls: [], comments: [comment] });
+    assert.equal(look.status, 1, look.stdout + look.stderr);
+    assert.match(look.stdout, FAILED);
+  }
 });
 
 // A dispatched run on an unclaimed issue: an approved plan stands, and so

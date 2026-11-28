@@ -133,7 +133,7 @@ function runTriage(t, rules) {
     const f = path.join(sudo.installed, name);
     return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null;
   };
-  return { ...step, env: fs.readFileSync(githubEnv, "utf8"), installed };
+  return { ...step, env: fs.readFileSync(githubEnv, "utf8"), installed, temp: dir };
 }
 const contents = (f, body) => ({
   match: `^api repos/acme/widgets/contents/${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
@@ -161,6 +161,19 @@ test("triage installs the default branch's check from the contents API", (t) => 
   assert.equal(step.status, 0, step.stdout + step.stderr);
   assert.equal(step.installed("public-content.mjs"), text);
   assert.match(step.env, /^PUBLIC_CONTENT_CHECK=\/opt\/agent-kit\/public-content\.mjs$/m);
+});
+
+test("triage runs the check on an empty file, then leaves none of its files behind", (t) => {
+  // A check that fails unless --text names a file that exists and is empty.
+  const check =
+    'import fs from "node:fs";\n' +
+    'const f = process.argv.find((a) => a.startsWith("--text=")).slice(7);\n' +
+    'process.exit(fs.readFileSync(f, "utf8") === "" ? 0 : 1);\n';
+  const step = runTriage(t, [contents(MJS, file(check))]);
+  assert.equal(step.status, 0, step.stdout + step.stderr);
+  assert.equal(step.installed("public-content.mjs"), check);
+  for (const name of ["public-content-empty", "public-content-check.mjs", "public-content.json", "public-content.err"])
+    assert.equal(fs.existsSync(path.join(step.temp, name)), false, `${name} is left in RUNNER_TEMP`);
 });
 
 test("triage takes the Python check when there is no Node one, and none when neither exists", (t) => {

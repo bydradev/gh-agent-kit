@@ -10,8 +10,10 @@ const FILE = "issue-triage.yml";
 const person = { login: "dev", type: "User" };
 const bot = { login: "github-actions[bot]", type: "Bot" };
 
-// An issues event's context.
+// An issues event's context. A labeled event's issue already carries the
+// label it adds, as GitHub's payload does.
 function issue({ action = "labeled", label = "needs-triage", user = person, state = "open", labels = [] } = {}) {
+  if (action === "labeled" && !labels.includes(label)) labels = [...labels, label];
   return {
     github: {
       event_name: "issues",
@@ -42,6 +44,7 @@ test("the settings job runs on a sweep, a dispatch, and the issue events triage 
     ["a dispatch", { github: { event_name: "workflow_dispatch" } }, true],
     ["needs-triage added by a person", issue(), true],
     ["another label added", issue({ label: "bug" }), false],
+    ["another label added to an issue with needs-triage", issue({ label: "bug", labels: ["needs-triage"] }), false],
     ["a closed issue", issue({ state: "closed" }), false],
     ["an issue opened without needs-triage", issue({ action: "opened" }), true],
     ["an issue opened with needs-triage", issue({ action: "opened", labels: ["needs-triage"] }), false],
@@ -53,6 +56,7 @@ test("the settings job runs on a sweep, a dispatch, and the issue events triage 
     ["github-actions[bot]'s issue, needs-triage added", issue({ user: bot }), true],
     ["github-actions[bot]'s issue, edited", issue({ action: "edited", user: bot }), true],
     ["github-actions[bot]'s issue, another label added", issue({ user: bot, label: "bug" }), false],
+    ["github-actions[bot]'s issue with needs-triage, another label added", issue({ user: bot, label: "bug", labels: ["needs-triage"] }), false],
     ["github-actions[bot]'s issue, opened", issue({ action: "opened", user: bot }), false],
     ["github-actions[bot]'s issue, reopened", issue({ action: "reopened", user: bot }), false],
   ]);

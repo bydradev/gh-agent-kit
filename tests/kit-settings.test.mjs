@@ -360,21 +360,24 @@ test("a value out of range names where it came from", (t) => {
   }
 });
 
-test("the pass step hands every setting on as an output", (t) => {
-  const dir = tempDir(t);
-  const out = path.join(dir, "github-output");
-  fs.writeFileSync(out, "");
-  const r = runStep(dir, stepScript("security-scan.yml", "Pass the settings on"), {
-    GITHUB_OUTPUT: out,
-    SETTINGS: "KIT_SECURITY_SCAN KIT_SECURITY_MODEL KIT_SECURITY_EFFORT",
-    KIT_SECURITY_SCAN: "open",
-    KIT_SECURITY_MODEL: "claude-opus-5-5",
-  });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(
-    fs.readFileSync(out, "utf8"),
-    "KIT_SECURITY_SCAN=open\nKIT_SECURITY_MODEL=claude-opus-5-5\nKIT_SECURITY_EFFORT=\n",
-  );
+test("each workflow's pass step hands every setting on as an output", (t) => {
+  for (const file of Object.keys(WORKFLOWS)) {
+    const dir = tempDir(t);
+    const out = path.join(dir, "github-output");
+    fs.writeFileSync(out, "");
+    const r = runStep(dir, stepScript(file, "Pass the settings on"), {
+      GITHUB_OUTPUT: out,
+      SETTINGS: "KIT_SECURITY_SCAN KIT_SECURITY_MODEL KIT_SECURITY_EFFORT",
+      KIT_SECURITY_SCAN: "open",
+      KIT_SECURITY_MODEL: "claude-opus-5-5",
+    });
+    assert.equal(r.status, 0, `${file}: ${r.stderr}`);
+    assert.equal(
+      fs.readFileSync(out, "utf8"),
+      "KIT_SECURITY_SCAN=open\nKIT_SECURITY_MODEL=claude-opus-5-5\nKIT_SECURITY_EFFORT=\n",
+      file,
+    );
+  }
 });
 
 // With a settings job, a run whose review job was skipped (the review off)

@@ -88,6 +88,32 @@ test("issue-triage.yml: the runner follows the provider unless set, and opencode
   }
 });
 
+test("issue-triage.yml: the turn and time limits default, and a value out of range fails", (t) => {
+  const unset = settings(t, {});
+  assert.equal(unset.status, 0, unset.stdout);
+  assert.equal(unset.env.KIT_TRIAGE_MAX_TURNS, "40");
+  assert.equal(unset.env.KIT_TRIAGE_TIMEOUT_MINUTES, "15");
+  const set = settings(t, { MAX_TURNS: "500", TIMEOUT: "360" });
+  assert.equal(set.status, 0, set.stdout);
+  assert.equal(set.env.KIT_TRIAGE_MAX_TURNS, "500");
+  assert.equal(set.env.KIT_TRIAGE_TIMEOUT_MINUTES, "360");
+  // Claude Code on the Anthropic API, as set, gives no warning.
+  const claude = settings(t, { PROVIDER: "anthropic", RUNNER: "claude-code" });
+  assert.equal(claude.status, 0, claude.stdout);
+  assert.doesNotMatch(claude.stdout, /::warning::/);
+  // A number too long for bash's test would read as not too large.
+  for (const [env, name, value, max] of [
+    [{ MAX_TURNS: "501" }, "KIT_TRIAGE_MAX_TURNS", "501", 500],
+    [{ MAX_TURNS: "1".repeat(21) }, "KIT_TRIAGE_MAX_TURNS", "1".repeat(21), 500],
+    [{ TIMEOUT: "361" }, "KIT_TRIAGE_TIMEOUT_MINUTES", "361", 360],
+  ]) {
+    const bad = settings(t, env);
+    assert.equal(bad.status, 1, JSON.stringify(env));
+    assert.match(bad.stdout, new RegExp(`::error::the setting ${name} must be a whole number from 1 to ${max}, not '${value}' \\(unset\\)`));
+    assert.equal(bad.env[name], undefined, JSON.stringify(env));
+  }
+});
+
 // Each step's if: as written in the workflow.
 function stepIf(name) {
   const lines = fs.readFileSync(path.join(root, ".github/workflows", FILE), "utf8").split("\n");
@@ -152,11 +178,17 @@ function run(
     serverEnv = {},
     models,
     modelsExit,
+    model = "glm-5.3-flash",
+    state,
+    result,
   } = {},
 ) {
   const dir = tempDir(t);
   const temp = path.join(dir, "runner-temp");
   fs.mkdirSync(temp);
+  // state: the server's state file; result: what the events file held before.
+  if (state) fs.writeFileSync(path.join(temp, "agent-kit-state.json"), JSON.stringify(state));
+  if (result !== undefined) fs.writeFileSync(path.join(temp, "opencode-events.jsonl"), result);
   const files = opencodeStub(dir, { events, exit, runs, models, modelsExit });
   const sleep = sleepStub(dir);
   const githubEnv = path.join(temp, "github-env");
@@ -178,7 +210,7 @@ function run(
     OPENCODE_API_KEY: key,
     ALLOWED: allowed,
     MCP_CONFIG: JSON.stringify(mcp),
-    KIT_TRIAGE_MODEL: "glm-5.3-flash",
+    KIT_TRIAGE_MODEL: model,
     KIT_TRIAGE_EFFORT: effort,
     KIT_TRIAGE_MAX_TURNS: maxTurns,
     KIT_TRIAGE_TIMEOUT_MINUTES: timeout,
@@ -436,6 +468,52 @@ test("issue-triage.yml: before OpenCode runs, .git and the symlinks leave the ch
   assert.ok(text.indexOf(`- name: ${NAME}\n`) < text.indexOf("- name: Run the triage on OpenCode\n"));
 });
 
+test("issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has", (t) => {
+  const r = run(t, { model: "deepseek-v4.1-flash", effort: "high" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.args, ["run", "--print-logs", "--format", "json", "-m", "opencode-go/deepseek-v4.1-flash", "--variant", "high", "Read the skill."]);
+  const lacking = run(t, { model: "deepseek-v4.1-flash", effort: "medium" });
+  assert.equal(lacking.status, 1, lacking.stdout + lacking.stderr);
+  assert.match(lacking.stdout, /^::error::the setting KIT_TRIAGE_EFFORT is 'medium', which OpenCode does not offer for deepseek-v4\.1-flash; it offers high, low, max, or leave it unset$/m);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the events file starts empty, so an earlier run's events are not read", (t) => {
+  const stale = JSON.stringify({ type: "step_finish", part: { reason: "error", cost: 9 } }) + "\n";
+  const r = run(t, { result: stale });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^last step: stop$/m);
+  assert.match(r.stdout, /^cost_usd \(Go prices\): 0\.75$/m);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: the last step is the last step_finish, whatever event follows it", (t) => {
+  const r = run(t, { events: [...SUCCESS, { type: "text", part: { type: "text", text: "" } }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^last step: stop$/m);
+});
+
+test("issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails", (t) => {
+  const closed = { closed: true };
+  const withheld = "(withheld: the run closed on a private repository name)";
+  const error = { type: "error", error: { name: "APIError", data: { message: "about skunkworks" } } };
+  const STEER = "::error::A text the run was to post held a private repository name, so it posted nothing more, and its last message and log are withheld";
+  for (const [name, events, errors] of [
+    ["a run that finished", SUCCESS.map((e) => (e.type === "text" ? { ...e, part: { ...e.part, text: "It was skunkworks." } } : e)), ""],
+    ["a run that ended in error", [...SUCCESS, error], withheld],
+  ]) {
+    const r = run(t, { events, state: closed });
+    assert.equal(r.status, 1, name);
+    assert.doesNotMatch(r.stdout, /skunkworks/, name);
+    assert.match(r.stdout, new RegExp(`^result: ${withheld.replace(/[()]/g, "\\$&")}$`, "m"), name);
+    assert.ok(r.stdout.split("\n").includes(`errors: ${errors}`), `${name}: ${r.stdout}`);
+    assert.ok(r.stdout.split("\n").includes(STEER), name);
+  }
+  // With no events, its log stays out too.
+  const none = run(t, { events: [], exit: 1, state: closed });
+  assert.equal(none.status, 1);
+  assert.match(none.stdout, /^OpenCode's log: \(withheld: the run closed on a private repository name\)$/m);
+  assert.match(none.stdout, /^::error::OpenCode exited with status 1 and no events$/m);
+});
+
 // Go's capacity refusal, as the run's error event gives it.
 const refused = (after = "after 7 s") => ({
   type: "error",
@@ -455,6 +533,13 @@ const REFUSED = inSession([
 ]);
 const CARRY_ON =
   "OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again.";
+
+test("issue-triage.yml, Run the triage on OpenCode: the refusal read is the attempt's last error, not its last event", (t) => {
+  const r = run(t, { runs: [{ events: [...REFUSED, { type: "text", sessionID: "ses_1", part: { type: "text", text: "" } }], exit: 1 }, { events: inSession(SUCCESS) }] });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.calls.length, 2);
+  assert.deepEqual(r.slept, ["60"]);
+});
 
 // One step, refused before it served anything.
 const STALLED = inSession([{ type: "step_start", part: {} }, refused()]);

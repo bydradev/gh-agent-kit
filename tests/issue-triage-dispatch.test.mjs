@@ -23,6 +23,8 @@ const outputs = (file) =>
       .map((l) => l.split(/=(.*)/s).slice(0, 2)),
   );
 
+// queue: the queue file's text; null names a queue file that was never
+// written; undefined sets no queue at all.
 function pass(t, queue, eligible = "8\n12\n") {
   const dir = tempDir(t);
   const output = path.join(dir, "github-output");
@@ -31,11 +33,19 @@ function pass(t, queue, eligible = "8\n12\n") {
   fs.writeFileSync(env.ELIGIBLE_ISSUES, eligible);
   if (queue !== undefined) {
     env.DISPATCH_QUEUE = path.join(dir, "dispatch-queue");
-    fs.writeFileSync(env.DISPATCH_QUEUE, queue);
+    if (queue !== null) fs.writeFileSync(env.DISPATCH_QUEUE, queue);
   }
   const r = runStep(dir, passOn, env);
   return { ...r, outputs: outputs(output) };
 }
+
+test("issue-triage.yml: a sweep that stopped before its queue passes nothing on", (t) => {
+  for (const queue of [undefined, null]) {
+    const r = pass(t, queue);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(r.outputs, {});
+  }
+});
 
 test("issue-triage.yml: the sweep's queue is passed on as issue numbers, once each", (t) => {
   const r = pass(t, "12\n8\n12\n");
