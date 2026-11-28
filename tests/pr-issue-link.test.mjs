@@ -36,6 +36,8 @@ test("a closing keyword before an issue passes, in each form GitHub links", (t) 
     "Work tracking.\r\n\r\nCloses #44\r\n",
     "Closes:#5",
     "```sh\nnpm test\n```\n\nFixes #6",
+    // Backticks with a backtick after them open no fence.
+    "``` not`a fence\nCloses #12",
   ]) {
     const r = check(t, body);
     assert.equal(r.status, 0, `${JSON.stringify(body)}: ${r.stdout}${r.stderr}`);
@@ -78,6 +80,13 @@ test("a mention, a keyword without a number, a bare No issue, a template hint or
     "**No issue:** <!-- the reason -->",
     "```\nCloses #12\n```",
     "~~~~md\n~~~\nCloses #12\n~~~~",
+    // A fence that a line of the other character, or one with text after
+    // its backticks, does not close; a tilde fence whose info string has a
+    // backtick; and an opening fence's own info string.
+    "```\n~~~\nCloses #12\n```",
+    "```\n``` x\nCloses #12\n```",
+    "~~~ a`b\nCloses #12\n~~~",
+    "```Closes #12\ncode\n```",
     "<!--\nCloses #12\n-->\nNo issue:",
   ]) {
     const r = check(t, body);

@@ -306,6 +306,28 @@ test("the limits step refuses a large pull request and a checkout that misses fi
   assert.equal(limits({ CHANGED: "2", ADDED: "1", KIT_SECURITY_MAX_LINES: "1" }).status, 1);
 });
 
+// git diff -z --numstat puts a rename's two paths on lines of their own:
+// a path that looks like a count is not one.
+test("the limits step counts a rename's lines, not its paths", (t) => {
+  const repo = gitRepo(t);
+  repo.commit("a.txt", "one\ntwo\nthree\nfour\n", "a");
+  const base = repo.commit("b.txt", "five\nsix\nseven\neight\n", "b");
+  repo.git("checkout", "-q", "-b", "feature");
+  repo.git("mv", "a.txt", "5000");
+  repo.git("mv", "b.txt", "7000x\ty");
+  repo.git("commit", "-q", "-m", "rename");
+  repo.git("update-ref", "refs/remotes/origin/main", base);
+  const r = runStep(repo.dir, limitsScript, {
+    BASE: "main",
+    CHANGED: "2",
+    ADDED: "0",
+    DELETED: "0",
+    KIT_SECURITY_MAX_FILES: "300",
+    KIT_SECURITY_MAX_LINES: "100",
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
 test("every symlink in the checkout is removed, a directory link inside it too", (t) => {
   const repo = gitRepo(t);
   repo.commit("a.txt", "a\n", "base");
