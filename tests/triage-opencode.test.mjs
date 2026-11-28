@@ -505,7 +505,7 @@ test("issue-triage.yml, Run the triage on OpenCode: a run the server closed on a
     const r = run(t, { events, state: closed });
     assert.equal(r.status, 1, name);
     assert.doesNotMatch(r.stdout, /skunkworks/, name);
-    assert.match(r.stdout, new RegExp(`^result: ${withheld.replace(/[()]/g, "\\$&")}$`, "m"), name);
+    assert.ok(r.stdout.split("\n").includes(`result: ${withheld}`), `${name}: ${r.stdout}`);
     assert.ok(r.stdout.split("\n").includes(`errors: ${errors}`), `${name}: ${r.stdout}`);
     assert.ok(r.stdout.split("\n").includes(STEER), name);
   }

@@ -2462,7 +2462,7 @@ own, as the rule list above says.
 | 137 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 145 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 145 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -2476,26 +2476,26 @@ own, as the rule list above says.
 | 159 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 170 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 175 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 175 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 179 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 183 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 183 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 195 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 195 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 205 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 205 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 210 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 211 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 212 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -2504,7 +2504,7 @@ own, as the rule list above says.
 | 214 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 214 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 214 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 216 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 216 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 218 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 219 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 227 | if: whole | `env.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
@@ -3131,7 +3131,7 @@ own, as the rule list above says.
 | 95 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 103 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 103 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3145,26 +3145,26 @@ own, as the rule list above says.
 | 117 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 121 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 121 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 128 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 130 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 133 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 133 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 137 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 141 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 141 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 153 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 153 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 169 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 170 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3173,7 +3173,7 @@ own, as the rule list above says.
 | 172 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 174 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 174 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 176 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 185 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
@@ -3233,7 +3233,7 @@ own, as the rule list above says.
 | 102 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 110 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 110 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3247,26 +3247,26 @@ own, as the rule list above says.
 | 124 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 128 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 128 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 133 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 137 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 140 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 140 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 144 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 144 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 148 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 148 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 160 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 160 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 170 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 170 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 175 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 176 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3275,7 +3275,7 @@ own, as the rule list above says.
 | 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 179 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 179 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 181 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 181 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 183 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 184 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 192 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
@@ -3524,13 +3524,13 @@ own, as the rule list above says.
 | 106 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_FILES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 107 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_LINES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 109 | job output | `${{ steps.pass.outputs.SKIP }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
-| 150 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 168 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 180 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 184 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 188 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 210 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
-| 221 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 150 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 180 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 184 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 188 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 210 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 221 | sh failure statement | `exit 1` | `:` | its copy at `pr-review.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 253 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
 | 264 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
 | 277 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
@@ -3582,8 +3582,8 @@ own, as the rule list above says.
 | 1518 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the Anthropic provider without its key fails before the CLI starts" |
 | 1541 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
 | 1554 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
-| 1572 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1155, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
-| 1614 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1197, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1572 | sh failure statement | `exit 1` | `:` | its copy at `security-scan.yml` line 1155, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1614 | sh failure statement | `exit 1` | `:` | its copy at `security-scan.yml` line 1197, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1616 | awk pattern whole | `$0 == want` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk pattern whole | `$0 == want` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk skip statement | `next` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
@@ -3595,15 +3595,15 @@ own, as the rule list above says.
 | 1616 | awk pattern whole | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk pattern whole | `on` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk implicit print | (before `' "$RUNNER_TEMP/opencode-models")`) | ` {}` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
-| 1619 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1202, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
-| 1623 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1206, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1619 | sh failure statement | `exit 1` | `:` | its copy at `security-scan.yml` line 1202, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1623 | sh failure statement | `exit 1` | `:` | its copy at `security-scan.yml` line 1206, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1644 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1647 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1827 | sh group command | (before `echo "OpenCode's server log, its last 50 lines:"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
 | 1828 | sh group command | (before `tail -n 50 "$RUNNER_TEMP/opencode-serve.log" \| awk 1`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
 | 1828 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
 | 1832 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
-| 1843 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1426, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1843 | sh failure statement | `exit 1` | `:` | its copy at `security-scan.yml` line 1426, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1898 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
 | 2134 | awk pattern whole | `NR > 1` | `1` | Not a rule: the comma between the file names a message lists |
 | 2134 | awk pattern whole | `NR > 1` | `0` | Not a rule: the comma between the file names a message lists |
