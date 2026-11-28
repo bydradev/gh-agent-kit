@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.0](https://github.com/bydradev/gh-agent-kit/compare/v0.7.0...v0.8.0) (2026-11-28)
+
+
+### Features
+
+* **pr-review:** read repository review skills from the base branch ([#108](https://github.com/bydradev/gh-agent-kit/issues/108)) ([0cf50ec](https://github.com/bydradev/gh-agent-kit/commit/0cf50ec704ca012e748f5e82e0bf58d83816774b))
+
+
+### Bug Fixes
+
+* deny Claude Code's subagent, scheduling and worktree tools to the bots ([#87](https://github.com/bydradev/gh-agent-kit/issues/87)) ([4448cb9](https://github.com/bydradev/gh-agent-kit/commit/4448cb96a3d91fc2954492e9bfe67dff53374453))
+* **issue-triage:** triage a github-actions[bot] issue once the operator adds needs-triage ([#99](https://github.com/bydradev/gh-agent-kit/issues/99)) ([ae7b9b3](https://github.com/bydradev/gh-agent-kit/commit/ae7b9b3c7dea736dfb8daf10a5345a4ec74231f8))
+* keep the model's mentions from notifying anyone ([#91](https://github.com/bydradev/gh-agent-kit/issues/91)) ([35418e9](https://github.com/bydradev/gh-agent-kit/commit/35418e954d974cdb77109d2e836c7778dc74c11a))
+* **mcp-server:** answer requests whose text holds U+2028 or U+2029 ([#101](https://github.com/bydradev/gh-agent-kit/issues/101)) ([83bed33](https://github.com/bydradev/gh-agent-kit/commit/83bed33cb31557ee0f36fbcaefdce80216559bee)), closes [#90](https://github.com/bydradev/gh-agent-kit/issues/90)
+* **mcp-server:** withhold an unvouched github-actions[bot] issue's text from the other reads ([#102](https://github.com/bydradev/gh-agent-kit/issues/102)) ([72521f2](https://github.com/bydradev/gh-agent-kit/commit/72521f25ddfebc94b8902041f92cf27c3ff5784f)), closes [#100](https://github.com/bydradev/gh-agent-kit/issues/100)
+* read issues and comments of this repository only ([#88](https://github.com/bydradev/gh-agent-kit/issues/88)) ([ed8ae2a](https://github.com/bydradev/gh-agent-kit/commit/ed8ae2a0ad8dbe9ed968d4cd80ae7a272a9bca5c))
+* start the sweep's triage runs from a job that runs no model ([#89](https://github.com/bydradev/gh-agent-kit/issues/89)) ([98c554f](https://github.com/bydradev/gh-agent-kit/commit/98c554f84340c74610cd50cd2a670a37691c3985))
+
 ## [0.7.0](https://github.com/bydradev/gh-agent-kit/compare/v0.6.0...v0.7.0) (2026-11-20)
 
 
