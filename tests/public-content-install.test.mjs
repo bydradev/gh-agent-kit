@@ -280,3 +280,13 @@ test("a check that fails on an empty text stops either workflow before the model
   assert.match(triage.stdout, /does not pass on an empty text/);
   assert.doesNotMatch(triage.env, /PUBLIC_CONTENT_CHECK/);
 });
+
+// A read that fails for any reason but a 404 fails the step there: the
+// check is never skipped as if the file were absent.
+test("issue-triage.yml: a failed read of the default branch's check fails the step", (t) => {
+  const r = runTriage(t, [{ ...contents(MJS), stdout: "", stderr: "gh: Server Error (HTTP 500)\n", status: 1 }, notFound(PY)]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /::error::could not read \.github\/scripts\/public-content\.mjs from the default branch/);
+  oneError(r.stdout);
+  assert.doesNotMatch(r.env, /PUBLIC_CONTENT_CHECK/);
+});
