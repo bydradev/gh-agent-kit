@@ -121,6 +121,9 @@ change, and so does the weekly update check ([Updates](#updates)).
   The next [kit update](#updates) restores the release's pins.
 - **Settings and labels.** Put `KIT_*` settings in repository variables or
   [`.github/gh-agent-kit.yml`](#the-settings-file). Store secrets in Actions secrets.
+  List the repository's own review skills in
+  [`KIT_REVIEW_SKILLS`](#repository-review-skills) so the review reads them
+  from the base branch.
   After adding a label to the `github-issue-triage` table, run
   [the label sync script](#2-create-the-labels).
 - **Review reruns.** Follow `github-issue-e2e` for the kit's own reviewers.
@@ -189,6 +192,7 @@ its workflow off unnoticed. Values are matched exactly: `Push` fails too.
 | `KIT_REVIEW_TIMEOUT_MINUTES` | `30` | 1 to 360 | The review job's time limit (GitHub-hosted jobs stop at 6 hours) |
 | `KIT_REVIEW_MAX_FILES` | `300` | 1 to 300 | A larger pull request is refused, not reviewed |
 | `KIT_REVIEW_MAX_LINES` | `20000` | 1 to 20,000 | The same for changed lines |
+| `KIT_REVIEW_SKILLS` | unset (none) | skill names joined by commas, with no spaces, such as `acme-code-review,acme-api-rules` | The repository's own review skills, each a directory under `.agents/skills/`, which the review reads from the base branch ([Repository review skills](#repository-review-skills)) |
 | `KIT_SECURITY_PROVIDER` | `anthropic` | `anthropic` or `opencode-go` | Where the scanner's model runs, the same way as `KIT_REVIEW_PROVIDER` |
 | `KIT_SECURITY_RUNNER` | `opencode` on `opencode-go`, else `claude-code` | `claude-code`, or `opencode` with `KIT_SECURITY_PROVIDER=opencode-go` | The program that runs the scan and its verification, the same way as `KIT_REVIEW_RUNNER` |
 | `KIT_SECURITY_MODEL` | `claude-opus-5-5`, or `deepseek-v4.1-flash` on `opencode-go` | a `claude-` model name, or on `opencode-go` a Go model id | The scanner's model, for the scan and its verification |
@@ -261,7 +265,9 @@ KIT_REVIEW_MAX_TURNS: 120
   saved. (A pull request from a branch of this repository still runs its
   own copy of the workflows, as [The verdict check](#the-verdict-check) says.)
 - **Read strictly.** Only `NAME: value` lines, comments (`#`) and blank
-  lines; a value is one word or number, quoted or not. A name the kit does
+  lines; a value is one word or number, quoted or not, except
+  `KIT_REVIEW_SKILLS`, whose value is names joined by commas with no
+  spaces (`KIT_REVIEW_SKILLS: acme-code-review,acme-api-rules`). A name the kit does
   not read (a typo, or a secret's name), a name set twice, an indented
   line, a list or a mapping (or a byte-order mark before the first line)
   fails every workflow's run, naming the line but never printing it, until
@@ -270,6 +276,53 @@ KIT_REVIEW_MAX_TURNS: 120
   settings that would switch them off are unknown.
 - **Yours, not the kit's.** `install.sh` neither seeds nor overwrites it,
   and the update check never reports it.
+
+### Repository review skills
+
+A repository can keep review rules of its own in a skill, such as
+`.agents/skills/acme-code-review/SKILL.md`, named in `AGENTS.md`'s
+`## Project specifics` so the reviewer reads it first (`review-guidelines`
+says so). The review reads such a skill from the base branch, as it reads
+`review-guidelines`, once the skill is listed in `KIT_REVIEW_SKILLS`:
+
+```yaml
+KIT_REVIEW_SKILLS: acme-code-review
+```
+
+- **The list comes from the default branch.** It is a setting, read from
+  the settings file on the default branch or a repository variable, so a
+  pull request cannot add, drop or rename a skill for its own review; a
+  change to the list applies once it merges.
+- **The whole directory.** Before the reviewer starts, the review job
+  replaces each listed `.agents/skills/<name>/` in the checkout with the
+  base branch's copy, its reference files included, and removes files the
+  pull request added there. Only that directory is restored, so keep
+  everything the skill relies on inside it: a file it points to elsewhere
+  is still the pull request's copy. The base's `.gitattributes` apply to the
+  restored files, not the pull request's, and a `CLAUDE.md` in a restored
+  directory is removed like any other. Both runners, Claude Code and OpenCode's CLI,
+  read that checkout, so both follow the base copy.
+- **First adoption.** A listed skill whose `SKILL.md` the base branch
+  does not have yet keeps the pull request's copy, as the kit's own skills do on the pull
+  request that installs the kit, and the run's log says so. A name neither
+  side has is a warning in the log, most likely a typo.
+- **A real directory on the base.** A listed skill must be a directory on
+  the base branch, not a symlink to one: git does not follow a link the
+  base commits, so a skill whose directory, `.agents/skills` or `.agents`
+  is a link or a file there is not read from the base, and the run's log
+  warns.
+- **Symlinks.** A skill directory, or a parent of one, that the pull
+  request made a symlink is unlinked before the restore, leaving its
+  target untouched, and every symlink left in the checkout is removed
+  afterwards, as for the other restored files.
+- **Names only.** Each name is lowercase letters and digits in
+  hyphen-separated runs, at most 64 characters, so a name cannot be a path
+  or leave `.agents/skills/`; anything else fails the settings job, naming
+  where the value came from. The `SKILL.md` of `review-guidelines` and of
+  `github-pr-review` is always read from the base; listing either restores
+  its whole directory instead, and listing another of the kit's skills
+  makes the review read the base copy of it too. Neither weakens the
+  review.
 
 Each workflow runs a short `settings` job first: a job's `if:` and
 `timeout-minutes` can read only repository variables and earlier jobs'
@@ -847,14 +900,16 @@ The workflows also:
 - run only on same-repository heads, never on forks, and skip Dependabot
   and Release Please pull requests;
 - read the reviewer's and the scanner's skills, the review guidelines,
-  every `AGENTS.md`, the scan's instructions file and the server from the
+  the repository's review skills that `KIT_REVIEW_SKILLS` lists
+  ([Repository review skills](#repository-review-skills)), every
+  `AGENTS.md`, the scan's instructions file and the server from the
   base branch, so a pull request cannot change the instructions that
   review it. A file the base lacks keeps the pull request's copy (on the
   pull request that first installs the kit, the kit's own skills and
   server), except an `AGENTS.md` or the instructions file, which is
   removed. The reviewer runs with `--restricted`, which loads no project
   memory, and as a second guard every `CLAUDE.md` and `CLAUDE.local.md` in
-  the checkout is removed first, so no file a `CLAUDE.md` imports is read
+  the checkout is removed before the reviewer starts, so no file a `CLAUDE.md` imports is read
   from the head; every symlink is removed too, so a link the head commits
   cannot lead the reviewer's reads to a runner file;
 - remove `.claude`, `.mcp.json` and similar executable configuration from

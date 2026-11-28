@@ -118,7 +118,7 @@ jobs:
           known=(
             KIT_REVIEW_MODE KIT_REVIEW_PROVIDER KIT_REVIEW_RUNNER KIT_REVIEW_MODEL
             KIT_REVIEW_EFFORT KIT_REVIEW_MAX_TURNS KIT_REVIEW_TIMEOUT_MINUTES
-            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES
+            KIT_REVIEW_MAX_FILES KIT_REVIEW_MAX_LINES KIT_REVIEW_SKILLS
             KIT_SECURITY_SCAN KIT_SECURITY_PROVIDER KIT_SECURITY_RUNNER KIT_SECURITY_MODEL
             KIT_SECURITY_EFFORT KIT_SECURITY_MAX_TURNS KIT_SECURITY_TIMEOUT_MINUTES
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
@@ -145,12 +145,22 @@ jobs:
             exit 1
           fi
           # One "NAME: value" line per setting, a value being a word or a
-          # number, quoted or not; comments and blank lines are skipped.
-          # Anything else fails the run naming the line, and a line is never
-          # printed: one that is not a setting could hold a secret.
+          # number, quoted or not; comments and blank lines are skipped. A
+          # list setting's value is words joined by commas instead, which
+          # the workflow that reads it checks further. Anything else fails
+          # the run naming the line, and a line is never printed: one that
+          # is not a setting could hold a secret.
           declare -A value=() at=()
-          word='[A-Za-z0-9._-]'
-          pair="^[[:space:]]+(\"($word*)\"|'($word*)'|($word+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
+          item='[A-Za-z0-9._,-]'
+          lists=" KIT_REVIEW_SKILLS "
+          shape() {
+            if [[ "$lists" == *" $1 "* ]]; then
+              printf 'names joined by commas, with no spaces'
+            else
+              printf 'one word or number'
+            fi
+          }
+          pair="^[[:space:]]+(\"($item*)\"|'($item*)'|($item+))([[:space:]]+#.*)?[[:space:]]*\$|^([[:space:]]+#.*)?[[:space:]]*\$"
           n=0
           while IFS= read -r l || [ -n "$l" ]; do
             n=$((n + 1))
@@ -179,17 +189,24 @@ jobs:
               exit 1
             fi
             if ! [[ "$rest" =~ $pair ]]; then
-              echo "::error::$file line $n: $name must be one word or number, quoted or not"
+              echo "::error::$file line $n: $name must be $(shape "$name"), quoted or not"
               exit 1
             fi
-            value[$name]=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            v=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}
+            # Only a list setting may hold a comma.
+            if [[ "$v" == *,* ]] && [[ "$lists" != *" $name "* ]]; then
+              echo "::error::$file line $n: $name must be $(shape "$name"), quoted or not"
+              exit 1
+            fi
+            value[$name]=$v
             at[$name]=$n
           done <<< "$content"
           # Each setting this workflow reads: the repository variable when
           # set, else the file's value, else unset (the kit's default). Every
-          # legitimate value is a word or a number, so anything else fails
-          # here, before it reaches GITHUB_ENV, where a line break would set
-          # another variable.
+          # legitimate value is a word or a number, or for a list setting
+          # words joined by commas, so anything else fails here, before it
+          # reaches GITHUB_ENV, where a line break would set another
+          # variable.
           for name in $SETTINGS; do
             v=$(jq -r --arg name "$name" '.[$name] // ""' <<< "${VARS:-{\}}")
             if [ -n "$v" ]; then
@@ -200,8 +217,8 @@ jobs:
             else
               from="unset"
             fi
-            if ! [[ "$v" =~ ^$word*$ ]]; then
-              echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
+            if ! [[ "$v" =~ ^$item*$ ]] || { [[ "$v" == *,* ]] && [[ "$lists" != *" $name "* ]]; }; then
+              echo "::error::the setting $name must be $(shape "$name"), as the kit's setup guide lists ($from)"
               exit 1
             fi
             # A switch takes only the values that name a state, so a typo

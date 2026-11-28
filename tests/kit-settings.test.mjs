@@ -247,6 +247,53 @@ test("a variable that is not one word fails before it reaches GITHUB_ENV", { ski
   assert.equal(r.env.BASH_ENV, undefined);
 });
 
+// KIT_REVIEW_SKILLS alone takes a list: names joined by commas. Every
+// workflow knows it, so the file's line fails none of them.
+test("only the list setting takes commas, from the file or a variable", { skip: needsBash4 }, (t) => {
+  for (const file of [
+    "KIT_REVIEW_SKILLS: acme-review,acme-api\n",
+    'KIT_REVIEW_SKILLS: "acme-review,acme-api" # two\n',
+  ]) {
+    const r = read(t, { file, settings: "KIT_REVIEW_SKILLS" });
+    assert.equal(r.status, 0, file + r.stdout);
+    assert.equal(r.env.KIT_REVIEW_SKILLS, "acme-review,acme-api", file);
+    assert.equal(r.env.FROM_KIT_REVIEW_SKILLS, ".github/gh-agent-kit.yml line 1", file);
+  }
+  // Another workflow's settings job, which does not read it, still accepts
+  // the line.
+  const other = read(t, { file: "KIT_REVIEW_SKILLS: a,b\nKIT_ISSUE_TRIAGE: on\n", settings: "KIT_ISSUE_TRIAGE" });
+  assert.equal(other.status, 0, other.stdout);
+  const variable = read(t, { vars: { KIT_REVIEW_SKILLS: "a,b" }, settings: "KIT_REVIEW_SKILLS" });
+  assert.equal(variable.status, 0, variable.stdout);
+  assert.equal(variable.env.KIT_REVIEW_SKILLS, "a,b");
+  for (const [opts, message] of [
+    [
+      { file: "KIT_REVIEW_SKILLS: a, b\n", settings: "KIT_REVIEW_SKILLS" },
+      /line 1: KIT_REVIEW_SKILLS must be names joined by commas, with no spaces, quoted or not/,
+    ],
+    [
+      { file: "KIT_REVIEW_SKILLS: [a, b]\n", settings: "KIT_REVIEW_SKILLS" },
+      /line 1: KIT_REVIEW_SKILLS must be names joined by commas, with no spaces, quoted or not/,
+    ],
+    [
+      { file: "KIT_REVIEW_MODE: open,push\n" },
+      /line 1: KIT_REVIEW_MODE must be one word or number, quoted or not/,
+    ],
+    [
+      { vars: { KIT_REVIEW_MODEL: "claude-a,claude-b" }, settings: "KIT_REVIEW_MODEL" },
+      /the setting KIT_REVIEW_MODEL must be one word or number, as the kit's setup guide lists \(the repository variable\)/,
+    ],
+    [
+      { vars: { KIT_REVIEW_SKILLS: "a b" }, settings: "KIT_REVIEW_SKILLS" },
+      /the setting KIT_REVIEW_SKILLS must be names joined by commas, with no spaces, as the kit's setup guide lists \(the repository variable\)/,
+    ],
+  ]) {
+    const r = read(t, opts);
+    assert.equal(r.status, 1, JSON.stringify(opts));
+    assert.match(r.stdout, message, JSON.stringify(opts));
+  }
+});
+
 test("a switch takes only its states, so a typo fails instead of turning a workflow off", { skip: needsBash4 }, (t) => {
   for (const [name, states] of [
     ["KIT_REVIEW_MODE", ["push", "open", "off"]],
