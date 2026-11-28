@@ -24,10 +24,10 @@ a command list), which add five rows to `pr-review.yml`; they are listed in
 a section of their own after phase 2's.
 
 The files of phases 1 and 2 are the same at phase 3's commit, so their
-sections stand as they merged too. Phase 3's review found three kinds of
+sections stand as they merged too. Phase 3's review found four kinds of
 rule the script had skipped (an `awk` program's conditions and
-statements, each command of a `{ }` group written to a file, and a job's
-`outputs:`), which add rows to `pr-review.yml` and `security-scan.yml`;
+statements, each command of a `{ }` group written to a file, a job's
+`outputs:`, and each failure statement), which add rows to `pr-review.yml` and `security-scan.yml`;
 they are listed in sections of their own after phase 3's.
 
 **In short (phase 1):** of 1,209 rules, 1,149 are caught by a test, 11
@@ -76,19 +76,19 @@ OpenCode scan's answer, export, retry and wait rules. One older test
 passed without running its step (a re-run with no results file) and now
 runs it.
 
-**In short (phase 3):** of 905 rules in the three workflows, 852 are
-caught by a test, 7 of them by a time limit and 135 through a copy of
-their step. The 53 left are listed with the reason:
+**In short (phase 3):** of 971 rules in the three workflows, 919 are
+caught by a test, 7 of them by a time limit and 156 through a copy of
+their step. The 52 left are listed with the reason:
 
 | Reason | `issue-triage.yml` | `pr-issue-link.yml` | `kit-update-check.yml` |
 | --- | --- | --- | --- |
-| Equivalent: switching it off changes nothing the code can do | 12 | 1 | 6 |
+| Equivalent: switching it off changes nothing the code can do | 12 | 1 | 5 |
 | Unreachable: no input reaches the other branch | 5 | 0 | 0 |
 | Not a rule: a field or count only the log shows, or removing a downloaded file | 20 | 0 | 0 |
 | Left untested: runner provisioning only a GitHub runner can run | 9 | 0 | 0 |
 
-Of the rows phase 3 added to the earlier phases' files, all 20 in
-`pr-review.yml` are caught, and 40 of 43 in `security-scan.yml`; the
+Of the rows phase 3 added to the earlier phases' files, all 72 in
+`pr-review.yml` are caught, and 95 of 98 in `security-scan.yml`; the
 other three are not rules (the commas between the file names a message
 lists).
 
@@ -106,7 +106,9 @@ look-alike comments; a stopped sweep that passes nothing on; each job
 output, as GitHub evaluates it, against what its step wrote; the update
 check's fences and markers in `AGENTS.md`, a lock or an `AGENTS.md`
 that is a symlink, and the notice's choice of issue; the issue-link
-check's fences; and the scan's line count over renamed paths. The
+check's fences; the scan's line count over renamed paths; that each
+guard stops its step, printing its own error alone; and that the review's
+skip steps fail when a lookup fails. The
 pass-on step's test now runs it in every workflow that has it.
 
 ## What counts as a rule
@@ -145,11 +147,13 @@ practice, each of these is switched off on its own:
   a POST, PATCH, PUT or DELETE, inside a `$( )` too), made a no-op; and
   every redirect of a command's output to a file, pointed at `/dev/null`,
   so the command still runs and keeps its exit status. From phase 3, also
-  each command of a `{ }` group whose output goes to a file, made a no-op
-  on its own; and in an `awk` program, each pattern and each `if` and
+  each `exit 1`, `return 1` and `return 2` (the guard lines #83 counted
+  once, and those added since), made a no-op; each command of a `{ }`
+  group whose output goes to a file, made a no-op on its own; and in an `awk` program, each pattern and each `if` and
   `while` condition, forced to true (`1`) and to false (`0`), each operand
   of its `&&` and `||` chains, set as above, and each `next`, `exit`,
-  `print` and `printf`, made a no-op.
+  `print` and `printf`, made a no-op, as is the print of a pattern with
+  no action (given an empty one) and `awk 1` (made `awk 0`).
 
 ## How it was checked
 
@@ -207,8 +211,10 @@ evaluator gives a job output's value, which the job-output tests compare
 with what the step wrote.
 
 In phase 3 the copy rule covers the settings read step of all five
-workflows that have one, held to `pr-review.yml`'s, and a write inside a
-`{ }` group is switched off by making the whole group a no-op.
+workflows that have one, held to `pr-review.yml`'s. A `{ }` group whose
+output goes to a file is switched off twice over: the whole group made a
+no-op, as the group's write, and each command in it made a no-op on its
+own, as the rule list above says.
 
 ## What this does not cover
 
@@ -228,11 +234,11 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | `.github/scripts/mcp-server.mjs` | 606 | 580 | 26 |
 | `.github/workflows/security-scan.yml` | 917 | 856 | 61 |
 | `.github/workflows/pr-review.yml`, rows found in phase 2 | 5 | 4 | 1 |
-| `.github/workflows/issue-triage.yml` | 631 | 585 | 46 |
-| `.github/workflows/pr-issue-link.yml` | 88 | 87 | 1 |
-| `.github/workflows/kit-update-check.yml` | 186 | 180 | 6 |
-| `.github/workflows/pr-review.yml`, rows found in phase 3 | 20 | 20 | 0 |
-| `.github/workflows/security-scan.yml`, rows found in phase 3 | 43 | 40 | 3 |
+| `.github/workflows/issue-triage.yml` | 678 | 632 | 46 |
+| `.github/workflows/pr-issue-link.yml` | 97 | 96 | 1 |
+| `.github/workflows/kit-update-check.yml` | 196 | 191 | 5 |
+| `.github/workflows/pr-review.yml`, rows found in phase 3 | 72 | 72 | 0 |
+| `.github/workflows/security-scan.yml`, rows found in phase 3 | 98 | 95 | 3 |
 
 ### `.github/workflows/pr-review.yml`
 
@@ -2411,7 +2417,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 
 ### `.github/workflows/issue-triage.yml`
 
-631 rules: 585 caught (4 of them by a time limit, 45 through a copy of their step), 46 left with the reason given.
+678 rules: 632 caught (4 of them by a time limit, 52 through a copy of their step), 46 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/issue-triage.yml</code></summary>
 
@@ -2452,6 +2458,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 137 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 140 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 145 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -2465,21 +2472,26 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 159 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 166 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 170 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 175 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 179 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 181 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 183 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 195 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 195 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 197 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 203 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 205 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 210 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 211 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 212 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -2488,6 +2500,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 214 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 214 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 214 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 216 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 218 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 219 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 227 | if: whole | `env.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
@@ -2499,23 +2512,28 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 242 | sh if whole | `! [[ "$value" =~ ^[1-9][0-9]*$ ]] \|\| [ "${#value}" -gt 6 ] \|\| [ "$value" -gt "$m…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
 | 242 | sh if \|\| operand | `[ "${#value}" -gt 6 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
 | 242 | sh if \|\| operand | `[ "$value" -gt "$max" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
+| 244 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
 | 246 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the turn and time limits default, and a value out of range fails" |
 | 252 | sh list condition | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 252 | sh list condition | `[ -n "$value" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 253 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 253 | sh if whole | `! [[ "$value" =~ ^claude-[a-z0-9.-]+$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 255 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 257 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 274 | sh list condition | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 274 | sh list condition | `[ -n "$value" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 275 | sh if whole | `! [[ "$value" =~ ^[a-z0-9][a-z0-9.-]*$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 277 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 279 | sh if whole | `[[ "$value" == *-contributor ]]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 281 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 283 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 294 | sh if && operand | `[ -n "$value" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 294 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 294 | sh if whole | `[ -n "$value" ] && ! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `false` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 294 | sh if && operand | `! [[ "$value" =~ ^(low\|medium\|high\|xhigh\|max)$ ]]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 296 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 298 | sh output statement | (before `echo "$name=$value" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 315 | sh case arm | `''` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 317 | sh list condition | `[ "$PROVIDER" != opencode-go ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
@@ -2526,13 +2544,16 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 323 | sh case arm | `opencode` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 324 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 324 | sh if whole | `[ "$PROVIDER" != opencode-go ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 326 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 329 | sh case arm | `*` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 331 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 333 | sh output statement | (before `echo "KIT_TRIAGE_RUNNER=$runner" >> "$GITHUB_ENV"`) | `: ` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 336 | sh case arm | `''\|anthropic` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 337 | sh output statement | (before `echo "KIT_TRIAGE_PROVIDER=anthropic" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 340 | sh case arm | `opencode-go` | `__mutant_never__` | `triage-opencode.test.mjs`: "issue-triage.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
 | 341 | sh output statement | (before `echo "KIT_TRIAGE_PROVIDER=opencode-go" >> "$GITHUB_ENV"`) | `: ` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 344 | sh case arm | `*` | `__mutant_never__` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
+| 346 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml: the provider sets which model names the settings step takes" |
 | 358 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
 | 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `true` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
 | 368 | if: whole | `needs.settings.outputs.KIT_ISSUE_TRIAGE == 'on'` | `false` | `issue-triage-conditions.test.mjs`: "the settings are read, and the triage job runs, only while triage is on" |
@@ -2565,6 +2586,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 475 | awk pattern \|\| operand | `$1 == "labeled"` | `0` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
 | 475 | awk pattern \|\| operand | `$1 == "unlabeled"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 475 | awk pattern && operand | `$3 == "needs-triage"` | `1` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
+| 475 | awk implicit print | (before `' <<<"$events" \| tail -n 1)`) | ` {}` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
 | 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `true` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
 | 476 | sh list condition | `[ "$(cut -f 1 <<<"$vouch")" = labeled ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
 | 479 | awk pattern \|\| operand | `$1 == "renamed"` | `0` | `issue-triage-gate.test.mjs`: "a dispatch of a github-actions[bot] issue without a vouching needs-triage ends green with a notice" |
@@ -2592,6 +2614,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 493 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" -…` | `false` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
 | 495 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `true` | `issue-triage-gate.test.mjs`: "a lookup that fails for another reason fails the run, on any event" |
 | 495 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `false` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 499 | sh failure statement | `exit 1` | `:` | `issue-triage-gate.test.mjs`: "a lookup that fails for another reason fails the run, on any event" |
 | 502 | sh case arm | `admin\|write` | `__mutant_never__` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
 | 503 | sh case arm | `*` | `__mutant_never__` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
 | 504 | sh if whole | `[ "$vouched" = true ]` | `true` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
@@ -2602,6 +2625,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 509 | sh if whole | `[ "$EVENT" = "issues" ]` | `false` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
 | 511 | sh output statement | (before `echo "skip=true" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
 | 512 | sh skip statement | `exit 0` | `:` | `issue-triage-gate.test.mjs`: "an issue event for an author without write access is skipped with a notice" |
+| 515 | sh failure statement | `exit 1` | `:` | `issue-triage-gate.test.mjs`: "a dispatch of an issue whose author lacks write access still fails" |
 | 521 | sh if whole | `[ "$vouched" = true ]` | `true` | `issue-triage-gate.test.mjs`: "an author and actor with write access pass, with no skip" |
 | 521 | sh if whole | `[ "$vouched" = true ]` | `false` | `issue-triage-gate.test.mjs`: "needs-triage added to a github-actions[bot] issue checks the labeller, not the author" |
 | 525 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
@@ -2609,6 +2633,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 545 | if: whole | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
 | 545 | if: whole | `steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "the gate runs for one issue, and the steps after it unless it skipped" |
 | 550 | sh case arm | `*[!0-9]*` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: an issue input that is not a number is refused before anything else" |
+| 550 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: an issue input that is not a number is refused before anything else" |
 | 552 | sh output statement | (before `echo "DISPATCH_LOG=$RUNNER_TEMP/dispatched" >> "$GITHUB_ENV"`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
 | 553 | sh output statement | (before `echo "DISPATCH_QUEUE=$RUNNER_TEMP/dispatch-queue" >> "$GITHU`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
 | 554 | sh output statement | (before `echo "ELIGIBLE_ISSUES=$RUNNER_TEMP/eligible-issues" >> "$GIT`) | `: ` | `issue-triage-steps.test.mjs`: "the tools step gives a triage run its tools and a sweep only the dispatch tools" |
@@ -2628,16 +2653,19 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 582 | sh file write | `"$RUNNER_TEMP/public-content.json"` | `/dev/null` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 583 | sh if whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/public-content.err"` | `true` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
 | 583 | sh if whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/public-content.err"` | `false` | `public-content-install.test.mjs`: "triage takes the Python check when there is no Node one, and none when neither exists" |
+| 586 | sh failure statement | `exit 1` | `:` | `public-content-install.test.mjs`: "issue-triage.yml: a failed read of the default branch's check fails the step" |
 | 588 | jq if whole | `type == "object"` | `true` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
 | 588 | jq if whole | `type == "object"` | `false` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 589 | sh if whole | `[ "$type" != "file base64" ]` | `true` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 589 | sh if whole | `[ "$type" != "file base64" ]` | `false` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
+| 591 | sh failure statement | `exit 1` | `:` | `public-content-install.test.mjs`: "triage fails rather than post unchecked when the check cannot be read whole" |
 | 594 | sh file write | `"$tmp"` | `/dev/null` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 598 | sh file write | `"$RUNNER_TEMP/public-content-empty"` | `/dev/null` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
 | 600 | sh case arm | `*.py` | `__mutant_never__` | `public-content-install.test.mjs`: "triage takes the Python check when there is no Node one, and none when neither exists" |
 | 601 | sh case arm | `*` | `__mutant_never__` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 603 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `true` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 603 | sh if whole | `! env -i PATH="$PATH" "${run[@]}" "$tmp" --text="$RUNNER_TEMP/public-content-emp…` | `false` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
+| 605 | sh failure statement | `exit 1` | `:` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
 | 607 | sh output statement | (before `rm -f -- "$RUNNER_TEMP/public-content-empty"`) | `: ` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
 | 609 | sh output statement | (before `sudo install -o root -g root -m 0644 "$tmp" "$dest"`) | `: ` | `public-content-install.test.mjs`: "triage installs the default branch's check from the contents API" |
 | 610 | sh output statement | (before `rm -f -- "$tmp"`) | `: ` | `public-content-install.test.mjs`: "triage runs the check on an empty file, then leaves none of its files behind" |
@@ -2662,6 +2690,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 652 | sh if whole | `permission=$(gh api --method GET "repos/$REPO/collaborators/$author/permission" …` | `false` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
 | 654 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `true` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
 | 654 | sh elif whole | `grep -q 'HTTP 404' "$RUNNER_TEMP/permission-error"` | `false` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
+| 658 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
 | 661 | sh case arm | `admin\|write` | `__mutant_never__` | `issue-triage-steps.test.mjs`: "the sweep lists needs-triage, unlabelled and stale in-progress issues, not pull requests or bots'" |
 | 662 | sh case arm | `*` | `__mutant_never__` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
 | 662 | sh skip statement | `continue` | `:` | `workflow-fail-closed.test.mjs`: "issue-triage.yml: the sweep fails when an author's permission cannot be read, other than a 404" |
@@ -2739,10 +2768,12 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 848 | sh if whole | `[ "$KIT_TRIAGE_PROVIDER" = opencode-go ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go gets its key as a bearer token, and nothing else" |
 | 849 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go gets its key as a bearer token, and nothing else" |
 | 849 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go without its key fails before the CLI starts" |
+| 851 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: OpenCode Go without its key fails before the CLI starts" |
 | 861 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 861 | sh elif whole | `[ -z "$ANTHROPIC_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
 | 863 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
 | 863 | sh list condition | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
+| 865 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider without its key fails before the CLI starts" |
 | 870 | sh list condition | `[ -z "$KIT_TRIAGE_EFFORT" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 870 | sh list condition | `[ -z "$KIT_TRIAGE_EFFORT" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 871 | sh list condition | `/opt/agent-kit/claude -p "$PROMPT" \ --output-format json \ --model "$KIT_TRIAGE…` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
@@ -2750,6 +2781,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 884 | sh file write | `"$RESULT"` | `/dev/null` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 885 | sh if whole | `[ ! -s "$RESULT" ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 885 | sh if whole | `[ ! -s "$RESULT" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 887 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
 | 890 | jq if whole | `type == "array"` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 890 | jq if whole | `type == "array"` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a stream's last result decides the run" |
 | 890 | jq select whole | `.type == "result"` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a stream's last result decides the run" |
@@ -2760,11 +2792,13 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 902 | sh list condition | `[ "$KIT_TRIAGE_PROVIDER" != opencode-go ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the Anthropic provider passes the Anthropic key only" |
 | 909 | sh if whole | `[ "$closed" = true ]` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 909 | sh if whole | `[ "$closed" = true ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run closed on a private name withholds its last message and fails" |
+| 911 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run closed on a private name withholds its last message and fails" |
 | 913 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
 | 913 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `true` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: the effort level reaches the CLI, and none when unset" |
 | 913 | sh if whole | `[ "$status" -ne 0 ] \|\| [ "$(jq -r '.is_error' <<<"$result")" != "false" ] \|\| [ "…` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
 | 913 | sh if \|\| operand | `[ "$(jq -r '.is_error' <<<"$result")" != "false" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
 | 913 | sh if \|\| operand | `[ "$(jq -r '.subtype' <<<"$result")" != "success" ]` | `false` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
+| 915 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "issue-triage.yml, Run the triage: a run that ends in error, or with no result, fails" |
 | 928 | if: && operand | `env.KIT_TRIAGE_RUNNER == 'opencode'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 928 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 928 | if: whole | `env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 'true'` | `false` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
@@ -2777,6 +2811,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 978 | if: && operand | `steps.gate.outputs.skip != 'true'` | `true` | `issue-triage-conditions.test.mjs`: "each runner installs and runs only its own CLI, unless the gate skipped" |
 | 984 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 984 | sh if whole | `[ -z "$OPENCODE_API_KEY" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: no key fails before the CLI starts" |
+| 986 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: no key fails before the CLI starts" |
 | 994 | jq if or operand | `. == "Read"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 994 | jq if whole | `. == "Read" or . == "Grep" or . == "Glob"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: everything is denied but reads and the run's server tools" |
 | 994 | jq if whole | `. == "Read" or . == "Grep" or . == "Glob"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -2789,6 +2824,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1032 | sh file write | `"$RUNNER_TEMP/opencode-models"` | `/dev/null` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1034 | sh if whole | `[ "$listed" -ne 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1037 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1039 | awk pattern whole | `$0 == want` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1039 | awk pattern whole | `$0 == want` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1039 | awk skip statement | `next` | `;` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -2799,14 +2835,17 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1039 | awk skip statement | `exit` | `;` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
 | 1039 | awk pattern whole | `on` | `1` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1039 | awk pattern whole | `on` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1039 | awk implicit print | (before `' "$RUNNER_TEMP/opencode-models")`) | ` {}` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1040 | sh if whole | `! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$info"` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1042 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1045 | sh if whole | `[ -n "$KIT_TRIAGE_EFFORT" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1045 | sh if whole | `[ -n "$KIT_TRIAGE_EFFORT" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1046 | sh if whole | `! jq -e --arg v "$KIT_TRIAGE_EFFORT" '.variants // {} \| has($v)' >/dev/null <<<"…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
 | 1046 | sh if whole | `! jq -e --arg v "$KIT_TRIAGE_EFFORT" '.variants // {} \| has($v)' >/dev/null <<<"…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1047 | jq if whole | `length == 0` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: an effort level the model offers becomes its variant, and one it lacks names those it has" |
 | 1047 | jq if whole | `length == 0` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
+| 1048 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the model must be listed and an effort level one of its variants" |
 | 1074 | sh list \|\| operand | `[ -n "${AGENT_KIT_STARTED:-}" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1074 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
 | 1074 | sh list whole | `[ -n "${AGENT_KIT_STARTED:-}" ] \|\| [ -z "${GITHUB_ENV:-}" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run Go turns away as at capacity carries on in the same session" |
@@ -2847,6 +2886,8 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1125 | sh if whole | `[ -z "$events" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1126 | sh if whole | `[ "$closed" = true ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run with no events shows OpenCode's log, with commands stopped" |
 | 1126 | sh if whole | `[ "$closed" = true ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1131 | awk implicit print | `1` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run with no events shows OpenCode's log, with commands stopped" |
+| 1135 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1138 | jq select whole | `.type == "step_start"` | `true` | Not a rule: the step count goes only to the run log; the turn limit counts the steps its own way, and the last step's reason, read apart, decides the step |
 | 1138 | jq select whole | `.type == "step_start"` | `false` | Not a rule: the step count goes only to the run log; the turn limit counts the steps its own way, and the last step's reason, read apart, decides the step |
 | 1139 | jq select whole | `.type == "step_finish"` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the last step is the last step_finish, whatever event follows it" |
@@ -2873,13 +2914,17 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1149 | jq if whole | `.errors == ""` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
 | 1156 | sh if whole | `[ "$closed" = true ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1156 | sh if whole | `[ "$closed" = true ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
+| 1158 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run the server closed on a private name withholds its text, errors and log, and fails" |
 | 1160 | sh if \|\| operand | `[ "$status" -ne 0 ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1160 | sh if whole | `[ "$status" -ne 0 ] \|\| [ -n "$(jq -r '.errors' <<<"$summary")" ] \|\| [ "$(jq -r '…` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1160 | sh if whole | `[ "$status" -ne 0 ] \|\| [ -n "$(jq -r '.errors' <<<"$summary")" ] \|\| [ "$(jq -r '…` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1160 | sh if \|\| operand | `[ -n "$(jq -r '.errors' <<<"$summary")" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1160 | sh if \|\| operand | `[ "$(jq -r '.reason' <<<"$summary")" != "stop" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1168 | awk implicit print | `1` | `0` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a run that ends in error shows what the CLI printed, with commands stopped" |
+| 1171 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1173 | sh if whole | `[ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_TRIAGE_MAX_TURNS" ]` | `true` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1173 | sh if whole | `[ "$(jq -r '.steps' <<<"$summary")" -ge "$KIT_TRIAGE_MAX_TURNS" ]` | `false` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1175 | sh failure statement | `exit 1` | `:` | `triage-opencode.test.mjs`: "issue-triage.yml, Run the triage on OpenCode: a failed, unfinished or exhausted run fails the step" |
 | 1180 | if: && operand | `always()` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
 | 1180 | if: whole | `always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 't…` | `true` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
 | 1180 | if: whole | `always() && env.KIT_TRIAGE_RUNNER == 'opencode' && steps.gate.outputs.skip != 't…` | `false` | `issue-triage-conditions.test.mjs`: "the clean-up steps run even after a failure, unless the gate skipped" |
@@ -2966,12 +3011,15 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1293 | sh if whole | `[ "$closing" -gt 0 ] \|\| [ "$warned" -gt 0 ]` | `false` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
 | 1293 | sh if \|\| operand | `[ "$warned" -gt 0 ]` | `false` | `issue-triage-backstop.test.mjs`: "a stale-claim comment passes even when only an untrusted author's pull request closes" |
 | 1294 | sh skip statement | `exit 0` | `:` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author with write access passes the stale check" |
+| 1297 | sh failure statement | `exit 1` | `:` | `issue-triage-backstop.test.mjs`: "a closing pull request by an author without write access fails the stale check" |
 | 1306 | jq select and operand | `.user.login == \"github-actions[bot]\"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
 | 1306 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- issue-triage…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
 | 1306 | jq select whole | `.user.login == \"github-actions[bot]\" and (.body \| contains(\"<!-- issue-triage…` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
 | 1306 | jq select and operand | `(.body \| contains(\"<!-- issue-triage run $GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT -->…` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
 | 1307 | sh if whole | `[ -z "$posted" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
 | 1307 | sh if whole | `[ -z "$posted" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1309 | sh failure statement | `exit 1` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: the run fails without a comment of its own" |
+| 1311 | sh failure statement | `exit 1` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: the comment's heading must match the state the issue ends in" |
 | 1314 | sh if whole | `has needs-operator` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
 | 1314 | sh if whole | `has needs-operator` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: a triaged or questioned issue in its right state passes" |
 | 1315 | sh list condition | `grep -qx '## Triage: questions' <<<"$posted"` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the comment's heading must match the state the issue ends in" |
@@ -3008,6 +3056,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1338 | if: whole | `env.TRIAGE_ISSUE == ''` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
 | 1341 | sh if whole | `[ -n "$missing" ]` | `true` | `issue-triage-state.test.mjs`: "issue-triage.yml: the sweep fails when it left an eligible issue undispatched" |
 | 1341 | sh if whole | `[ -n "$missing" ]` | `false` | `issue-triage-state.test.mjs`: "issue-triage.yml: the sweep fails when it left an eligible issue undispatched" |
+| 1343 | sh failure statement | `exit 1` | `:` | `issue-triage-state.test.mjs`: "issue-triage.yml: the sweep fails when it left an eligible issue undispatched" |
 | 1352 | if: whole | `${{ !cancelled() && env.TRIAGE_ISSUE == '' }}` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
 | 1352 | if: whole | `${{ !cancelled() && env.TRIAGE_ISSUE == '' }}` | `false` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
 | 1352 | if: && operand | `!cancelled()` | `true` | `issue-triage-conditions.test.mjs`: "the state check runs for one issue, and the sweep's steps for a sweep" |
@@ -3018,14 +3067,17 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1354 | sh list && operand | `[ -f "$DISPATCH_QUEUE" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: a sweep that stopped before its queue passes nothing on" |
 | 1354 | sh skip statement | `exit 0` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: a sweep that stopped before its queue passes nothing on" |
 | 1357 | sh case arm | `*[!0-9\ ]*` | `__mutant_never__` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1357 | sh failure statement | `exit 1` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
 | 1360 | sh list condition | `grep -qx "$n" "$ELIGIBLE_ISSUES"` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
 | 1360 | sh list condition | `grep -qx "$n" "$ELIGIBLE_ISSUES"` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
+| 1360 | sh failure statement | `exit 1` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
 | 1363 | sh output statement | (before `echo "issues=$queue" >> "$GITHUB_OUTPUT"`) | `: ` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the sweep's queue is passed on as issue numbers, once each" |
 | 1381 | if: whole | `${{ !cancelled() && needs.triage.outputs.dispatch != '' }}` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
 | 1381 | if: whole | `${{ !cancelled() && needs.triage.outputs.dispatch != '' }}` | `false` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
 | 1381 | if: && operand | `!cancelled()` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
 | 1381 | if: && operand | `needs.triage.outputs.dispatch != ''` | `true` | `issue-triage-conditions.test.mjs`: "the dispatch job runs when the sweep passed issues on, even after a failure" |
 | 1398 | sh case arm | `*[!0-9]*` | `__mutant_never__` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job refuses anything but issue numbers" |
+| 1398 | sh failure statement | `exit 1` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job refuses anything but issue numbers" |
 | 1403 | sh if whole | `! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels \| map(.name)) as $l \| if .…` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
 | 1403 | sh if whole | `! now=$(gh api "repos/$REPO/issues/$n" --jq '(.labels \| map(.name)) as $l \| if .…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
 | 1404 | jq if whole | `.state != "open"` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
@@ -3048,12 +3100,13 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1418 | sh if whole | `gh workflow run issue-triage.yml --repo "$REPO" --ref "$GITHUB_REF_NAME" -f "iss…` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
 | 1424 | sh if whole | `[ -n "$failed" ]` | `true` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job starts one run per queued issue" |
 | 1424 | sh if whole | `[ -n "$failed" ]` | `false` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job tries every issue, then fails naming those it could not start" |
+| 1426 | sh failure statement | `exit 1` | `:` | `issue-triage-dispatch.test.mjs`: "issue-triage.yml: the dispatch job tries every issue, then fails naming those it could not start" |
 
 </details>
 
 ### `.github/workflows/pr-issue-link.yml`
 
-88 rules: 87 caught (1 of them by a time limit, 45 through a copy of their step), 1 left with the reason given.
+97 rules: 96 caught (1 of them by a time limit, 52 through a copy of their step), 1 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-issue-link.yml</code></summary>
 
@@ -3074,6 +3127,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 95 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 98 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 103 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 113 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3087,21 +3141,26 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 117 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 119 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 121 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 124 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 128 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 130 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 133 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 137 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 139 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 141 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 153 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 153 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 155 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 161 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 163 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 169 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 170 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3110,6 +3169,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 172 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 172 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 174 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 176 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 185 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
@@ -3121,6 +3181,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 195 | if: \|\| operand | `needs.settings.outputs.KIT_ISSUE_LINK_CHECK == 'on'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
 | 208 | if: whole | `needs.settings.result == 'failure'` | `true` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
 | 208 | if: whole | `needs.settings.result == 'failure'` | `false` | `pr-issue-link-conditions.test.mjs`: "pr-issue-link: the link job runs while the check is on, and when the settings failed" |
+| 211 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "pr-issue-link.yml: a settings job that failed fails the job after it" |
 | 230 | awk if \|\| operand | `c == "'"` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
 | 230 | awk if whole | `c == "'" \|\| c == "~"` | `1` | `pr-issue-link.test.mjs`: the test never ends (an endless loop, or a reply it waits for never comes), caught by the time limit |
 | 230 | awk if whole | `c == "'" \|\| c == "~"` | `0` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
@@ -3147,12 +3208,13 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 243 | sh if whole | `grep -qiE -- "$close$target" <<< "$text"` | `false` | `pr-issue-link.test.mjs`: "a closing keyword before an issue passes, in each form GitHub links" |
 | 247 | sh elif whole | `grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*\|__)?No issue:((\*\*\|__)[[:s…` | `true` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
 | 247 | sh elif whole | `grep -qiE -- '^[[:space:]]*([-*+][[:space:]]+)?(\*\*\|__)?No issue:((\*\*\|__)[[:s…` | `false` | `pr-issue-link.test.mjs`: "a No issue line with a reason passes, plain, bold, emphasised or as a list item" |
+| 251 | sh failure statement | `exit 1` | `:` | `pr-issue-link.test.mjs`: "a mention, a keyword without a number, a bare No issue, a template hint or fenced code fails" |
 
 </details>
 
 ### `.github/workflows/kit-update-check.yml`
 
-186 rules: 180 caught (2 of them by a time limit, 45 through a copy of their step), 6 left with the reason given.
+196 rules: 191 caught (2 of them by a time limit, 52 through a copy of their step), 5 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/kit-update-check.yml</code></summary>
 
@@ -3167,6 +3229,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 102 | jq elif whole | `.size > 16384` | `false` | its copy at `pr-review.yml` line 143, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `true` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 105 | sh elif whole | `grep -q 'HTTP 404' "$err"` | `false` | its copy at `pr-review.yml` line 146, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 110 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while \|\| operand | `IFS= read -r l` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `true` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 120 | sh while whole | `IFS= read -r l \|\| [ -n "$l" ]` | `false` | its copy at `pr-review.yml` line 161, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3180,21 +3243,26 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 124 | sh skip statement | `continue` | `:` | its copy at `pr-review.yml` line 165, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `true` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 126 | sh if whole | `! [[ "$l" =~ ^([A-Z][A-Z0-9_]*):(.*)$ ]]` | `false` | its copy at `pr-review.yml` line 167, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 128 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `true` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 131 | sh if whole | `[[ " ${known[*]} " != *" $name "* ]]` | `false` | its copy at `pr-review.yml` line 172, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 133 | sh case arm | `*KEY* \| *TOKEN* \| *SECRET* \| *PASSWORD*` | `__mutant_never__` | its copy at `pr-review.yml` line 174, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 135 | sh case arm | `KIT_*` | `__mutant_never__` | its copy at `pr-review.yml` line 176, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 137 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 178, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 140 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 142 | sh if whole | `[ -n "${at[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 183, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 144 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `true` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 146 | sh if whole | `! [[ "$rest" =~ $pair ]]` | `false` | its copy at `pr-review.yml` line 187, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 148 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 160 | sh if whole | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 160 | sh if whole | `[ -n "$v" ]` | `false` | its copy at `pr-review.yml` line 201, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `true` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 162 | sh elif whole | `[ -n "${value[$name]:-}" ]` | `false` | its copy at `pr-review.yml` line 203, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `true` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 168 | sh if whole | `! [[ "$v" =~ ^$word*$ ]]` | `false` | its copy at `pr-review.yml` line 209, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 170 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 175 | sh case arm | `KIT_REVIEW_MODE \| KIT_SECURITY_SCAN` | `__mutant_never__` | its copy at `pr-review.yml` line 216, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 176 | sh case arm | `KIT_ISSUE_TRIAGE \| KIT_UPDATE_CHECK \| KIT_ISSUE_LINK_CHECK` | `__mutant_never__` | its copy at `pr-review.yml` line 217, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 177 | sh case arm | `*` | `__mutant_never__` | its copy at `pr-review.yml` line 218, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
@@ -3203,6 +3271,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 179 | sh if whole | `[ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]` | `false` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 179 | sh if && operand | `[ -n "$v" ]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 179 | sh if && operand | `[[ " $states " != *" $v "* ]]` | `true` | its copy at `pr-review.yml` line 220, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 181 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 183 | sh output statement | (before `echo "$name=$v" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 224, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 184 | sh output statement | (before `echo "FROM_$name=$from" >> "$GITHUB_ENV"`) | `: ` | its copy at `pr-review.yml` line 225, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
 | 192 | sh output statement | (before `printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_OUTPUT"`) | `: ` | `kit-settings.test.mjs`: "each workflow's pass step hands every setting on as an output" |
@@ -3215,8 +3284,10 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 218 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 222 | sh if whole | `! [[ "$source" =~ ^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
+| 224 | sh failure statement | `exit 1` | `:` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 226 | sh if whole | `! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]` | `false` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
+| 228 | sh failure statement | `exit 1` | `:` | `kit-update-check.test.mjs`: "the compare step checks the lock before it fetches anything" |
 | 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 230 | sh if whole | `! GIT_TERMINAL_PROMPT=0 git clone --bare --quiet "https://$source.git" kit.git 2…` | `false` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 233 | sh skip statement | `exit 0` | `:` | `kit-update-check.test.mjs`: "the compare step warns and stops when it cannot fetch the kit" |
@@ -3232,6 +3303,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 252 | sh elif whole | `kit merge-base --is-ancestor "$release" "$ref"` | `false` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 272 | sh skip statement | `return 0` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
+| 272 | sh failure statement | `return 1` | `:` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 275 | sh if whole | `skip "$p"` | `true` | `kit-update-check.test.mjs`: "the compare step reports each changed, added and removed file" |
 | 275 | sh if whole | `skip "$p"` | `false` | `kit-update-check.test.mjs`: "the compare step leaves out the kit's issue forms when the lock keeps its own" |
 | 276 | sh skip statement | `continue` | `:` | Not caught, equivalent: the continue ends the loop body's only statement, an if chain, so the next file comes next without it too |
@@ -3299,12 +3371,12 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 332 | awk pattern whole | `$0 == e` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 332 | awk if whole | `open` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 332 | awk if whole | `open` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
-| 333 | awk if && operand | `starts == 1` | `1` | Not caught, equivalent: with two starts and one end, the block printed holds both start lines, so it differs from the release's block, as the malformed result it replaces does: AGENTS.md counts as updated either way |
+| 333 | awk if && operand | `starts == 1` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if whole | `starts == 1 && ends == 1 && closed` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if whole | `starts == 1 && ends == 1 && closed` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if && operand | `ends == 1` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if && operand | `closed` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
-| 333 | awk output statement | `printf "%s", block` | `;` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
+| 333 | awk output statement | `printf "%s", block;` | `{}` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if \|\| operand | `starts` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if whole | `starts \|\| ends` | `1` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
 | 333 | awk if whole | `starts \|\| ends` | `0` | `kit-update-check.test.mjs`: "the compare step reports a missing or differing Work tracking block" |
@@ -3349,7 +3421,7 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 
 ### `.github/workflows/pr-review.yml`, rows found in phase 3
 
-20 rules: 20 caught (0 of them by a time limit), 0 left with the reason given.
+72 rules: 72 caught (0 of them by a time limit), 0 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/pr-review.yml</code></summary>
 
@@ -3365,6 +3437,46 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 107 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MAX_FILES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 108 | job output | `${{ steps.pass.outputs.KIT_REVIEW_MAX_LINES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 110 | job output | `${{ steps.pass.outputs.SKIP }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 151 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a file that cannot be read fails the run instead of using the defaults" |
+| 169 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a --- is skipped only before the first setting" |
+| 181 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a line the kit does not read fails the run, naming the line but never printing it" |
+| 185 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a line the kit does not read fails the run, naming the line but never printing it" |
+| 189 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a line the kit does not read fails the run, naming the line but never printing it" |
+| 211 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a variable that is not one word fails before it reaches GITHUB_ENV" |
+| 222 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a switch takes only its states, so a typo fails instead of turning a workflow off" |
+| 253 | sh failure statement | `exit 1` | `:` | `pr-review-step-rules.test.mjs`: "a number setting must be digits, at most six of them, and is written to GITHUB_ENV" |
+| 264 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
+| 286 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
+| 290 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 320 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 325 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 340 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml: the provider sets which model names the settings step takes" |
+| 352 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 456 | sh failure statement | `return 1` | `:` | `pr-review-body-edit.test.mjs`: "an edit skip fails when it cannot list the runs or read a run's jobs" |
+| 459 | sh failure statement | `return 1` | `:` | `pr-review-body-edit.test.mjs`: "an edit skip fails when it cannot list the runs or read a run's jobs" |
+| 594 | sh failure statement | `exit 1` | `:` | `workflow-guards.test.mjs`: "pr-review.yml: the gate refuses an author or actor without write access" |
+| 607 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "pr-review.yml: a settings job that failed fails the job after it" |
+| 629 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
+| 633 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: a dispatch checks out a pull request of this repository, and refuses a fork's before fetching it" |
+| 704 | sh failure statement | `exit 1` | `:` | `pr-review-rules.test.mjs`: "a first adoption whose server is a symlink is refused before root copies it" |
+| 720 | sh failure statement | `exit 1` | `:` | `public-content-install.test.mjs`: "pr-review fails on a base check committed as a symlink" |
+| 734 | sh failure statement | `exit 1` | `:` | `public-content-install.test.mjs`: "a check that fails on an empty text stops either workflow before the model runs" |
+| 820 | sh failure statement | `return 1` | `:` | `pr-review-body-edit.test.mjs`: "an edit skip fails when it cannot list the runs or read a run's jobs" |
+| 823 | sh failure statement | `return 1` | `:` | `pr-review-body-edit.test.mjs`: "an edit skip fails when it cannot list the runs or read a run's jobs" |
+| 914 | sh failure statement | `return 1` | `:` | `pr-review-step-rules.test.mjs`: "the push skip fails when it cannot list the runs or read a run's jobs" |
+| 917 | sh failure statement | `return 1` | `:` | `pr-review-step-rules.test.mjs`: "the push skip fails when it cannot list the runs or read a run's jobs" |
+| 981 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: a pull request beyond the diff limits, or with files the checkout lacks, is refused" |
+| 986 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: a pull request beyond the diff limits, or with files the checkout lacks, is refused" |
+| 997 | sh failure statement | `exit 1` | `:` | `workflow-guards.test.mjs`: "pr-review.yml: a checkout whose git config references credentials fails the run" |
+| 1074 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
+| 1077 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "pr-review.yml: the run stops before its settings without a head sha or a base branch" |
+| 1212 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml, Run the review: OpenCode Go without its key fails before the CLI starts" |
+| 1226 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml, Run the review: the Anthropic provider without its key fails before the CLI starts" |
+| 1248 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run that ends in error, or with no result, fails" |
+| 1272 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run closed on a private name withholds its last message and fails" |
+| 1276 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "pr-review.yml, Run the review: a run that ends in error, or with no result, fails" |
+| 1335 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: no key fails before the CLI starts" |
+| 1386 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a model the pinned CLI does not list fails before the run" |
 | 1388 | awk pattern whole | `$0 == want` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1388 | awk pattern whole | `$0 == want` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1388 | awk skip statement | `next` | `;` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
@@ -3375,12 +3487,24 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1388 | awk skip statement | `exit` | `;` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1388 | awk pattern whole | `on` | `1` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
 | 1388 | awk pattern whole | `on` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1388 | awk implicit print | (before `' "$RUNNER_TEMP/opencode-models")`) | ` {}` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: the run gets the Go model and an isolated configuration" |
+| 1391 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a model the pinned CLI does not list fails before the run" |
+| 1397 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: an effort level is a variant the model offers" |
+| 1480 | awk implicit print | `1` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a closed run withholds its errors only when it had some, and a run with no events shows the log" |
+| 1484 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1507 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run closed on a private name withholds its message and log" |
+| 1517 | awk implicit print | `1` | `0` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a run that ends in error shows OpenCode's log, with commands stopped" |
+| 1520 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1524 | sh failure statement | `exit 1` | `:` | `review-opencode.test.mjs`: "pr-review.yml, Run the review on OpenCode: a failed, unfinished or exhausted run fails the step" |
+| 1574 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: the run fails when it posted no report" |
+| 1586 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: the run fails on a missing, doubled or malformed reviewed line" |
+| 1624 | sh failure statement | `exit 1` | `:` | `pr-review-steps.test.mjs`: "pr-review.yml: the run fails when the reviewed lines do not describe the pull request" |
 
 </details>
 
 ### `.github/workflows/security-scan.yml`, rows found in phase 3
 
-43 rules: 40 caught (0 of them by a time limit), 3 left with the reason given.
+98 rules: 95 caught (0 of them by a time limit, 12 through a copy of their step), 3 left with the reason given.
 
 <details><summary>Every rule of <code>.github/workflows/security-scan.yml</code></summary>
 
@@ -3396,11 +3520,39 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 106 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_FILES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 107 | job output | `${{ steps.pass.outputs.KIT_SECURITY_MAX_LINES }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
 | 109 | job output | `${{ steps.pass.outputs.SKIP }}` | `''` | `kit-settings.test.mjs`: "each settings job hands on every value its pass step wrote" |
+| 150 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 151, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 168 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 169, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 180 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 181, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 184 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 185, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 188 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 189, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 210 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 211, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 221 | sh failure statement | `exit 1` | `:` | its copy at `pr-review-p3.yml` line 222, which "the five workflows run the same read step, over names it knows" holds to this step byte for byte |
+| 253 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 264 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 277 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 281 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml: the provider sets which model names the settings step takes" |
+| 297 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the settings step applies the defaults and refuses values out of range" |
+| 333 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 338 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml: the runner follows the provider unless set, and opencode needs the Go provider" |
+| 355 | sh failure statement | `exit 1` | `:` | `kit-settings.test.mjs`: "a value out of range names where it came from" |
+| 498 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "security-scan.yml: a settings job that failed fails the job after it" |
+| 593 | sh failure statement | `exit 1` | `:` | `workflow-guards.test.mjs`: "security-scan.yml: the gate refuses an author or actor without write access" |
+| 816 | awk implicit print | `1` | `0` | `security-scan-log-content.test.mjs`: "Run the scan: with a base check that passes it, the summary is printed with commands stopped" |
+| 843 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
 | 850 | awk pattern && operand | `NF >= 2` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
 | 850 | awk pattern whole | `NF >= 2 && $1 ~ /^[0-9]+$/` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
 | 850 | awk pattern whole | `NF >= 2 && $1 ~ /^[0-9]+$/` | `0` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
 | 850 | awk pattern && operand | `$1 ~ /^[0-9]+$/` | `1` | `security-scan.test.mjs`: "the limits step counts a rename's lines, not its paths" |
 | 850 | awk output statement | `print n + 0` | `;` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 853 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 857 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the limits step refuses a large pull request and a checkout that misses files" |
+| 882 | sh failure statement | `exit 1` | `:` | `workflow-guards.test.mjs`: "security-scan.yml: a checkout whose git config references credentials fails the run" |
+| 1068 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: OpenCode Go without its key fails before the CLI starts" |
+| 1082 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: the Anthropic provider without its key fails before the CLI starts" |
+| 1105 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1121 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Run the scan: a run that ends in error, or with no result, fails" |
+| 1155 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1197 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
 | 1199 | awk pattern whole | `$0 == want` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1199 | awk pattern whole | `$0 == want` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1199 | awk skip statement | `next` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
@@ -3411,8 +3563,23 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1199 | awk skip statement | `exit` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1199 | awk pattern whole | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
 | 1199 | awk pattern whole | `on` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1199 | awk implicit print | (before `' "$RUNNER_TEMP/opencode-models")`) | ` {}` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the answer comes back in Claude Code's result shape" |
+| 1202 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1206 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the model and effort are checked before the server starts" |
+| 1227 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
+| 1230 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1410 | sh group command | (before `echo "OpenCode's server log, its last 50 lines:"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
 | 1411 | sh group command | (before `tail -n 50 "$RUNNER_TEMP/opencode-serve.log" \| awk 1`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1411 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1415 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: an answer that is not JSON or does not fit the schema is asked for again" |
+| 1426 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: the step limit counts the run's steps, not the asking again" |
+| 1473 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the collect step refuses an answer that is not the schema's" |
+| 1504 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: OpenCode Go without its key fails before the CLI starts" |
+| 1518 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: the Anthropic provider without its key fails before the CLI starts" |
+| 1541 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1554 | sh failure statement | `exit 1` | `:` | `model-provider.test.mjs`: "security-scan.yml, Verify the candidate findings: a run that ends in error, or with no result, fails" |
+| 1572 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1155, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1614 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1197, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
 | 1616 | awk pattern whole | `$0 == want` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk pattern whole | `$0 == want` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk skip statement | `next` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
@@ -3423,11 +3590,23 @@ workflows that have one, held to `pr-review.yml`'s, and a write inside a
 | 1616 | awk skip statement | `exit` | `;` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk pattern whole | `on` | `1` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
 | 1616 | awk pattern whole | `on` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1616 | awk implicit print | (before `' "$RUNNER_TEMP/opencode-models")`) | ` {}` | `scan-opencode.test.mjs`: "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" |
+| 1619 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1202, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1623 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1206, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1644 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
+| 1647 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, Run the scan on OpenCode: a server that does not start shows its log, with commands stopped" |
 | 1827 | sh group command | (before `echo "OpenCode's server log, its last 50 lines:"`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
 | 1828 | sh group command | (before `tail -n 50 "$RUNNER_TEMP/opencode-serve.log" \| awk 1`) | `: ` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1828 | awk implicit print | `1` | `0` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1832 | sh failure statement | `exit 1` | `:` | `scan-opencode.test.mjs`: "security-scan.yml, OpenCode runs: with a base check, the model's text and the server's log wait for the check" |
+| 1843 | sh failure statement | `exit 1` | `:` | its copy at `security-scan-p3.yml` line 1426, which "security-scan.yml, Verify the candidate findings on OpenCode: the same run with the verification's prompt" holds to this step byte for byte |
+| 1898 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "no candidates need no verification, and a malformed verification fails" |
 | 2134 | awk pattern whole | `NR > 1` | `1` | Not a rule: the comma between the file names a message lists |
 | 2134 | awk pattern whole | `NR > 1` | `0` | Not a rule: the comma between the file names a message lists |
 | 2134 | awk output statement | `printf ", "` | `;` | Not a rule: the comma between the file names a message lists |
 | 2134 | awk output statement | `printf "'%s'", $0` | `;` | `security-scan.test.mjs`: "the summary lists the kept findings, the verification's count and unread files" |
+| 2175 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2179 | sh failure statement | `exit 1` | `:` | `security-scan.test.mjs`: "the run fails without a results file or a completed review in it" |
+| 2264 | sh failure statement | `exit 1` | `:` | `workflow-fail-closed.test.mjs`: "security-scan.yml: a base that moved the pull request's diff after the scan records nothing" |
 
 </details>
